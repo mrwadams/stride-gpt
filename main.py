@@ -169,35 +169,6 @@ with st.sidebar:
 # Create a submit button
 submit_button = st.button(label="Submit")
 
-# Add custom CSS to style the "Copy to Clipboard" button
-copy_button_style = """
-    <style>
-        .copy-btn {
-            background-color: #263F64;
-            border: none;
-            color: white;
-            padding: 10px 24px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
-            font-size: 14px;
-            margin: 4px 2px;
-            cursor: pointer;
-            border-radius: 4px;
-            transition-duration: 0.4s;
-        }
-
-        .copy-btn:hover {
-            background-color: #263F64;
-            color: #EE6E70;
-            border: 1px solid #EE6E70;
-        }
-    </style>
-"""
-
-# Add the custom CSS to the page
-st.markdown(copy_button_style, unsafe_allow_html=True)
-
 # Display the threat model output header
 st.markdown("### Threat Model Output")
 
@@ -216,27 +187,13 @@ if submit_button and app_input:
     # Display the generated threat model
     st.write(model_output)
 
-    # Add a "Copy to Clipboard" button to copy the generated threat model
-    copy_button_code = f"""
-        {copy_button_style}
-        <button id="copy-button" class="copy-btn">Copy to Clipboard</button>
-        <script>
-            document.getElementById("copy-button").onclick = function() {{
-                const text = `{model_output}`;
-                console.log("Copying text to clipboard:", text);
-                const el = document.createElement('textarea');
-                el.value = text;
-                el.setAttribute('readonly', '');
-                el.style.position = 'absolute';
-                el.style.left = '-9999px';
-                document.body.appendChild(el);
-                el.select();
-                document.execCommand('copy');
-                document.body.removeChild(el);
-            }}
-        </script>
-    """
-    st.components.v1.html(copy_button_code, height=60)
+    # Add a button to allow the user to download the output as a Markdown file
+    st.download_button(
+    label="Download Output",
+    data=model_output,
+    file_name="stride_gpt_output.md",
+    mime="text/markdown",
+    )
 
 # If the submit button is clicked and the user has not provided an application description
 if submit_button and not app_input:
