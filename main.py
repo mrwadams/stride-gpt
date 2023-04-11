@@ -56,7 +56,7 @@ st.set_page_config(page_title="STRIDE GPT", page_icon=":shield:", layout="wide",
 st.header("STRIDE GPT🛡️")
 
 st.markdown("""
-    **S**poofing 🥸 **T**ampering 🛠️ **R**epudiation 🤷 **I**nformation Disclosure 📢 **D**enial of Service 🛑 **E**levation of Privilege 🤴
+    **S**poofing 🕶 **T**ampering 🛠️ **R**epudiation 🤷 **I**nformation Disclosure 📢 **D**enial of Service 🛑 **E**levation of Privilege 🤴
     """)
 
 # Function to get user input for the application description
