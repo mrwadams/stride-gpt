@@ -35,12 +35,14 @@ cd stride-gpt
 pip install -r requirements.txt
 ```
 
+**Note:** 📝 Streamlit should **not** be included in requirements.txt as it causes the Streamlit deployment process to fail.
+
 ## Usage
 
 1. Run the Streamlit app:
 
 ```
-streamlit run app.py
+streamlit run main.py
 ```
 
 2. Open the app in your web browser using the provided URL.
