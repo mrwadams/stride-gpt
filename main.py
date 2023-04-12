@@ -198,3 +198,4 @@ if submit_button and app_input:
 # If the submit button is clicked and the user has not provided an application description
 if submit_button and not app_input:
     st.error("Please enter your application details before submitting.")
+    
