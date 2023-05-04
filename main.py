@@ -45,10 +45,10 @@ prompt = PromptTemplate(
     template=template,
 )
 
-# Function to load LLM (Language Model) with given API key
-def load_LLM(api_key):
+# Function to load LLM (Language Model) with given API key and model name
+def load_LLM(api_key, model_name):
     os.environ['OPENAI_API_KEY'] = api_key
-    llm = OpenAI(temperature=0.7, model_name="text-davinci-003", max_tokens=1000)
+    llm = OpenAI(temperature=0.7, model_name=model_name, max_tokens=1000)
     return llm
 
 # Set Streamlit page configurations
@@ -110,13 +110,17 @@ st.sidebar.header("How to use STRIDE GPT")
 
 with st.sidebar:
     st.markdown("""
-    1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) below 🔑
+    1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
     2. Provide details of the application that you would like to threat model  📝
     3. Click **Submit** to generate a threat list 🚀
     """)
 
     # Add OpenAI API key input field to the sidebar
     openai_api_key = st.text_input("Enter your OpenAI API key:", type="password", help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).")
+
+    # Add model selection input field to the sidebar
+    selected_model = st.selectbox("Select the model you would like to use:", ["text-davinci-003", "gpt-3.5-turbo", "gpt-4"], key="selected_model", help="You must have been given access to the [GPT-4 API](https://openai.com/waitlist/gpt-4-api) by OpenAI in order to use it.")
+
     st.markdown("""---""")
 
 # Add "About" section to the sidebar
@@ -124,7 +128,7 @@ st.sidebar.header("About")
 
 with st.sidebar:
     st.markdown("Welcome to STRIDE GPT, an AI-powered tool designed to help teams produce better threat models for their applications.")
-    st.markdown("Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of GPT-3 to generate a list of specific threats for an application based on the details provided.")
+    st.markdown("Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of OpenAI's GPT models to generate a list of specific threats for an application based on the details provided.")
     st.markdown("Created by [Matt Adams](https://www.linkedin.com/in/matthewrwadams/).")
     st.markdown("""---""")
 
@@ -175,7 +179,7 @@ st.markdown("### Threat Model Output")
 # If the submit button is clicked and the user has provided an application description
 if submit_button and app_input:
     # Load the Language Model with the provided API key
-    llm = load_LLM(openai_api_key)
+    llm = load_LLM(openai_api_key, selected_model)
 
     # Format the prompt with the user-provided details
     prompt_with_details = prompt.format(app_type=app_type, authentication=authentication, internet_facing=internet_facing, sensitive_data=sensitive_data, pam=pam, app_input=app_input)
