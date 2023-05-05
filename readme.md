@@ -4,6 +4,7 @@ STRIDE GPT is an AI-powered threat modeling tool that leverages OpenAI's GPT-3 m
 
 ## Table of Contents
 - [Features](#features)
+- [Changelog](#changelog)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Contributing](#contributing)
@@ -12,8 +13,26 @@ STRIDE GPT is an AI-powered threat modeling tool that leverages OpenAI's GPT-3 m
 ## Features
 - Simple and user-friendly interface
 - Generates threat models based on the STRIDE methodology
-- Utilises OpenAI's powerful GPT-3 model for AI-driven threat analysis
+- Generates attack trees to enumerate possible attack paths
+- Utilises OpenAI's powerful GPT models for AI-driven threat analysis
 - No data storage; application details are not saved
+
+## Changelog
+
+### Version 2.0
+
+In this major update I've introduced several new features and improvements that make STRIDE GPT even more powerful and user-friendly. Here are the key highlights of this release:
+
+- **Attack Tree Generation**: In addition to generating threat models, STRIDE GPT can now generate attack trees for your applications based on the provided details. This helps users better understand potential attack paths for their applications.
+- **Attack Tree Visualisation**: This is an experimental feature that allows users to visualise the generated attack tree directly in the app using Mermaid.js. This provides a more interactive experience within the STRIDE GPT interface.
+- **GPT-4 Model Support**: STRIDE GPT now supports the use of OpenAI's GPT-4 model, provided the user has access to the GPT-4 API. This allows users to leverage the latest advancements in GPT technology to generate more accurate and comprehensive threat models and attack trees.
+- **Improved Layout and Organisation**: I've restructured the app layout to make it easier to navigate and use. Key sections, such as Threat Model and Attack Tree, are now organised into collapsible sections for a cleaner and more intuitive user experience.
+
+I hope these updates make STRIDE GPT an even more valuable tool for your threat modeling needs. As always, I welcome your feedback and suggestions for future improvements.
+
+### Version 1.0
+
+Initial release of the application.
 
 ## Installation
 
