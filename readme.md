@@ -1,6 +1,6 @@
 # STRIDE GPT
 
-STRIDE GPT is an AI-powered threat modeling tool that leverages OpenAI's GPT-3 model to generate threat models for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The GPT-3 model then generates a threat model based on the provided information.
+STRIDE GPT is an AI-powered threat modeling tool that leverages OpenAI's GPT models to generate threat models and attack trees for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The GPT model then generates its output based on the provided information.
 
 ## Table of Contents
 - [Features](#features)
@@ -70,15 +70,13 @@ streamlit run main.py
 
 4. Provide the application details and select the appropriate options.
 
-5. Click "Submit" to generate the threat model.
+5. Navigate to the Threat Model and/or Attack Tree section and click the "Generate..." button.
 
-6. Review the generated threat model and use the "Copy to Clipboard" button to copy the results.
+6. Review the generated threat model and/or attack tree and, if required, download a markdown copy of the output.
 
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
-Please make sure to update the tests as appropriate.
 
 ## License
 
