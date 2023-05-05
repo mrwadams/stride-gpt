@@ -49,7 +49,7 @@ threat_model_template = """
 """
 
 attack_tree_template = """
-    Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description provided to you to generate an attack tree for the application. Your analysis should be based on credible attack types that could occur given the context of the application. It is very important that your responses are tailored to reflect the details you are given.
+    Act as a cyber security expert with more than 20 years experience of creating attack trees to communicate the likely routes by which systems and applications will be attacked by adversaries. Your task is to use the application description provided to you to generate an attack tree for the application. Your analysis should be based on credible attack types that could occur given the context of the application. It is very important that your responses are tailored to reflect the details you are given.
 
     In addition to the description, you will be provided with the following key details about the application that you will need to consider when producing the attack tree:
     - The type of application
