@@ -68,7 +68,11 @@ attack_tree_template = """
 
     Your output should be in the form of an attack tree that is presented as a Mermaid diagram.
 
-    IMPORTANT: It is critical that the Mermaid diagram code does not contain round brackets. If you include these characters, the diagram will not render correctly for the user.
+    IMPORTANT: When generating Mermaid diagram code you should enclose labels in quotation marks to escape any special characters. For example:
+    A["Attacker"] -->|"Phishing attack"| B["User's credentials"]
+    A -->|"Cross-site scripting (XSS)"| F["User's session"]
+    A -->|"Cross-site request forgery (CSRF)"| G["User's session"]
+    A -->|"Server-side request forgery (SSRF)"| H["Server resources"]
     
     Below the attack tree you should add a new section and then make some suggestions to the user on how they can improve the application description to enable you to produce a more comprehensive and accurate attack tree.
 
