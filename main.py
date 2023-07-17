@@ -192,7 +192,7 @@ with st.sidebar:
     openai_api_key = st.text_input("Enter your OpenAI API key:", type="password", help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).")
 
     # Add model selection input field to the sidebar
-    selected_model = st.selectbox("Select the model you would like to use:", ["text-davinci-003", "gpt-3.5-turbo", "gpt-4"], key="selected_model", help="You must have been given access to the [GPT-4 API](https://openai.com/waitlist/gpt-4-api) by OpenAI in order to use it.")
+    selected_model = st.selectbox("Select the model you would like to use:", ["gpt-3.5-turbo", "gpt-3.5-turbo-0613", "gpt-4", "gpt-4-0613"], key="selected_model", help="The 0613 models are updated and more steerable versions. See [this post](https://openai.com/blog/function-calling-and-other-api-updates) for further details.")
 
     st.markdown("""---""")
 
@@ -285,42 +285,40 @@ with st.expander("Attack Tree", expanded=False):
 
     # If the Generate Attack Tree button is clicked and the user has provided an application description
     if attack_tree_submit_button and app_input:
-        if selected_model == "text-davinci-003":
-            st.warning("The 'text-davinci-003' model produces less reliable outputs for attack trees. Please select either 'gpt-3.5-turbo' or 'gpt-4' for better results.")
-        else:
-            # Load the Language Model with the provided API key
-            llm = load_LLM(openai_api_key, selected_model)
+        
+        # Load the Language Model with the provided API key
+        llm = load_LLM(openai_api_key, selected_model)
 
-            # Format the prompt with the user-provided details
-            prompt_with_details = attack_tree_prompt.format(app_type=app_type, authentication=authentication, internet_facing=internet_facing, sensitive_data=sensitive_data, pam=pam, app_input=app_input)
+        # Format the prompt with the user-provided details
+        prompt_with_details = attack_tree_prompt.format(app_type=app_type, authentication=authentication, internet_facing=internet_facing, sensitive_data=sensitive_data, pam=pam, app_input=app_input)
 
-            # Show a spinner while generating the attack tree
-            with st.spinner("Generating attack tree..."):
-                model_output = llm(prompt_with_details)
+        # Show a spinner while generating the attack tree
+        with st.spinner("Generating attack tree..."):
+            model_output = llm(prompt_with_details)
 
-            # Display the generated attack tree
-            st.write(model_output)
+        # Display the generated attack tree
+        st.write(model_output)
 
-            # Add a button to allow the user to download the output as a Markdown file
-            st.download_button(
-            label="Download Attack Tree",
-            data=model_output,
-            file_name="stride_gpt_attack_tree.md",
-            mime="text/markdown",
-            )
+        # Add a button to allow the user to download the output as a Markdown file
+        st.download_button(
+        label="Download Attack Tree",
+        data=model_output,
+        file_name="stride_gpt_attack_tree.md",
+        mime="text/markdown",
+        )
 
-            # Extract the Mermaid code from the LLM output
-            mermaid_code = extract_mermaid_code(model_output)
+        # Extract the Mermaid code from the LLM output
+        mermaid_code = extract_mermaid_code(model_output)
 
-            st.markdown("""
-            ### Attack Tree Visualisation
-            """)
+        st.markdown("""
+        ### Attack Tree Visualisation
+        """)
 
-            # Inform the user that the Mermaid visualisation feature is experimental
-            st.info("Please note that this feature is experimental. To view the attack tree in detail and/or edit the diagram visit [Mermaid Live](https://mermaid.live) and paste the generated Mermaid code into the editor.")
+        # Inform the user that the Mermaid visualisation feature is experimental
+        st.info("Please note that this feature is experimental. To view the attack tree in detail and/or edit the diagram visit [Mermaid Live](https://mermaid.live) and paste the generated Mermaid code into the editor.")
 
-            # Visualise the attack tree using the Mermaid custom component
-            mermaid(mermaid_code)
+        # Visualise the attack tree using the Mermaid custom component
+        mermaid(mermaid_code)
 
     # If the submit button is clicked and the user has not provided an application description
     if threat_model_submit_button and not app_input:
