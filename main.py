@@ -7,17 +7,19 @@
 # - Selectable application type, authentication methods, internet-facing status, sensitive data level, and privileged access management status
 # - Generate threat model and attack tree based on user input
 # - Display generated threat model and attack tree in the app
-# - Download threat model and attack tree as Markdown files
+# - Generate potential mitigations for identified threats
+# - Download threat model, attack tree and mitigations as Markdown files
 # - Sidebar with helpful information, such as how to use the app, example application description, and FAQs
-# - Interactive attack tree visualization using Mermaid.js (experimental)
-# - Support for GPT-3 and GPT-4 models (provided the user has access to GPT-4 API)
+# - Attack tree visualisation using Mermaid.js (experimental)
+# - Support for the latest 0613 versions of the GPT-3.5-turbo and GPT-4 models
+
+import json
+import os
 
 import streamlit as st
 import streamlit.components.v1 as components
 from langchain import PromptTemplate
 from langchain.llms import OpenAI
-
-import os
 
 # Define the GPT prompt templates
 threat_model_template = """
@@ -43,9 +45,13 @@ threat_model_template = """
     - Column B: Scenario
     - Column C: Potential Impact
     
-    Below the table you should add a new section and then make some suggestions to the user on how they can improve the application description to enable you to produce a more comprehensive threat model.
+    In addition to the table you should also make some suggestions to the user on how they can improve the application description to enable you to produce a more comprehensive threat model.
 
     YOUR RESPONSE:
+    {{
+        "threat_table": "YOUR THREAT TABLE HERE",
+        "improvement_suggestions": "YOUR IMPROVEMENT SUGGESTIONS HERE"
+    }}
 """
 
 attack_tree_template = """
@@ -66,15 +72,36 @@ attack_tree_template = """
     PRIVILEGED ACCESS MANAGEMENT: {pam}
     APPLICATION DESCRIPTION: {app_input}
 
-    Your output should be in the form of an attack tree that is presented as a Mermaid diagram.
+    Your output should be in the form of a JSON object that contains two key-value pairs. The first key is 'mermaid_code' which should contain a string of valid Mermaid code that represents an attack tree. Mermaid is a simple markdown-like script language for generating charts from text via JavaScript.
 
-    IMPORTANT: When generating Mermaid diagram code you should enclose labels in quotation marks to escape any special characters. For example:
+    IMPORTANT: When generating Mermaid code, you MUST ALWAYS enclose the node and link labels in double quotation marks to escape any special characters. For example:
+    ```
+    graph TD
     A["Attacker"] -->|"Phishing attack"| B["User's credentials"]
     A -->|"Cross-site scripting (XSS)"| F["User's session"]
     A -->|"Cross-site request forgery (CSRF)"| G["User's session"]
     A -->|"Server-side request forgery (SSRF)"| H["Server resources"]
+    ```
     
-    Below the attack tree you should add a new section and then make some suggestions to the user on how they can improve the application description to enable you to produce a more comprehensive and accurate attack tree.
+    The second key-value pair is 'improvement_suggestions' and it should contain some suggestions to the user on how they can improve the application description to enable you to produce a more comprehensive and accurate attack tree.
+
+    YOUR RESPONSE:
+    {{
+        "mermaid_code": `YOUR MERMAID CODE HERE`,
+        "improvement_suggestions": "YOUR IMPROVEMENT SUGGESTIONS HERE"
+    }}
+"""
+
+mitigations_template = """
+    Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology. Your task is to provide potential mitigations for the threats identified in the threat model. It is very important that your responses are tailored to reflect the details of the threats.
+
+    Your output should be in the form of a markdown table with the following columns:
+    - Column A: Threat Type
+    - Column B: Scenario
+    - Column C: Suggested Mitigation(s)
+
+    Below is the list of identified threats:
+    {threats}
 
     YOUR RESPONSE:
 """
@@ -88,6 +115,11 @@ threat_model_prompt = PromptTemplate(
 attack_tree_prompt = PromptTemplate(
     input_variables=["app_type", "authentication", "internet_facing", "sensitive_data", "pam", "app_input"],
     template=attack_tree_template,
+)
+
+mitigations_prompt = PromptTemplate(
+    input_variables=["threats"],
+    template=mitigations_template,
 )
 
 # Function to load LLM (Language Model) with given API key and model name
@@ -104,7 +136,7 @@ st.markdown("""
     **S**poofing 🕶 **T**ampering 🛠️ **R**epudiation 🤷 **I**nformation Disclosure 📢 **D**enial of Service 🛑 **E**levation of Privilege 🤴
     """)
 
-# Function to get user input for the application description
+# Function to get user input for the application description and key details
 def get_input():
     input_text = st.text_area(label="Describe the application to be modelled", placeholder="Enter your application details...", height=150, key="app_input", help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.")
     return input_text
@@ -126,21 +158,8 @@ def mermaid(code: str, height: int = 500) -> None:
     )
 
 # Function to extract Mermaid code from LLM output
-def extract_mermaid_code(llm_output: str) -> str:
-    start_marker = "```mermaid"
-    end_marker = "```"
-    start_index = llm_output.find(start_marker)
-
-    if start_index == -1:
-        return ""
-
-    start_index += len(start_marker)
-    end_index = llm_output.find(end_marker, start_index)
-
-    if end_index == -1:
-        return ""
-
-    return llm_output[start_index:end_index].strip()
+def extract_mermaid_code(llm_output: dict) -> str:
+    return llm_output.get("mermaid_code", "") # Return empty string if key does not exist
 
 # Get application description from the user
 app_input = get_input()
@@ -189,7 +208,7 @@ with st.sidebar:
     st.markdown("""
     1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
     2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list and/or attack tree for your application 🚀
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """)
 
     # Add OpenAI API key input field to the sidebar
@@ -205,8 +224,10 @@ st.sidebar.header("About")
 
 with st.sidebar:
     st.markdown("Welcome to STRIDE GPT, an AI-powered tool designed to help teams produce better threat models for their applications.")
-    st.markdown("Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of OpenAI's GPT models to generate a threat list and/or attack tree for an application based on the details provided.")
+    st.markdown("Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of OpenAI's GPT models to generate a threat list, attack tree and/or mitigating controls for an application based on the details provided.")
     st.markdown("Created by [Matt Adams](https://www.linkedin.com/in/matthewrwadams/).")
+    # Add "Star on GitHub" link to the sidebar
+    st.sidebar.markdown("⭐ Star on GitHub: [![Star on GitHub](https://img.shields.io/github/stars/mrwadams/stride-gpt?style=social)](https://github.com/mrwadams/stride-gpt)")
     st.markdown("""---""")
 
 
@@ -249,6 +270,14 @@ with st.sidebar:
 
 st.markdown("""---""") 
 
+# Function to safely parse JSON output from the LLM
+def parse_llm_output(output: str) -> dict:
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError: # Handle JSONDecodeError if the output cannot be parsed as JSON
+        st.error("The language model output could not be parsed as JSON.")
+        return {}
+
 # Create a collapsible section for Threat Modelling
 with st.expander("Threat Model", expanded=False):
     # Create a submit button for Threat Modelling
@@ -264,15 +293,28 @@ with st.expander("Threat Model", expanded=False):
 
         # Show a spinner while generating the threat model
         with st.spinner("Analysing potential threats..."):
-            model_output = llm(prompt_with_details)
+            raw_model_output = llm(prompt_with_details)
 
-        # Display the generated threat model
-        st.write(model_output)
+        # Parse the LLM output into a Python dictionary
+        model_output_dict = parse_llm_output(raw_model_output)
+
+        # Extract the markdown table and improvement suggestions
+        threat_table = model_output_dict.get("threat_table", "No threats identified.")
+        improvement_suggestions = model_output_dict.get("improvement_suggestions", "No suggestions provided.")
+
+        # Store threat_table in session state
+        st.session_state["threat_table"] = threat_table
+
+        # Display the generated threat model and improvement suggestions
+        st.write("Threat Table:")
+        st.write(threat_table)
+        st.write("Improvement Suggestions:")
+        st.write(improvement_suggestions)
 
         # Add a button to allow the user to download the output as a Markdown file
         st.download_button(
         label="Download Output",
-        data=model_output,
+        data=raw_model_output,
         file_name="stride_gpt_threat_model.md",
         mime="text/markdown",
         )
@@ -289,7 +331,6 @@ with st.expander("Attack Tree", expanded=False):
 
     # If the Generate Attack Tree button is clicked and the user has provided an application description
     if attack_tree_submit_button and app_input:
-        
         # Load the Language Model with the provided API key
         llm = load_LLM(openai_api_key, selected_model)
 
@@ -298,21 +339,28 @@ with st.expander("Attack Tree", expanded=False):
 
         # Show a spinner while generating the attack tree
         with st.spinner("Generating attack tree..."):
-            model_output = llm(prompt_with_details)
+            raw_model_output = llm(prompt_with_details)
 
-        # Display the generated attack tree
-        st.write(model_output)
+            # Parse the LLM output into a Python dictionary
+            model_output_dict = parse_llm_output(raw_model_output)
 
-        # Add a button to allow the user to download the output as a Markdown file
-        st.download_button(
-        label="Download Attack Tree",
-        data=model_output,
-        file_name="stride_gpt_attack_tree.md",
-        mime="text/markdown",
-        )
+            # Extract the Mermaid code and improvement suggestions
+            mermaid_code = model_output_dict.get("mermaid_code", "No Mermaid code provided.")
+            improvement_suggestions = model_output_dict.get("improvement_suggestions", "No suggestions provided.")
 
-        # Extract the Mermaid code from the LLM output
-        mermaid_code = extract_mermaid_code(model_output)
+            # Display the generated attack tree and improvement suggestions
+            st.write("Attack Tree:")
+            st.code(mermaid_code)
+            st.write("Improvement Suggestions:")
+            st.write(improvement_suggestions)
+
+            # Add a button to allow the user to download the output as a Markdown file
+            st.download_button(
+            label="Download Attack Tree",
+            data=raw_model_output,
+            file_name="stride_gpt_attack_tree.md",
+            mime="text/markdown",
+            )
 
         st.markdown("""
         ### Attack Tree Visualisation
@@ -326,4 +374,37 @@ with st.expander("Attack Tree", expanded=False):
 
     # If the submit button is clicked and the user has not provided an application description
     if threat_model_submit_button and not app_input:
+        st.error("Please enter your application details before submitting.")
+
+
+# Create a collapsible section for Mitigations
+with st.expander("Mitigations", expanded=False):
+    # Create a submit button for Mitigations
+    mitigations_submit_button = st.button(label="Suggest Mitigations")
+
+    # If the Suggest Mitigations button is clicked and the user has provided an application description
+    if mitigations_submit_button and app_input:
+        # Load the Language Model with the provided API key
+        llm = load_LLM(openai_api_key, selected_model)
+
+        # Format the mitigations prompt with the threats from the threat model
+        prompt_with_threats = mitigations_prompt.format(threats=st.session_state["threat_table"])
+
+        # Show a spinner while suggesting mitigations
+        with st.spinner("Suggesting mitigations..."):
+            model_output = llm(prompt_with_threats)
+
+        # Display the suggested mitigations
+        st.write(model_output)
+
+        # Add a button to allow the user to download the output as a Markdown file
+        st.download_button(
+        label="Download Mitigations",
+        data=model_output,
+        file_name="stride_gpt_mitigations.md",
+        mime="text/markdown",
+        )
+
+    # If the submit button is clicked and the user has not provided an application description
+    if mitigations_submit_button and not app_input:
         st.error("Please enter your application details before submitting.")
