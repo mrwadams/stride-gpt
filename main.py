@@ -215,7 +215,7 @@ with st.sidebar:
     openai_api_key = st.text_input("Enter your OpenAI API key:", type="password", help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).")
 
     # Add model selection input field to the sidebar
-    selected_model = st.selectbox("Select the model you would like to use:", ["gpt-3.5-turbo", "gpt-3.5-turbo-0613", "gpt-4", "gpt-4-0613"], key="selected_model", help="The 0613 models are updated and more steerable versions. See [this post](https://openai.com/blog/function-calling-and-other-api-updates) for further details.")
+    selected_model = st.selectbox("Select the model you would like to use:", ["gpt-3.5-turbo-1106", "gpt-3.5-turbo", "gpt-4-1106-preview", "gpt-4"], key="selected_model", help="The 1106 models are the latest models with improved instruction following. See [this post](https://openai.com/blog/new-models-and-developer-products-announced-at-devday) for further details.")
 
     st.markdown("""---""")
 
