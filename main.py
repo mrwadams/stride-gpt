@@ -18,7 +18,7 @@ import os
 
 import streamlit as st
 import streamlit.components.v1 as components
-from langchain import PromptTemplate
+from langchain.prompts import PromptTemplate
 from langchain.llms import OpenAI
 
 # Define the GPT prompt templates
