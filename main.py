@@ -203,7 +203,7 @@ def get_mitigations(api_key, model_name, prompt):
 # ------------------ Streamlit UI Configuration ------------------ #
 
 st.set_page_config(
-    page_title="STRIDE GPT-2",
+    page_title="STRIDE GPT",
     page_icon=":shield:",
     layout="wide",
     initial_sidebar_state="expanded",
