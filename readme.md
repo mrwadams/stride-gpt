@@ -1,6 +1,6 @@
 ![STRIDE GPT Logo](logo.png)
 
-STRIDE GPT is an AI-powered threat modeling tool that leverages OpenAI's GPT models to generate threat models and attack trees for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The GPT model then generates its output based on the provided information.
+STRIDE GPT is an AI-powered threat modelling tool that leverages OpenAI's GPT models to generate threat models and attack trees for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The GPT model then generates its output based on the provided information.
 
 ## Table of Contents
 - [Star the Repo](#star-the-repo)
@@ -35,7 +35,7 @@ In this version I've made significant improvements to the application to enhance
 - **Updated GPT Models**: STRIDE GPT now supports the latest 0613 versions of the GPT-3.5-turbo and GPT-4 models. These updated models provide improved performance and increased control over the generated output.
 - **Bug Fixes and Performance Enhancements**: I've addressed several bugs and made performance improvements to ensure a more stable and responsive application.
 
-I hope these updates make STRIDE GPT an even more valuable tool for your threat modeling needs. I appreciate your continued support and welcome your feedback for further improvements.
+I hope these updates make STRIDE GPT an even more valuable tool for your threat modelling needs. I appreciate your continued support and welcome your feedback for further improvements.
 
 
 ### Version 0.2
