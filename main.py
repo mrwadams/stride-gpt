@@ -1,9 +1,9 @@
 import json
-import os
 import re
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
+from openai import AzureOpenAI
 
 
 # ------------------ Helper Functions ------------------ #
@@ -62,6 +62,28 @@ def get_threat_model(api_key, model_name, prompt):
 
     response = client.chat.completions.create(
         model=model_name,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    response_content = json.loads(response.choices[0].message.content)
+
+    return response_content
+
+# Function to get threat model from the Azure OpenAI response.
+def get_threat_model_azure(api_key, model_name, prompt):
+    client = AzureOpenAI(
+        azure_endpoint = azure_api_endpoint,
+        api_key = azure_api_key,
+        api_version = azure_api_version,
+    )
+
+    response = client.chat.completions.create(
+        model = azure_deployment_name,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
@@ -144,6 +166,47 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
 
     return attack_tree_code
 
+# Function to get attack tree from the Azure OpenAI response.
+def get_attack_tree_azure(api_key, model_name, prompt):
+    client = AzureOpenAI(
+        azure_endpoint = azure_api_endpoint,
+        api_key = azure_api_key,
+        api_version = azure_api_version,
+    )
+
+    response = client.chat.completions.create(
+        model = azure_deployment_name,
+        messages=[
+            {"role": "system", "content": """
+Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description provided to you to produce an attack tree in Mermaid syntax. The attack tree should reflect the potential threats for the application based on the details given.
+
+You MUST only respond with the Mermaid code block. See below for a simple example of the required format and syntax for your output.
+
+```mermaid
+graph TD
+    A[Enter Chart Definition] --> B(Preview)
+    B --> C{{decide}}
+    C --> D["Keep"]
+    C --> E["Edit Definition (Edit)"]
+    E --> B
+    D --> F["Save Image and Code"]
+    F --> B
+```
+
+IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want to use round brackets inside a node label you MUST wrap the label in double quotes. For example, ["Example Node Label (ENL)"].
+"""},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the 'content' attribute of the 'message' object directly
+    attack_tree_code = response.choices[0].message.content
+    
+    # Remove Markdown code block delimiters using regular expression
+    attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
+
+    return attack_tree_code
+
 
 # Function to render Mermaid diagram
 def mermaid(code: str, height: int = 500) -> None:
@@ -175,7 +238,7 @@ Your output should be in the form of a markdown table with the following columns
 Below is the list of identified threats:
 {threats}
 
-YOUR RESPONSE:
+YOUR RESPONSE (do not wrap in a code block):
 """
     return prompt
 
@@ -186,6 +249,28 @@ def get_mitigations(api_key, model_name, prompt):
 
     response = client.chat.completions.create(
         model=model_name,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    mitigations = response.choices[0].message.content
+
+    return mitigations
+
+
+# Function to get mitigations from the Azure OpenAI response.
+def get_mitigations_azure(api_key, model_name, prompt):
+    client = AzureOpenAI(
+        azure_endpoint = azure_api_endpoint,
+        api_key = azure_api_key,
+        api_version = azure_api_version,
+    )
+
+    response = client.chat.completions.create(
+        model = azure_deployment_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
             {"role": "user", "content": prompt}
@@ -281,28 +366,65 @@ with col2:
 st.sidebar.header("How to use STRIDE GPT")
 
 with st.sidebar:
-    st.markdown(
+    # Add toggle to select Azure OpenAI Service
+    use_azure = st.toggle('Use Azure OpenAI Service', key='use_azure')
+    
+    if use_azure:
+        st.markdown(
+        """
+    1. Enter your Azure OpenAI API key, endpoint and deployment name below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+
+        # Add Azure OpenAI API key input field to the sidebar
+        azure_api_key = st.text_input(
+            "Azure OpenAI API key:",
+            type="password",
+            help="You can find your Azure OpenAI API key on the [Azure portal](https://portal.azure.com/).",
+        )
+        
+        # Add Azure OpenAI endpoint input field to the sidebar
+        azure_api_endpoint = st.text_input(
+            "Azure OpenAI endpoint:",
+            help="Example endpoint: https://YOUR_RESOURCE_NAME.openai.azure.com/",
+        )
+
+        # Add Azure OpenAI deployment name input field to the sidebar
+        azure_deployment_name = st.text_input(
+            "Deployment name:",
+        )
+        
+        st.info("Please note that you must use an 1106-preview model deployment.")
+
+        azure_api_version = '2023-12-01-preview' # Update this as needed
+
+        st.write(f"Azure API Version: {azure_api_version}")
+
+    else:
+        st.markdown(
         """
     1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
     2. Provide details of the application that you would like to threat model  📝
     3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """
     )
+        
+        # Add OpenAI API key input field to the sidebar
+        openai_api_key = st.text_input(
+            "Enter your OpenAI API key:",
+            type="password",
+            help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
+        )
 
-    # Add OpenAI API key input field to the sidebar
-    openai_api_key = st.text_input(
-        "Enter your OpenAI API key:",
-        type="password",
-        help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
-    )
-
-    # Add model selection input field to the sidebar
-    selected_model = st.selectbox(
-        "Select the model you would like to use:",
-        ["gpt-4-1106-preview", "gpt-3.5-turbo-1106"],
-        key="selected_model",
-        help="The 0613 models are updated and more steerable versions. See [this post](https://openai.com/blog/function-calling-and-other-api-updates) for further details.",
-    )
+        # Add model selection input field to the sidebar
+        selected_model = st.selectbox(
+            "Select the model you would like to use:",
+            ["gpt-4-1106-preview", "gpt-3.5-turbo-1106"],
+            key="selected_model",
+            help="The 0613 models are updated and more steerable versions. See [this post](https://openai.com/blog/function-calling-and-other-api-updates) for further details.",
+        )
 
     st.markdown("""---""")
 
@@ -349,7 +471,7 @@ with st.sidebar:
     st.markdown(
         """
     ### **How does STRIDE GPT work?**
-    When you enter an application description and other relevant details, the tool will use a GPT-3 model to generate a threat model for your application. The model uses the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
+    When you enter an application description and other relevant details, the tool will use a GPT model to generate a threat model for your application. The model uses the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
     """
     )
     st.markdown(
@@ -396,8 +518,11 @@ with st.expander("Threat Model", expanded=False):
         # Show a spinner while generating the threat model
         with st.spinner("Analysing potential threats..."):
             try:
-                # Call to the get_threat_model function with the generated prompt
-                model_output = get_threat_model(openai_api_key, selected_model, threat_model_prompt)
+                # Call either of the get_threat_model functions with the generated prompt
+                if use_azure:
+                    model_output = get_threat_model_azure(azure_api_key, azure_deployment_name, threat_model_prompt)
+                else:
+                    model_output = get_threat_model(openai_api_key, selected_model, threat_model_prompt)
                         
                 # Access the threat model and improvement suggestions from the parsed content
                 threat_model = model_output.get("threat_model", [])
@@ -444,8 +569,11 @@ with st.expander("Attack Tree", expanded=False):
         # Show a spinner while generating the attack tree
         with st.spinner("Generating attack tree..."):
             try:
-                # Call to the get_attack_tree function with the generated prompt
-                mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
+                # Call to either of the get_attack_tree functions with the generated prompt
+                if use_azure:
+                    mermaid_code = get_attack_tree_azure(azure_api_key, azure_deployment_name, attack_tree_prompt)
+                else:
+                    mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
 
                 # Display the generated attack tree code
                 st.write("Attack Tree Code:")
@@ -488,8 +616,11 @@ with st.expander("Mitigations", expanded=False):
             # Show a spinner while suggesting mitigations
             with st.spinner("Suggesting mitigations..."):
                 try:
-                    # Call to the get_mitigations function with the generated prompt
-                    mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
+                    # Call to either of the get_mitigations functions with the generated prompt
+                    if use_azure:
+                        mitigations_markdown = get_mitigations_azure(azure_api_key, azure_deployment_name, mitigations_prompt)
+                    else:
+                        mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
 
                     # Display the suggested mitigations in Markdown
                     st.markdown(mitigations_markdown)
