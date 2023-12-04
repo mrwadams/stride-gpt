@@ -582,15 +582,34 @@ with st.expander("Attack Tree", expanded=False):
                 # Visualise the attack tree using the Mermaid custom component
                 st.write("Attack Tree Diagram Preview:")
                 mermaid(mermaid_code)
+                
+                col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+                
+                with col1:              
+                    # Add a button to allow the user to download the Mermaid code
+                    st.download_button(
+                        label="Download Diagram Code",
+                        data=mermaid_code,
+                        file_name="attack_tree.md",
+                        mime="text/plain",
+                        help="Download the Mermaid code for the attack tree diagram."
+                    )
 
-                # Add a button to allow the user to download the Mermaid code
-                st.download_button(
-                    label="Download Diagram Code",
-                    data=mermaid_code,
-                    file_name="attack_tree.md",
-                    mime="text/plain",
-                    help="Download the Mermaid code for the attack tree diagram."
-                )
+                with col2:
+                    # Add a button to allow the user to open the Mermaid Live editor
+                    mermaid_live_button = st.link_button("Open Mermaid Live", "https://mermaid.live")
+                
+                with col3:
+                    # Blank placeholder
+                    st.write("")
+                
+                with col4:
+                    # Blank placeholder
+                    st.write("")
+                
+                with col5:
+                    # Blank placeholder
+                    st.write("")
 
             except Exception as e:
                 st.error(f"Error generating attack tree: {e}")
