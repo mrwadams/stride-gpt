@@ -57,63 +57,81 @@ Release highlights:
 - **Updated GPT Models**: STRIDE GPT now supports the latest 0613 versions of the GPT-3.5-turbo and GPT-4 models. These updated models provide improved performance and increased control over the generated output.
 - **Bug Fixes and Performance Enhancements**: I've addressed several bugs and made performance improvements to ensure a more stable and responsive application.
 
+
+<details>
+  <summary>Click to view release notes for earlier versions.</summary>
+  
 ### Version 0.2
 
 Release highlights:
 
-- **Attack Tree Generation**: In addition to generating threat models, STRIDE GPT can now generate attack trees for your applications based on the provided details. This helps users better understand potential attack paths for their applications.
-- **Attack Tree Visualisation**: This is an experimental feature that allows users to visualise the generated attack tree directly in the app using Mermaid.js. This provides a more interactive experience within the STRIDE GPT interface.
-- **GPT-4 Model Support**: STRIDE GPT now supports the use of OpenAI's GPT-4 model, provided the user has access to the GPT-4 API. This allows users to leverage the latest advancements in GPT technology to generate more accurate and comprehensive threat models and attack trees.
-- **Improved Layout and Organisation**: I've restructured the app layout to make it easier to navigate and use. Key sections, such as Threat Model and Attack Tree, are now organised into collapsible sections for a cleaner and more intuitive user experience.
+   - **Attack Tree Generation**: In addition to generating threat models, STRIDE GPT can now generate attack trees for your applications based on the provided details. This helps users better understand potential attack paths for their applications.
+   - **Attack Tree Visualisation**: This is an experimental feature that allows users to visualise the generated attack tree directly in the app using Mermaid.js. This provides a more interactive experience within the STRIDE GPT interface.
+   - **GPT-4 Model Support**: STRIDE GPT now supports the use of OpenAI's GPT-4 model, provided the user has access to the GPT-4 API. This allows users to leverage the latest advancements in GPT technology to generate more accurate and comprehensive threat models and attack trees.
+   - **Improved Layout and Organisation**: I've restructured the app layout to make it easier to navigate and use. Key sections, such as Threat Model and Attack Tree, are now organised into collapsible sections for a cleaner and more intuitive user experience.
 
 
 ### Version 0.1
 
-Initial release of the application.
+   Initial release of the application.
+</details>
 
 ## Installation
 
+### Option 1: Cloning the Repository
+
 1. Clone this repository:
 
-```
-git clone https://github.com/mrwadams/stride-gpt.git
-```
+    ```bash
+    git clone https://github.com/mrwadams/stride-gpt.git
+    ```
 
 2. Change to the cloned repository directory:
 
-```
-cd stride-gpt
-```
+    ```bash
+    cd stride-gpt
+    ```
 
 3. Install the required Python packages:
 
-```
-pip install -r requirements.txt
-```
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-**Note:** 📝 Streamlit should **not** be included in requirements.txt as it causes the Streamlit deployment process to fail.
+### Option 2: Using Docker Container
+
+1. Pull the Docker image from Docker Hub:
+
+    ```bash
+    docker pull mrwadams/stridegpt:latest
+    ```
 
 ## Usage
 
+### Option 1: Running the Streamlit App Locally
+
 1. Run the Streamlit app:
 
-```
-streamlit run main.py
-```
+    ```bash
+    streamlit run main.py
+    ```
 
 2. Open the app in your web browser using the provided URL.
 
-3. Enter your OpenAI API key in the sidebar.
+3. Follow the steps in the Streamlit interface to use STRIDE GPT.
 
-4. Provide the application details and select the appropriate options.
+### Option 2: Using Docker Container
 
-5. Navigate to the Threat Model and/or Attack Tree section and click the "Generate..." button.
+1. Run the Docker container:
 
-6. Review the generated threat model and/or attack tree and, if required, download a markdown copy of the output.
+    ```bash
+    docker run -p 8501:8501 mrwadams/stridegpt
+    ```
+    This command will start the container and map port 8501 (default for Streamlit apps) from the container to your host machine.
 
-7. If you want to generate suggested mitigations for the identified threats, go to the "Mitigations" section and click the "Suggest Mitigations" button.
+2. Open a web browser and navigate to `http://localhost:8501` to access the app running inside the container.
 
-8. Review the suggested mitigations and, if required, download them as a Markdown file.
+3. Follow the steps in the Streamlit interface to use STRIDE GPT.
 
 ## Contributing
 
