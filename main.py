@@ -540,13 +540,13 @@ with st.expander("Threat Model", expanded=False):
             except Exception as e:
                 st.error(f"Error generating threat model: {e}")
 
-        # Add a button to allow the user to download the output as a Markdown file
-        st.download_button(
-            label="Download Threat Model",
-            data=markdown_output,  # Use the Markdown output
-            file_name="stride_gpt_threat_model.md",
-            mime="text/markdown",
-        )
+            # Add a button to allow the user to download the output as a Markdown file
+            st.download_button(
+                label="Download Threat Model",
+                data=markdown_output,  # Use the Markdown output
+                file_name="stride_gpt_threat_model.md",
+                mime="text/markdown",
+            )
 
     # If the submit button is clicked and the user has not provided an application description
     if threat_model_submit_button and not app_input:
