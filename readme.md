@@ -29,7 +29,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 
 I recently gave a talk about STRIDE GPT at the [Open Security Summit](https://open-security-summit.org/sessions/2024/mini-summits/jan/threat-modeling/ai-driven-threat-modelling-with-stride-gpt/). During the talk, I discussed the project's inception, its core functionalities, recent updates, and some future plans. You can watch the full presentation below:
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/_eOcezCeM1M?si=tV7QYmHCj9TNzGm5" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+[![Open Security Summit Talk](https://i3.ytimg.com/vi/_eOcezCeM1M/maxresdefault.jpg)](https://youtu.be/_eOcezCeM1M?si=88bjQ2M-_sCyIioi)
 
 This video is an excellent resource for anyone interested in understanding how STRIDE GPT works and how it can be used to improve threat modelling.
 
