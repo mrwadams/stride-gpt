@@ -5,6 +5,7 @@ STRIDE GPT is an AI-powered threat modelling tool that leverages OpenAI's GPT mo
 ## Table of Contents
 - [Star the Repo](#star-the-repo)
 - [Features](#features)
+- [Talk at Open Security Summit](#talk-at-open-security-summit)
 - [Changelog](#changelog)
 - [Installation](#installation)
 - [Usage](#usage)
