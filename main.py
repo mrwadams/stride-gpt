@@ -423,7 +423,7 @@ with st.sidebar:
             "Select the model you would like to use:",
             ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"],
             key="selected_model",
-            help="The 0613 models are updated and more steerable versions. See [this post](https://openai.com/blog/function-calling-and-other-api-updates) for further details.",
+            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo-preview` point to the latest available version of each model.",
         )
 
     st.markdown("""---""")
