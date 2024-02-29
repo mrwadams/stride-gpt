@@ -2,6 +2,8 @@ import json
 import re
 import streamlit as st
 import streamlit.components.v1 as components
+from mistralai.client import MistralClient
+from mistralai.models.chat_completion import ChatMessage
 from openai import OpenAI
 from openai import AzureOpenAI
 
@@ -98,6 +100,23 @@ def get_threat_model_azure(api_key, model_name, prompt):
         messages=[
             {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
             {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    response_content = json.loads(response.choices[0].message.content)
+
+    return response_content
+
+# Function to get threat model from the Azure OpenAI response.
+def get_threat_model_mistral(api_key, model_name, prompt):
+    client = MistralClient(api_key=mistral_api_key)
+
+    response = client.chat(
+        model = mistral_model,
+        response_format={"type": "json_object"},
+        messages=[
+            ChatMessage(role="user", content=prompt)
         ]
     )
 
@@ -218,6 +237,43 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
     return attack_tree_code
 
 
+# Function to get attack tree from the Mistral model's response.
+def get_attack_tree_mistral(api_key, model_name, prompt):
+    client = MistralClient(api_key=mistral_api_key)
+
+    response = client.chat(
+        model=mistral_model,
+        messages=[
+            {"role": "system", "content": """
+Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description provided to you to produce an attack tree in Mermaid syntax. The attack tree should reflect the potential threats for the application based on the details given.
+
+You MUST only respond with the Mermaid code block. See below for a simple example of the required format and syntax for your output.
+
+```mermaid
+graph TD
+    A[Enter Chart Definition] --> B(Preview)
+    B --> C{{decide}}
+    C --> D["Keep"]
+    C --> E["Edit Definition (Edit)"]
+    E --> B
+    D --> F["Save Image and Code"]
+    F --> B
+```
+
+IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want to use round brackets inside a node label you MUST wrap the label in double quotes. For example, ["Example Node Label (ENL)"].
+"""},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the 'content' attribute of the 'message' object directly
+    attack_tree_code = response.choices[0].message.content
+    
+    # Remove Markdown code block delimiters using regular expression
+    attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
+
+    return attack_tree_code
+
 # Function to render Mermaid diagram
 def mermaid(code: str, height: int = 500) -> None:
     components.html(
@@ -258,7 +314,7 @@ def get_mitigations(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
     response = client.chat.completions.create(
-        model=model_name,
+        model = model_name,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
             {"role": "user", "content": prompt}
@@ -292,6 +348,23 @@ def get_mitigations_azure(api_key, model_name, prompt):
 
     return mitigations
 
+
+# Function to get mitigations from the Mistral model's response.
+def get_mitigations_mistral(api_key, model_name, prompt):
+    client = MistralClient(api_key=mistral_api_key)
+
+    response = client.chat(
+        model = mistral_model,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    mitigations = response.choices[0].message.content
+
+    return mitigations
 
 
 # ------------------ Streamlit UI Configuration ------------------ #
@@ -376,10 +449,38 @@ with col2:
 st.sidebar.header("How to use STRIDE GPT")
 
 with st.sidebar:
-    # Add toggle to select Azure OpenAI Service
-    use_azure = st.toggle('Use Azure OpenAI Service', key='use_azure')
-    
-    if use_azure:
+    # Add model selection input field to the sidebar
+    model_provider = st.selectbox(
+        "Select your preferred model provider:",
+        ["OpenAI API", "Azure OpenAI Service", "Mistral API"],
+        key="model_provider",
+        help="Select the model provider you would like to use. This will determine the models available for selection.",
+    )
+
+    if model_provider == "OpenAI API":
+        st.markdown(
+        """
+    1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        # Add OpenAI API key input field to the sidebar
+        openai_api_key = st.text_input(
+            "Enter your OpenAI API key:",
+            type="password",
+            help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
+        )
+
+        # Add model selection input field to the sidebar
+        selected_model = st.selectbox(
+            "Select the model you would like to use:",
+            ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"],
+            key="selected_model",
+            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo-preview` point to the latest available version of each model.",
+        )
+
+    if model_provider == "Azure OpenAI Service":
         st.markdown(
         """
     1. Enter your Azure OpenAI API key, endpoint and deployment name below 🔑
@@ -412,28 +513,26 @@ with st.sidebar:
 
         st.write(f"Azure API Version: {azure_api_version}")
 
-    else:
+    if model_provider == "Mistral API":
         st.markdown(
         """
-    1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
+    1. Enter your [Mistral API key](https://console.mistral.ai/api-keys/) and chosen model below 🔑
     2. Provide details of the application that you would like to threat model  📝
     3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """
     )
-        
         # Add OpenAI API key input field to the sidebar
-        openai_api_key = st.text_input(
-            "Enter your OpenAI API key:",
+        mistral_api_key = st.text_input(
+            "Enter your Mistral API key:",
             type="password",
-            help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
+            help="You can generate a Mistral API key in the [Mistral console](https://console.mistral.ai/api-keys/).",
         )
 
         # Add model selection input field to the sidebar
-        selected_model = st.selectbox(
+        mistral_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"],
+            ["mistral-large-latest", "mistral-small-latest"],
             key="selected_model",
-            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo-preview` point to the latest available version of each model.",
         )
 
     st.markdown("""---""")
@@ -446,7 +545,7 @@ with st.sidebar:
         "Welcome to STRIDE GPT, an AI-powered tool designed to help teams produce better threat models for their applications."
     )
     st.markdown(
-        "Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of OpenAI's GPT models to generate a threat list, attack tree and/or mitigating controls for an application based on the details provided."
+        "Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of Large Language Models (LLMs) to generate a threat list, attack tree and/or mitigating controls for an application based on the details provided."
     )
     st.markdown("Created by [Matt Adams](https://www.linkedin.com/in/matthewrwadams/).")
     # Add "Star on GitHub" link to the sidebar
@@ -528,11 +627,13 @@ with st.expander("Threat Model", expanded=False):
         # Show a spinner while generating the threat model
         with st.spinner("Analysing potential threats..."):
             try:
-                # Call either of the get_threat_model functions with the generated prompt
-                if use_azure:
+                # Call one of the get_threat_model functions with the generated prompt
+                if model_provider == "Azure OpenAI Service":
                     model_output = get_threat_model_azure(azure_api_key, azure_deployment_name, threat_model_prompt)
-                else:
+                elif model_provider == "OpenAI API":
                     model_output = get_threat_model(openai_api_key, selected_model, threat_model_prompt)
+                elif model_provider == "Mistral API":
+                    model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
                         
                 # Access the threat model and improvement suggestions from the parsed content
                 threat_model = model_output.get("threat_model", [])
@@ -568,6 +669,8 @@ with st.expander("Threat Model", expanded=False):
 
 # Create a collapsible section for Attack Tree
 with st.expander("Attack Tree", expanded=False):
+    if model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
+        st.warning("⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use the Mistral Large model for generating attack trees, or select a different model provider.")
     # Create a submit button for Attack Tree
     attack_tree_submit_button = st.button(label="Generate Attack Tree")
 
@@ -580,10 +683,12 @@ with st.expander("Attack Tree", expanded=False):
         with st.spinner("Generating attack tree..."):
             try:
                 # Call to either of the get_attack_tree functions with the generated prompt
-                if use_azure:
+                if model_provider == "Azure OpenAI Service":
                     mermaid_code = get_attack_tree_azure(azure_api_key, azure_deployment_name, attack_tree_prompt)
-                else:
+                elif model_provider == "OpenAI API":
                     mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
+                elif model_provider == "Mistral API":
+                    mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
 
                 # Display the generated attack tree code
                 st.write("Attack Tree Code:")
@@ -646,10 +751,12 @@ with st.expander("Mitigations", expanded=False):
             with st.spinner("Suggesting mitigations..."):
                 try:
                     # Call to either of the get_mitigations functions with the generated prompt
-                    if use_azure:
+                    if model_provider == "Azure OpenAI Service":
                         mitigations_markdown = get_mitigations_azure(azure_api_key, azure_deployment_name, mitigations_prompt)
-                    else:
+                    elif model_provider == "OpenAI API":
                         mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
+                    elif model_provider == "Mistral API":
+                        mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
 
                     # Display the suggested mitigations in Markdown
                     st.markdown(mitigations_markdown)
