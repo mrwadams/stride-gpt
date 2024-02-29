@@ -5,6 +5,7 @@ STRIDE GPT is an AI-powered threat modelling tool that leverages OpenAI's GPT mo
 ## Table of Contents
 - [Star the Repo](#star-the-repo)
 - [Features](#features)
+- [Roadmap](#roadmap)
 - [Talk at Open Security Summit](#talk-at-open-security-summit)
 - [Changelog](#changelog)
 - [Installation](#installation)
@@ -25,6 +26,13 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - No data storage; application details are not saved
 - Supports both OpenAI API and Azure OpenAI Service
 - Available as a Docker container image for easy deployment
+
+## Roadmap
+- [] Add support for gpt-4-vision to enable multi-modal threat modelling
+- [] Autogenerate application descriptions based on README files in GitHub repositories
+- [] Customisable and exportable reports (e.g. PDF, Word) that include the generated threat model, attack tree, and mitigations
+- [] Add a helper tool to guide users to create effective application descriptions before generating threat models
+- [] Update UI to support multiple languages
 
 ## Talk at Open Security Summit
 
