@@ -1,6 +1,6 @@
 ![STRIDE GPT Logo](logo.png)
 
-STRIDE GPT is an AI-powered threat modelling tool that leverages OpenAI's GPT models to generate threat models and attack trees for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The GPT model then generates its output based on the provided information.
+STRIDE GPT is an AI-powered threat modelling tool that leverages Large Language Models (LLMs) to generate threat models and attack trees for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The model then generates its output based on the provided information.
 
 ## Table of Contents
 - [Star the Repo](#star-the-repo)
@@ -22,9 +22,9 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - Generates threat models based on the STRIDE methodology
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
-- Utilises OpenAI's powerful GPT models for AI-driven threat analysis
+- Utilises either OpenAI or Mistral models for AI-driven threat analysis
 - No data storage; application details are not saved
-- Supports both OpenAI API and Azure OpenAI Service
+- Supports models accessed via OpenAI API, Azure OpenAI Service, or Mistral API
 - Available as a Docker container image for easy deployment
 
 ## Roadmap
@@ -36,7 +36,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 
 ## Talk at Open Security Summit
 
-I recently gave a talk about STRIDE GPT at the [Open Security Summit](https://open-security-summit.org/sessions/2024/mini-summits/jan/threat-modeling/ai-driven-threat-modelling-with-stride-gpt/). During the talk, I discussed the project's inception, its core functionalities, recent updates, and some future plans. You can watch the full presentation below:
+In January 2024 I gave a talk about STRIDE GPT at the [Open Security Summit](https://open-security-summit.org/sessions/2024/mini-summits/jan/threat-modeling/ai-driven-threat-modelling-with-stride-gpt/). During the talk, I discussed the project's inception, its core functionalities, recent updates, and some future plans. You can watch the full presentation below:
 
 [![Open Security Summit Talk](https://i3.ytimg.com/vi/_eOcezCeM1M/maxresdefault.jpg)](https://youtu.be/_eOcezCeM1M?si=88bjQ2M-_sCyIioi)
 
@@ -44,15 +44,26 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
+### Version 0.6
+
+Version 0.6 introduces several new features and improvements to STRIDE GPT, enhancing its capabilities and user experience. Here's what's new:
+
+- **Mistral API Integration**: Users can now choose to use LLMs provided by Mistral AI to generate threat models, attack trees and mitigation suggestions. This provides an alternative to OpenAI's GPT models, offering greater flexibility and choice for users.
+
+- **Refined Prompts**: With more people using STRIDE GPT for work, I've updated the threat model prompt templates to encourage the LLMs to generate more comprehensive outputs. Users should now see multiple threats identified within each STRIDE category.
+
+- **Public Roadmap**: I've created a public roadmap to provide visibility into upcoming features and improvements.
+
+- **UI Enhancements**: I've made some minor updates to the UI to accommodate the new Mistral API integration and improve the overall user experience.
+
+These updates are designed to make STRIDE GPT more powerful and user-friendly tool, and I'm excited to see how they help users improve their threat modelling processes.
+
 ### Version 0.5
 
-Version 0.5 brings some enhancements that significantly extend STRIDE GPT's utility and ease of use for businesses, especially those using Azure. Here's what's new:
+Release highlights:
 
-- **Azure OpenAI Service Integration**: Users can now opt to use OpenAI 1106-preview models hosted on the Azure OpenAI Service, in addition to the standard OpenAI API. This integration provides businesses with a seamless and secure way to incorporate STRIDE GPT into their existing Azure ecosystems, benefitting from established commercial and confidentiality agreements. This is especially valuable for those wanting to include sensitive data in their threat models since, when STRIDE GPT is also run from Azure, it ensures that application descriptions and other data do not leave the Azure environment.
-
-- **Docker Container Image**: To make it easier to deploy STRIDE GPT on public and private clouds, the tool is now available as a [Docker container image](https://hub.docker.com/repository/docker/mrwadams/stridegpt/general) on Docker Hub. This is particularly beneficial for businesses and other users seeking a quick and secure way to run STRIDE GPT on their existing infrastructure.
-
-These updates are designed to enhance STRIDE GPT's adaptability and user-friendliness, particularly for users that don't want to utilise the OpenAI API directly. I hope you find the new features valuable and look forward to hearing your feedback on them.
+- **Azure OpenAI Service Integration**: Users can now opt to use OpenAI 1106-preview models hosted on the Azure OpenAI Service, in addition to the standard OpenAI API.
+- **Docker Container Image**: To make it easier to deploy STRIDE GPT on public and private clouds, the tool is now available as a [Docker container image](https://hub.docker.com/repository/docker/mrwadams/stridegpt/general) on Docker Hub.
 
 ### Version 0.4
 
@@ -64,6 +75,9 @@ Release highlights:
 - **New Logo and Color Scheme**: A refreshed colour scheme and new logo (generated by DALL·E 3).
 - **Continued Bug Fixes and Performance Improvements**: I've made a small number of additional updates to address existing bugs and optimise the application for better performance, ensuring a smoother and more efficient user experience.
 
+<details>
+  <summary>Click to view release notes for earlier versions.</summary>
+
 ### Version 0.3
 
 Release highlights:
@@ -74,10 +88,6 @@ Release highlights:
 - **Updated GPT Models**: STRIDE GPT now supports the latest 0613 versions of the GPT-3.5-turbo and GPT-4 models. These updated models provide improved performance and increased control over the generated output.
 - **Bug Fixes and Performance Enhancements**: I've addressed several bugs and made performance improvements to ensure a more stable and responsive application.
 
-
-<details>
-  <summary>Click to view release notes for earlier versions.</summary>
-  
 ### Version 0.2
 
 Release highlights:
