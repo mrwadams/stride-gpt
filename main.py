@@ -1,370 +1,5 @@
-import json
-import re
 import streamlit as st
-import streamlit.components.v1 as components
-from mistralai.client import MistralClient
-from mistralai.models.chat_completion import ChatMessage
-from openai import OpenAI
-from openai import AzureOpenAI
-
-
-# ------------------ Helper Functions ------------------ #
-
-# Function to get user input for the application description and key details
-def get_input():
-    input_text = st.text_area(
-        label="Describe the application to be modelled",
-        placeholder="Enter your application details...",
-        height=150,
-        key="app_input",
-        help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
-    )
-    return input_text
-
-
-# Function to create a prompt for generating a threat model
-def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input):
-    prompt = f"""
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description and additional provided to you to produce a list of specific threats for the application.
-
-For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege), list multiple (3 or 4) credible threats if applicable. Each threat scenario should provide a credible scenario in which the threat could occur in the context of the application. It is very important that your responses are tailored to reflect the details you are given.
-
-
-When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact". 
-
-Under "improvement_suggestions", include an array of strings with suggestions on how the threat modeller can improve their application description in order to allow the tool to produce a more comprehensive threat model.
-
-APPLICATION TYPE: {app_type}
-AUTHENTICATION METHODS: {authentication}
-INTERNET FACING: {internet_facing}
-SENSITIVE DATA: {sensitive_data}
-PRIVILEGED ACCESS MANAGEMENT: {pam}
-APPLICATION DESCRIPTION: {app_input}
-
-Example of expected JSON response format:
-  
-    {{
-      "threat_model": [
-        {{
-          "Threat Type": "Spoofing",
-          "Scenario": "Example Scenario 1",
-          "Potential Impact": "Example Potential Impact 1"
-        }},
-        {{
-          "Threat Type": "Spoofing",
-          "Scenario": "Example Scenario 2",
-          "Potential Impact": "Example Potential Impact 2"
-        }},
-        // ... more threats
-      ],
-      "improvement_suggestions": [
-        "Example improvement suggestion 1.",
-        "Example improvement suggestion 2.",
-        // ... more suggestions
-      ]
-    }}
-"""
-    return prompt
-
-
-# Function to get threat model from the GPT response.
-def get_threat_model(api_key, model_name, prompt):
-    client = OpenAI(api_key=api_key)
-
-    response = client.chat.completions.create(
-        model=model_name,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=4000,
-    )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
-
-    return response_content
-
-# Function to get threat model from the Azure OpenAI response.
-def get_threat_model_azure(api_key, model_name, prompt):
-    client = AzureOpenAI(
-        azure_endpoint = azure_api_endpoint,
-        api_key = azure_api_key,
-        api_version = azure_api_version,
-    )
-
-    response = client.chat.completions.create(
-        model = azure_deployment_name,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
-
-    return response_content
-
-# Function to get threat model from the Azure OpenAI response.
-def get_threat_model_mistral(api_key, model_name, prompt):
-    client = MistralClient(api_key=mistral_api_key)
-
-    response = client.chat(
-        model = mistral_model,
-        response_format={"type": "json_object"},
-        messages=[
-            ChatMessage(role="user", content=prompt)
-        ]
-    )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
-
-    return response_content
-
-
-# Function to convert JSON to Markdown for display.    
-def json_to_markdown(threat_model, improvement_suggestions):
-    markdown_output = "## Threat Model\n\n"
-    
-    # Start the markdown table with headers
-    markdown_output += "| Threat Type | Scenario | Potential Impact |\n"
-    markdown_output += "|-------------|----------|------------------|\n"
-    
-    # Fill the table rows with the threat model data
-    for threat in threat_model:
-        markdown_output += f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} |\n"
-    
-    markdown_output += "\n\n## Improvement Suggestions\n\n"
-    for suggestion in improvement_suggestions:
-        markdown_output += f"- {suggestion}\n"
-    
-    return markdown_output
-
-
-# Function to create a prompt to generate an attack tree
-def create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input):
-    prompt = f"""
-APPLICATION TYPE: {app_type}
-AUTHENTICATION METHODS: {authentication}
-INTERNET FACING: {internet_facing}
-SENSITIVE DATA: {sensitive_data}
-PRIVILEGED ACCESS MANAGEMENT: {pam}
-APPLICATION DESCRIPTION: {app_input}
-"""
-    return prompt
-
-
-# Function to get attack tree from the GPT response.
-def get_attack_tree(api_key, model_name, prompt):
-    client = OpenAI(api_key=api_key)
-
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": """
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description provided to you to produce an attack tree in Mermaid syntax. The attack tree should reflect the potential threats for the application based on the details given.
-
-You MUST only respond with the Mermaid code block. See below for a simple example of the required format and syntax for your output.
-
-```mermaid
-graph TD
-    A[Enter Chart Definition] --> B(Preview)
-    B --> C{{decide}}
-    C --> D["Keep"]
-    C --> E["Edit Definition (Edit)"]
-    E --> B
-    D --> F["Save Image and Code"]
-    F --> B
-```
-
-IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want to use round brackets inside a node label you MUST wrap the label in double quotes. For example, ["Example Node Label (ENL)"].
-"""},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Access the 'content' attribute of the 'message' object directly
-    attack_tree_code = response.choices[0].message.content
-    
-    # Remove Markdown code block delimiters using regular expression
-    attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
-
-    return attack_tree_code
-
-# Function to get attack tree from the Azure OpenAI response.
-def get_attack_tree_azure(api_key, model_name, prompt):
-    client = AzureOpenAI(
-        azure_endpoint = azure_api_endpoint,
-        api_key = azure_api_key,
-        api_version = azure_api_version,
-    )
-
-    response = client.chat.completions.create(
-        model = azure_deployment_name,
-        messages=[
-            {"role": "system", "content": """
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description provided to you to produce an attack tree in Mermaid syntax. The attack tree should reflect the potential threats for the application based on the details given.
-
-You MUST only respond with the Mermaid code block. See below for a simple example of the required format and syntax for your output.
-
-```mermaid
-graph TD
-    A[Enter Chart Definition] --> B(Preview)
-    B --> C{{decide}}
-    C --> D["Keep"]
-    C --> E["Edit Definition (Edit)"]
-    E --> B
-    D --> F["Save Image and Code"]
-    F --> B
-```
-
-IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want to use round brackets inside a node label you MUST wrap the label in double quotes. For example, ["Example Node Label (ENL)"].
-"""},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Access the 'content' attribute of the 'message' object directly
-    attack_tree_code = response.choices[0].message.content
-    
-    # Remove Markdown code block delimiters using regular expression
-    attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
-
-    return attack_tree_code
-
-
-# Function to get attack tree from the Mistral model's response.
-def get_attack_tree_mistral(api_key, model_name, prompt):
-    client = MistralClient(api_key=mistral_api_key)
-
-    response = client.chat(
-        model=mistral_model,
-        messages=[
-            {"role": "system", "content": """
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description provided to you to produce an attack tree in Mermaid syntax. The attack tree should reflect the potential threats for the application based on the details given.
-
-You MUST only respond with the Mermaid code block. See below for a simple example of the required format and syntax for your output.
-
-```mermaid
-graph TD
-    A[Enter Chart Definition] --> B(Preview)
-    B --> C{{decide}}
-    C --> D["Keep"]
-    C --> E["Edit Definition (Edit)"]
-    E --> B
-    D --> F["Save Image and Code"]
-    F --> B
-```
-
-IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want to use round brackets inside a node label you MUST wrap the label in double quotes. For example, ["Example Node Label (ENL)"].
-"""},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Access the 'content' attribute of the 'message' object directly
-    attack_tree_code = response.choices[0].message.content
-    
-    # Remove Markdown code block delimiters using regular expression
-    attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
-
-    return attack_tree_code
-
-# Function to render Mermaid diagram
-def mermaid(code: str, height: int = 500) -> None:
-    components.html(
-        f"""
-        <pre class="mermaid" style="height: {height}px;">
-            {code}
-        </pre>
-
-        <script type="module">
-            import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-            mermaid.initialize({{ startOnLoad: true }});
-        </script>
-        """,
-        height=height,
-    )
-
-
-# Function to create a prompt to generate mitigating controls
-def create_mitigations_prompt(threats):
-    prompt = f"""
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology. Your task is to provide potential mitigations for the threats identified in the threat model. It is very important that your responses are tailored to reflect the details of the threats.
-
-Your output should be in the form of a markdown table with the following columns:
-    - Column A: Threat Type
-    - Column B: Scenario
-    - Column C: Suggested Mitigation(s)
-
-Below is the list of identified threats:
-{threats}
-
-YOUR RESPONSE (do not wrap in a code block):
-"""
-    return prompt
-
-
-# Function to get mitigations from the GPT response.
-def get_mitigations(api_key, model_name, prompt):
-    client = OpenAI(api_key=api_key)
-
-    response = client.chat.completions.create(
-        model = model_name,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Access the content directly as the response will be in text format
-    mitigations = response.choices[0].message.content
-
-    return mitigations
-
-
-# Function to get mitigations from the Azure OpenAI response.
-def get_mitigations_azure(api_key, model_name, prompt):
-    client = AzureOpenAI(
-        azure_endpoint = azure_api_endpoint,
-        api_key = azure_api_key,
-        api_version = azure_api_version,
-    )
-
-    response = client.chat.completions.create(
-        model = azure_deployment_name,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Access the content directly as the response will be in text format
-    mitigations = response.choices[0].message.content
-
-    return mitigations
-
-
-# Function to get mitigations from the Mistral model's response.
-def get_mitigations_mistral(api_key, model_name, prompt):
-    client = MistralClient(api_key=mistral_api_key)
-
-    response = client.chat(
-        model = mistral_model,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Access the content directly as the response will be in text format
-    mitigations = response.choices[0].message.content
-
-    return mitigations
+import helper_functions as hf
 
 
 # ------------------ Streamlit UI Configuration ------------------ #
@@ -384,65 +19,6 @@ with col2:
     st.image("logo.png", width=450)
 
 
-
-# ------------------ Main App UI ------------------ #
-
-# Get application description from the user
-app_input = get_input()
-
-# Create two columns layout for input fields
-col1, col2 = st.columns(2)
-
-# Create input fields for app_type, sensitive_data and pam
-with col1:
-    app_type = st.selectbox(
-        label="Select the application type",
-        options=[
-            "Web application",
-            "Mobile application",
-            "Desktop application",
-            "Cloud application",
-            "IoT application",
-            "Other",
-        ],
-        key="app_type",
-    )
-
-    sensitive_data = st.selectbox(
-        label="What is the highest sensitivity level of the data processed by the application?",
-        options=[
-            "Top Secret",
-            "Secret",
-            "Confidential",
-            "Restricted",
-            "Unclassified",
-            "None",
-        ],
-        key="sensitive_data",
-    )
-
-    pam = st.selectbox(
-        label="Are privileged accounts stored in a Privileged Access Management (PAM) solution?",
-        options=["Yes", "No"],
-        key="pam",
-    )
-
-# Create input fields for internet_facing and authentication
-with col2:
-    internet_facing = st.selectbox(
-        label="Is the application internet-facing?",
-        options=["Yes", "No"],
-        key="internet_facing",
-    )
-
-    authentication = st.multiselect(
-        "What authentication methods are supported by the application?",
-        ["SSO", "MFA", "OAUTH2", "Basic", "None"],
-        key="authentication",
-    )
-
-
-
 # ------------------ Sidebar ------------------ #
 
 # Add instructions on how to use the app to the sidebar
@@ -452,7 +28,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Azure OpenAI Service", "Mistral API"],
+        ["OpenAI API", "Azure OpenAI Service", "Mistral API", "Local"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -478,6 +54,14 @@ with st.sidebar:
             ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"],
             key="selected_model",
             help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo-preview` point to the latest available version of each model.",
+        )
+
+        # Add vision model selection input field to the sidebar
+        selected_model_vision = st.selectbox(
+            "Select the vision model you would like to use:",
+            ["gpt-4-vision-preview"],
+            key="selected_model_vision",
+            help="OpenAI new vision model.",
         )
 
     if model_provider == "Azure OpenAI Service":
@@ -533,6 +117,31 @@ with st.sidebar:
             "Select the model you would like to use:",
             ["mistral-large-latest", "mistral-small-latest"],
             key="selected_model",
+        )
+
+    if model_provider == "Local":
+        st.markdown(
+        """
+    1. Enter chosen model below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+
+        # Add model selection input field to the sidebar
+        selected_model = st.selectbox(
+            "Select the model you would like to use:",
+            ["llama3:70b"],
+            key="selected_model",
+            help="Availalble local models.",
+        )
+
+        # Add vision model selection input field to the sidebar
+        selected_model_vision = st.selectbox(
+            "Select the vision model you would like to use:",
+            ["llava:34b"],
+            key="selected_model_vision",
+            help="Availale local vision models.",
         )
 
     st.markdown("""---""")
@@ -611,6 +220,84 @@ with st.sidebar:
 st.markdown("""---""")
 
 
+# ------------------ Main App UI ------------------ #
+
+# Get application description from image upload
+uploaded_image = hf.get_image_input()
+image_submit_button = st.button(label="Generate description from image")
+
+if image_submit_button and uploaded_image:
+    uploaded_image_base64 = hf.encode_image(uploaded_image)
+    image_description_prompt = hf.create_image_description_prompt(uploaded_image_base64)
+
+    with st.spinner("Generating description from image..."):
+        try:
+            # Call one of the get_threat_model functions with the generated prompt
+            if model_provider == "OpenAI API":
+                model_output = hf.get_image_description(openai_api_key, selected_model_vision, image_description_prompt)
+            elif model_provider == "Local":
+                model_output = hf.get_threat_model_local(selected_model_vision, image_description_prompt)
+            
+            # Update text area with image description
+            st.session_state.app_input = model_output
+        except Exception as e:
+            st.error(f"Error generating image description: {e}")
+        
+
+# Get application description from the user
+app_input = hf.get_input()
+
+# Create two columns layout for input fields
+col1, col2 = st.columns(2)
+
+# Create input fields for app_type, sensitive_data and pam
+with col1:
+    app_type = st.selectbox(
+        label="Select the application type",
+        options=[
+            "Web application",
+            "Mobile application",
+            "Desktop application",
+            "Cloud application",
+            "IoT application",
+            "Other",
+        ],
+        key="app_type",
+    )
+
+    sensitive_data = st.selectbox(
+        label="What is the highest sensitivity level of the data processed by the application?",
+        options=[
+            "Top Secret",
+            "Secret",
+            "Confidential",
+            "Restricted",
+            "Unclassified",
+            "None",
+        ],
+        key="sensitive_data",
+    )
+
+    pam = st.selectbox(
+        label="Are privileged accounts stored in a Privileged Access Management (PAM) solution?",
+        options=["Yes", "No"],
+        key="pam",
+    )
+
+# Create input fields for internet_facing and authentication
+with col2:
+    internet_facing = st.selectbox(
+        label="Is the application internet-facing?",
+        options=["Yes", "No"],
+        key="internet_facing",
+    )
+
+    authentication = st.multiselect(
+        "What authentication methods are supported by the application?",
+        ["SSO", "MFA", "OAUTH2", "Basic", "None"],
+        key="authentication",
+    )
+
 
 # ------------------ Threat Model Generation ------------------ #
 
@@ -622,18 +309,21 @@ with st.expander("Threat Model", expanded=False):
     # If the Generate Threat Model button is clicked and the user has provided an application description
     if threat_model_submit_button and app_input:
         # Generate the prompt using the create_prompt function
-        threat_model_prompt = create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
+        threat_model_prompt = hf.create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
 
         # Show a spinner while generating the threat model
         with st.spinner("Analysing potential threats..."):
             try:
                 # Call one of the get_threat_model functions with the generated prompt
                 if model_provider == "Azure OpenAI Service":
-                    model_output = get_threat_model_azure(azure_api_key, azure_deployment_name, threat_model_prompt)
+                    model_output = hf.get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, threat_model_prompt)
                 elif model_provider == "OpenAI API":
-                    model_output = get_threat_model(openai_api_key, selected_model, threat_model_prompt)
+                    model_output = hf.get_threat_model(openai_api_key, selected_model, threat_model_prompt)
                 elif model_provider == "Mistral API":
-                    model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
+                    model_output = hf.get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
+                elif model_provider == "Local":
+                    model_output = hf.get_threat_model_local(selected_model, threat_model_prompt)
+
                         
                 # Access the threat model and improvement suggestions from the parsed content
                 threat_model = model_output.get("threat_model", [])
@@ -643,7 +333,7 @@ with st.expander("Threat Model", expanded=False):
                 st.session_state['threat_model'] = threat_model
 
                 # Convert the threat model JSON to Markdown
-                markdown_output = json_to_markdown(threat_model, improvement_suggestions)
+                markdown_output = hf.json_to_markdown(threat_model, improvement_suggestions)
 
                 # Display the threat model in Markdown
                 st.markdown(markdown_output)
@@ -677,18 +367,20 @@ with st.expander("Attack Tree", expanded=False):
     # If the Generate Attack Tree button is clicked and the user has provided an application description
     if attack_tree_submit_button and app_input:
         # Generate the prompt using the create_attack_tree_prompt function
-        attack_tree_prompt = create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
+        attack_tree_prompt = hf.create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
 
         # Show a spinner while generating the attack tree
         with st.spinner("Generating attack tree..."):
             try:
                 # Call to either of the get_attack_tree functions with the generated prompt
                 if model_provider == "Azure OpenAI Service":
-                    mermaid_code = get_attack_tree_azure(azure_api_key, azure_deployment_name, attack_tree_prompt)
+                    mermaid_code = hf.get_attack_tree_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, attack_tree_prompt)
                 elif model_provider == "OpenAI API":
-                    mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
+                    mermaid_code = hf.get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
                 elif model_provider == "Mistral API":
-                    mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
+                    mermaid_code = hf.get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
+                elif model_provider == "Local":
+                    mermaid_code = hf.get_attack_tree_local(selected_model, attack_tree_prompt)
 
                 # Display the generated attack tree code
                 st.write("Attack Tree Code:")
@@ -696,7 +388,7 @@ with st.expander("Attack Tree", expanded=False):
 
                 # Visualise the attack tree using the Mermaid custom component
                 st.write("Attack Tree Diagram Preview:")
-                mermaid(mermaid_code)
+                hf.mermaid(mermaid_code)
                 
                 col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
                 
@@ -743,20 +435,22 @@ with st.expander("Mitigations", expanded=False):
         # Check if threat_model data exists
         if 'threat_model' in st.session_state and st.session_state['threat_model']:
             # Convert the threat_model data into a Markdown list
-            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+            threats_markdown = hf.json_to_markdown(st.session_state['threat_model'], [])
             # Generate the prompt using the create_mitigations_prompt function
-            mitigations_prompt = create_mitigations_prompt(threats_markdown)
+            mitigations_prompt = hf.create_mitigations_prompt(threats_markdown)
 
             # Show a spinner while suggesting mitigations
             with st.spinner("Suggesting mitigations..."):
                 try:
                     # Call to either of the get_mitigations functions with the generated prompt
                     if model_provider == "Azure OpenAI Service":
-                        mitigations_markdown = get_mitigations_azure(azure_api_key, azure_deployment_name, mitigations_prompt)
+                        mitigations_markdown = hf.get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, mitigations_prompt)
                     elif model_provider == "OpenAI API":
-                        mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
+                        mitigations_markdown = hf.get_mitigations(openai_api_key, selected_model, mitigations_prompt)
                     elif model_provider == "Mistral API":
-                        mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
+                        mitigations_markdown = hf.get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
+                    elif model_provider == "Local":
+                        mitigations_markdown = hf.get_mitigations_local(selected_model, mitigations_prompt)
 
                     # Display the suggested mitigations in Markdown
                     st.markdown(mitigations_markdown)
