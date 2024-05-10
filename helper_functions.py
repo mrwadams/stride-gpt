@@ -6,6 +6,7 @@ from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
 from openai import OpenAI
 from openai import AzureOpenAI
+import google.generativeai as genai
 import ollama
 from PIL import Image
 import base64
@@ -74,7 +75,59 @@ def get_image_description(api_key, model_name, prompt, image_type, image_base64)
 
     return response_content
 
-# Function to get image description from lcocal model
+# Function to get image description from the Azure OpenAI response.
+def get_image_description_azure(api_endpoint, api_key, api_version, deployment_name, prompt, image_type, image_base64):
+    client = AzureOpenAI(
+        azure_endpoint = api_endpoint,
+        api_key = api_key,
+        api_version = api_version,
+    )
+
+    response = client.chat.completions.create(
+        model=deployment_name,
+        messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f'data:image/{image_type};base64,{image_base64}'
+                            }
+                        }
+                    ],
+                }
+        ],
+        max_tokens=300,
+    )
+
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    response_content = json.loads(response.choices[0].message.content)
+
+    return response_content
+
+# Function to get image description from Mistral.
+def get_image_description_mistral(api_key, model_name, prompt, image_type, image_base64):
+
+    return "Currently not supported."
+
+# Function to get image description from Google Gemini.
+def get_image_description_google_gemini(api_key, model_name, prompt, image):
+    genai.configure(api_key=api_key)
+    gemini_model = genai.GenerativeModel(model_name=model_name)
+
+    response = gemini_model.generate_content(
+        [Image.open(image), prompt]
+        # [model_behaviour, image_info[0], prompt],
+        # model="gemini-pro-vision",
+    )
+    return response.text
+
+# Function to get image description from local model
 def get_image_description_local(model_name, prompt, image):
     response = ollama.chat(
         model=model_name,
@@ -211,6 +264,18 @@ def get_threat_model_mistral(api_key, model_name, prompt):
     response_content = json.loads(response.choices[0].message.content)
 
     return response_content
+
+# Function to get threat model from Google Gemini.
+def get_threat_model_google_gemini(api_key, model_name, prompt):
+    genai.configure(api_key=api_key)
+    gemini_model = genai.GenerativeModel(model_name=model_name)
+
+    response = gemini_model.generate_content(
+        prompt
+        # [model_behaviour, image_info[0], prompt],
+        # model="gemini-pro-vision",
+    )
+    return response.text
 
 # Function to get threat model from the GPT response.
 def get_threat_model_local(model_name, prompt):
@@ -376,6 +441,43 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
 
     return attack_tree_code
 
+# Function to get attack tree from the Mistral model's response.
+def get_attack_tree_gemini(api_key, model_name, prompt):
+    genai.configure(api_key=api_key)
+    gemini_model = genai.GenerativeModel(model_name=model_name)
+
+    response = gemini_model.generate_content(
+"""
+Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description provided to you to produce an attack tree in Mermaid syntax. The attack tree should reflect the potential threats for the application based on the details given.
+You MUST only respond with the Mermaid code block. See below for a simple example of the required format and syntax for your output.
+
+```mermaid
+graph TD
+    A[Enter Chart Definition] --> B(Preview)
+    B --> C{{decide}}
+    C --> D["Keep"]
+    C --> E["Edit Definition (Edit)"]
+    E --> B
+    D --> F["Save Image and Code"]
+    F --> B
+```
+
+IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want to use round brackets inside a node label you MUST wrap the label in double quotes. For example, ["Example Node Label (ENL)"].
+
+Below is the application description:
+{prompt}
+"""
+    )
+
+    # Access the 'content' attribute of the 'message' object directly
+    attack_tree_code = response.text
+    
+    # Remove Markdown code block delimiters using regular expression
+    attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
+
+    return attack_tree_code
+
+
 # Function to get attack tree from the Local model's response.
 def get_attack_tree_local(model_name, prompt):
 
@@ -497,6 +599,23 @@ def get_mitigations_mistral(api_key, model_name, prompt):
             {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
             {"role": "user", "content": prompt}
         ]
+    )
+
+    # Access the content directly as the response will be in text format
+    mitigations = response.choices[0].message.content
+
+    return mitigations
+
+# Function to get mitigations from the Gemini.
+def get_mitigations_gemini(api_key, model_name, prompt):
+    genai.configure(api_key=api_key)
+    gemini_model = genai.GenerativeModel(model_name=model_name)
+
+    response = gemini_model.generate_content(
+"""
+Provide threat mitigation strategies in Markdown format.
+{prompt}
+"""
     )
 
     # Access the content directly as the response will be in text format

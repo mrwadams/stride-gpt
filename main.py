@@ -2,7 +2,7 @@ from pathlib import Path
 import streamlit as st
 import helper_functions as hf
 
-# ------------------ API Keys ------------------ #
+# ------------------ App Configuration ------------------ #
 api_key_file = "api_keys.txt"
 
 # Check if the API keys file exists
@@ -11,6 +11,8 @@ if Path(api_key_file).is_file():
     with open(api_key_file, "r") as file:
         # read each line into key value pairs
         api_keys = dict(x.strip().split("=") for x in file.readlines())
+
+app_input_session_state_key = "app_input"
 
 # ------------------ Streamlit UI Configuration ------------------ #
 
@@ -38,7 +40,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Azure OpenAI Service", "Mistral API", "Local"],
+        ["OpenAI API", "Azure OpenAI Service", "Mistral API", "Google Gemini", "Local"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -130,6 +132,36 @@ with st.sidebar:
             "Select the model you would like to use:",
             ["mistral-large-latest", "mistral-small-latest"],
             key="selected_model",
+        )
+
+    if model_provider == "Google Gemini":
+        st.markdown(
+        """
+    1. Enter your Gemini API key and model below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        # Add OpenAI API key input field to the sidebar
+        gemini_api_key = st.text_input(
+            "Enter your Google Gemini API key:",
+            type="password",
+            value=api_keys.get("GEMINI_API_KEY", ""),
+            help="You can generate a Gemini API key in the [Google AI Studio](https://aistudio.google.com).",
+        )
+
+        # Add model selection input field to the sidebar
+        selected_model = st.selectbox(
+            "Select the model you would like to use:",
+            ["gemini-pro"],
+            key="selected_model",
+        )
+        
+        # Add vision model selection input field to the sidebar
+        selected_model_vision = st.selectbox(
+            "Select the model you would like to use:",
+            ["gemini-pro-vision"],
+            key="selected_model_vision",
         )
 
     if model_provider == "Local":
@@ -234,7 +266,6 @@ st.markdown("""---""")
 
 
 # ------------------ Main App UI ------------------ #
-app_input_session_state_key = "app_input"
 
 # Get application description from image upload
 uploaded_image, uploaded_image_filename = hf.get_image_input()
@@ -248,8 +279,6 @@ if image_submit_button and uploaded_image:
         st.stop()
     else:
         uploaded_image_base64 = hf.encode_image(uploaded_image)
-        print(f'data:image/{filetype};base64,{uploaded_image_base64}')
-
         image_description_prompt = hf.create_image_description_prompt()
 
         with st.spinner("Generating description from image..."):
@@ -257,6 +286,12 @@ if image_submit_button and uploaded_image:
                 # Call one of the get_threat_model functions with the generated prompt
                 if model_provider == "OpenAI API":
                     model_output = hf.get_image_description(openai_api_key, selected_model_vision, image_description_prompt, filetype, uploaded_image_base64)
+                elif model_provider == "Azure OpenAI Service":
+                    model_output = hf.get_image_description_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, image_description_prompt, filetype, uploaded_image_base64)
+                elif model_provider == "Mistral API":
+                    model_output = hf.get_image_description_mistral(mistral_api_key, mistral_model, image_description_prompt, filetype, uploaded_image_base64)
+                elif model_provider == "Google Gemini":
+                    model_output = hf.get_image_description_google_gemini(gemini_api_key, selected_model_vision, image_description_prompt, uploaded_image)
                 elif model_provider == "Local":
                     model_output = hf.get_image_description_local(selected_model_vision, image_description_prompt, uploaded_image)
                 
@@ -264,7 +299,6 @@ if image_submit_button and uploaded_image:
                 st.session_state[app_input_session_state_key] = model_output
             except Exception as e:
                 st.error(f"Error generating image description: {e}")
-        
 
 # Get application description from the user
 app_input = hf.get_input(app_input_session_state_key)
