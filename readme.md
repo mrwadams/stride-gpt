@@ -28,15 +28,19 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - Available as a Docker container image for easy deployment
 
 ## Roadmap
-- [ ] Add support for gpt-4-vision to enable multi-modal threat modelling
+- [x] Add support for gpt-4-vision to enable multi-modal threat modelling
+- [x] Add support for local LLM llama and llava
+- [x] Add support for gemini-pro and gemini-pro-vision
 - [ ] Autogenerate application descriptions based on README files in GitHub repositories
-- [ ] Customisable and exportable reports (e.g. PDF, Word) that include the generated threat model, attack tree, and mitigations
+- [ ] Customisable and exportable reports (e.g. PDF, Word, Excel) that include the generated threat model, attack tree, and mitigations
 - [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
 - [ ] Update UI to support multiple languages
 - [ ] Add Google Gemini support
-- [ ] Add RAG feature
+- [ ] Add RAG feature to augment with data such as threat library, design patterns
 - [ ] Add capability to map if threat model is generic or from specific RAG document
+- [ ] Add capability to generate compliance check and report
 - [ ] Provide mitigation map to policy control reference from RAG
+- [ ] Retrieve latest data from security data sources online, e.g. git
 
 ## Talk at Open Security Summit
 
@@ -47,6 +51,18 @@ In January 2024 I gave a talk about STRIDE GPT at the [Open Security Summit](htt
 This video is an excellent resource for anyone interested in understanding how STRIDE GPT works and how it can be used to improve threat modelling.
 
 ## Changelog
+
+### Version 0.7
+
+Updates in this version:
+
+- **Vision for image**: Add capability to interprete architecture diagram and generate description as input for threat modeling.
+
+- **Local LLM Llama and Llava**: Users can now choose to use LLM llama and llava that is run locally.
+
+- **Google Gemini Pro**: Added Gemini Pro support.
+
+- **Minor API Key Configuration Enhancements**: Check for API key file and read key values to auto populate API key field in side bar.
 
 ### Version 0.6
 

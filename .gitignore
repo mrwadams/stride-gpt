@@ -1,2 +1,3 @@
-api_key.txt
+api_keys.txt
 venv/
+.DS_Store

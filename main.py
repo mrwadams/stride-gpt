@@ -4,6 +4,7 @@ import helper_functions as hf
 
 # ------------------ App Configuration ------------------ #
 api_key_file = "api_keys.txt"
+api_keys = {}
 
 # Check if the API keys file exists
 if Path(api_key_file).is_file():
