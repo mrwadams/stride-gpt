@@ -15,6 +15,12 @@ if Path(api_key_file).is_file():
 
 app_input_session_state_key = "app_input"
 
+if app_input_session_state_key not in st.session_state:
+    st.session_state[app_input_session_state_key] = f"""A web application that allows users to create, store, and share personal notes.
+Application consist of a web and database. users access system via internet over http. web server connects to database server using mongodb port 27017 without encryption. 
+The application is built using the React frontend framework and a Node.js backend with a MongoDB database. Users can sign up for an account and log in using OAuth2 with Google or Facebook. The notes are encrypted at rest and are only accessible by the user who created them. The application also supports real-time collaboration on notes with other users.
+Logging is not setup on all the servers. There is no firewall protecting the web application."""
+
 # ------------------ Streamlit UI Configuration ------------------ #
 
 st.set_page_config(

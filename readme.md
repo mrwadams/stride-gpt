@@ -35,7 +35,6 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - [ ] Customisable and exportable reports (e.g. PDF, Word, Excel) that include the generated threat model, attack tree, and mitigations
 - [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
 - [ ] Update UI to support multiple languages
-- [ ] Add Google Gemini support
 - [ ] Add RAG feature to augment with data such as threat library, design patterns
 - [ ] Add capability to map if threat model is generic or from specific RAG document
 - [ ] Add capability to generate compliance check and report
