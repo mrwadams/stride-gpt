@@ -1,6 +1,16 @@
+from pathlib import Path
 import streamlit as st
 import helper_functions as hf
 
+# ------------------ API Keys ------------------ #
+api_key_file = "api_keys.txt"
+
+# Check if the API keys file exists
+if Path(api_key_file).is_file():
+    # Read the API keys from the file
+    with open(api_key_file, "r") as file:
+        # read each line into key value pairs
+        api_keys = dict(x.strip().split("=") for x in file.readlines())
 
 # ------------------ Streamlit UI Configuration ------------------ #
 
@@ -45,21 +55,22 @@ with st.sidebar:
         openai_api_key = st.text_input(
             "Enter your OpenAI API key:",
             type="password",
+            value=api_keys.get("OPENAI_API_KEY", ""),
             help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
         )
 
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"],
+            ["gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
             key="selected_model",
-            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo-preview` point to the latest available version of each model.",
+            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo` point to the latest available version of each model.",
         )
 
         # Add vision model selection input field to the sidebar
         selected_model_vision = st.selectbox(
             "Select the vision model you would like to use:",
-            ["gpt-4-vision-preview"],
+            ["gpt-4-turbo", "gpt-4-1106-vision-preview"],
             key="selected_model_vision",
             help="OpenAI new vision model.",
         )
@@ -77,6 +88,7 @@ with st.sidebar:
         azure_api_key = st.text_input(
             "Azure OpenAI API key:",
             type="password",
+            value=api_keys.get("AZURE_OPENAI_API_KEY", ""),
             help="You can find your Azure OpenAI API key on the [Azure portal](https://portal.azure.com/).",
         )
         
@@ -109,6 +121,7 @@ with st.sidebar:
         mistral_api_key = st.text_input(
             "Enter your Mistral API key:",
             type="password",
+            value=api_keys.get("MISTRAL_API_KEY", ""),
             help="You can generate a Mistral API key in the [Mistral console](https://console.mistral.ai/api-keys/).",
         )
 
@@ -221,31 +234,40 @@ st.markdown("""---""")
 
 
 # ------------------ Main App UI ------------------ #
+app_input_session_state_key = "app_input"
 
 # Get application description from image upload
-uploaded_image = hf.get_image_input()
+uploaded_image, uploaded_image_filename = hf.get_image_input()
 image_submit_button = st.button(label="Generate description from image")
 
 if image_submit_button and uploaded_image:
-    uploaded_image_base64 = hf.encode_image(uploaded_image)
-    image_description_prompt = hf.create_image_description_prompt(uploaded_image_base64)
+    # check file type
+    filetype = Path(uploaded_image_filename).suffix.lower()[1:]
+    if filetype not in ['jpg', 'jpeg', 'png']:
+        st.error("Please upload an image file in JPG, JPEG or PNG format.")
+        st.stop()
+    else:
+        uploaded_image_base64 = hf.encode_image(uploaded_image)
+        print(f'data:image/{filetype};base64,{uploaded_image_base64}')
 
-    with st.spinner("Generating description from image..."):
-        try:
-            # Call one of the get_threat_model functions with the generated prompt
-            if model_provider == "OpenAI API":
-                model_output = hf.get_image_description(openai_api_key, selected_model_vision, image_description_prompt)
-            elif model_provider == "Local":
-                model_output = hf.get_threat_model_local(selected_model_vision, image_description_prompt)
-            
-            # Update text area with image description
-            st.session_state.app_input = model_output
-        except Exception as e:
-            st.error(f"Error generating image description: {e}")
+        image_description_prompt = hf.create_image_description_prompt()
+
+        with st.spinner("Generating description from image..."):
+            try:
+                # Call one of the get_threat_model functions with the generated prompt
+                if model_provider == "OpenAI API":
+                    model_output = hf.get_image_description(openai_api_key, selected_model_vision, image_description_prompt, filetype, uploaded_image_base64)
+                elif model_provider == "Local":
+                    model_output = hf.get_image_description_local(selected_model_vision, image_description_prompt, uploaded_image)
+                
+                # Update text area with image description
+                st.session_state[app_input_session_state_key] = model_output
+            except Exception as e:
+                st.error(f"Error generating image description: {e}")
         
 
 # Get application description from the user
-app_input = hf.get_input()
+app_input = hf.get_input(app_input_session_state_key)
 
 # Create two columns layout for input fields
 col1, col2 = st.columns(2)

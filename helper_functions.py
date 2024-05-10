@@ -13,10 +13,14 @@ import base64
 # ------------------ Helper Functions ------------------ #
 
 # Function to encode the image
-def encode_image(image_file):
-    b64_image = base64.b64encode(image_file).decode()
-    # return b64_image
-    return f"data:image/png;base64,{b64_image}"
+def encode_image(image_file, filetype="png"):
+    b64_image = base64.b64encode(image_file.read()).decode("utf-8")
+    return b64_image
+    # if filetype == "png":
+    #     return f"data:image/png;base64,{b64_image}"
+    # else:
+    #     return f"data:image/jpeg;base64,{b64_image}"
+
 
 # Function to get user image upload
 def get_image_input():
@@ -25,65 +29,81 @@ def get_image_input():
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
         st.image(image, caption='Uploaded Image.', width=200)
-        return uploaded_file.getvalue()
+        return uploaded_file, uploaded_file.name
         # image_base64 = encode_image(uploaded_file.getvalue())
         # return image_base64
+    else:
+        return None, None
     
 # Function to create a prompt for generating a threat model
-def create_image_description_prompt(image_base64):
+def create_image_description_prompt():
     prompt = f"""
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to describe the image in detail for the purpose of threat modeling.
-
-With the following image, identify components, the role of the component, and the connections. Include any other relevant information that can be useful to identify potential threats.
-
-![Uploaded Image](data:image/png;base64,{image_base64})
+Act as a cyber security expert with more than 20 years experience of in system and application security architecture. Your task is to describe the image in detail.
+With the provided image, identify components, the role of the component, and the connections. Include any other relevant information that can be useful for understanding the security design of the system.
 """
     return prompt
 
 # Function to get image description from the GPT response.
-def get_image_description(api_key, model_name, prompt):
+def get_image_description(api_key, model_name, prompt, image_type, image_base64):
     client = OpenAI(api_key=api_key)
 
-    response = client.ChatCompletion.create(
+    response = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f'data:image/{image_type};base64,{image_base64}'
+                            }
+                        }
+                    ],
+                }
         ],
-        max_tokens=4000,
+        max_tokens=300,
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
+    response_content = response.choices[0].message.content
 
     return response_content
 
 # Function to get image description from lcocal model
-def get_image_description_local(model_name, prompt):
+def get_image_description_local(model_name, prompt, image):
     response = ollama.chat(
         model=model_name,
-        format='json',
         messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
-        ],
+            {
+                'role': 'user',
+                'content': prompt,
+                'images': [image.getvalue()]
+            }
+        ]
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response['message']['content'])
+    response_content = response['message']['content']
 
     return response_content
 
 # Function to get user input for the application description and key details
-def get_input():
+def get_input(app_input_session_state_key="app_input"):
+    if app_input_session_state_key not in st.session_state:
+        st.session_state[app_input_session_state_key] = f"""A web application that allows users to create, store, and share personal notes.
+        Application consist of a web and database. users access system via internet over http. web server connects to database server using mongodb port 27017 without encryption. 
+        The application is built using the React frontend framework and a Node.js backend with a MongoDB database. Users can sign up for an account and log in using OAuth2 with Google or Facebook. The notes are encrypted at rest and are only accessible by the user who created them. The application also supports real-time collaboration on notes with other users.
+        Logging is not setup on all the servers. There is no firewall protecting the web application."""
 
     input_text = st.text_area(
         label="Describe the application to be modelled",
         placeholder="Enter your application details...",
-        value=f"""A web application that allows users to create, store, and share personal notes.
-        Application consist of a web and database. users access system via internet over http. web server connects to database server using mongodb port 27017 without encryption. 
-        The application is built using the React frontend framework and a Node.js backend with a MongoDB database. Users can sign up for an account and log in using OAuth2 with Google or Facebook. The notes are encrypted at rest and are only accessible by the user who created them. The application also supports real-time collaboration on notes with other users.
-        Logging is not setup on all the servers. There is no firewall protecting the web application.""",
+        value=st.session_state[app_input_session_state_key],
         height=150,
         key="app_input",
         help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
