@@ -24,10 +24,14 @@ def encode_image(image_file):
 
 
 # Function to get user image upload
-def get_image_input():
+def get_image_input(max_files=1):
     uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"])
 
     if uploaded_file is not None:
+        # check the number of files uploaded
+        if len(uploaded_file) > max_files:
+            st.warning(f"Please upload only {max_files} file(s). Only the first {max_files} file(s) will be processed.")
+            uploaded_file = uploaded_file[:max_files]
         image = Image.open(uploaded_file)
         st.image(image, caption='Uploaded Image.', width=200)
         return uploaded_file, uploaded_file.name, uploaded_file.type
