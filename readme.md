@@ -40,6 +40,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - [ ] Add capability to generate compliance check and report
 - [ ] Provide mitigation map to policy control reference from RAG
 - [ ] Retrieve latest data from security data sources online, e.g. git
+- [ ] Change to use classes and wrapper code for different AI providers, e.g. OpenAI, Gemini, etc.
 
 ## Talk at Open Security Summit
 
