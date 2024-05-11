@@ -323,6 +323,7 @@ with col1:
             "Desktop application",
             "Cloud application",
             "IoT application",
+            "Pheripheral device with driver",
             "Other",
         ],
         key="app_type",

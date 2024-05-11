@@ -25,13 +25,13 @@ def encode_image(image_file):
 
 # Function to get user image upload
 def get_image_input(max_files=1):
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"])
+    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "png"], accept_multiple_files=False)
 
     if uploaded_file is not None:
-        # check the number of files uploaded
-        if len(uploaded_file) > max_files:
-            st.warning(f"Please upload only {max_files} file(s). Only the first {max_files} file(s) will be processed.")
-            uploaded_file = uploaded_file[:max_files]
+        # # check the number of files uploaded
+        # if len(uploaded_file) > max_files:
+        #     st.warning(f"Please upload only {max_files} file(s). Only the first {max_files} file(s) will be processed.")
+        #     uploaded_file = uploaded_file[:max_files]
         image = Image.open(uploaded_file)
         st.image(image, caption='Uploaded Image.', width=200)
         return uploaded_file, uploaded_file.name, uploaded_file.type
@@ -43,7 +43,8 @@ def get_image_input(max_files=1):
 # Function to create a prompt for generating a threat model
 def create_image_description_prompt():
     prompt = f"""Act as a cyber security expert with more than 20 years experience of in system and application security architecture. Your task is to describe the image in detail.
-With the provided image, identify components, the role of the component, and the connections. Include any other relevant information that can be useful for understanding the security design of the system."""
+With the provided image, identify components, the role of the component, and the connections.
+Include details such as technology, network protocols, authentication, logging, software version, development lifeycle, operating model, patch management, data protection if it can be identified from the diagram."""
     return prompt
 
 # Function to get image description from the GPT response.
