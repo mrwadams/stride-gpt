@@ -14,8 +14,8 @@ import base64
 # ------------------ Helper Functions ------------------ #
 
 # Function to encode the image
-def encode_image(image_file, filetype="png"):
-    b64_image = base64.b64encode(image_file.read()).decode("utf-8")
+def encode_image(image_file):
+    b64_image = base64.b64encode(image_file.getvalue()).decode("utf-8")
     return b64_image
     # if filetype == "png":
     #     return f"data:image/png;base64,{b64_image}"
@@ -30,11 +30,11 @@ def get_image_input():
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
         st.image(image, caption='Uploaded Image.', width=200)
-        return uploaded_file, uploaded_file.name
+        return uploaded_file, uploaded_file.name, uploaded_file.type
         # image_base64 = encode_image(uploaded_file.getvalue())
         # return image_base64
     else:
-        return None, None
+        return None, None, None
     
 # Function to create a prompt for generating a threat model
 def create_image_description_prompt():
@@ -43,7 +43,7 @@ With the provided image, identify components, the role of the component, and the
     return prompt
 
 # Function to get image description from the GPT response.
-def get_image_description(api_key, model_name, prompt, image_type, image_base64):
+def get_image_description(api_key, model_name, prompt, image_type, image_base64, max_tokens=4000):
     client = OpenAI(api_key=api_key)
 
     response = client.chat.completions.create(
@@ -59,13 +59,13 @@ def get_image_description(api_key, model_name, prompt, image_type, image_base64)
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": "data:image/{image_type};base64,{image_base64}"
+                            "url": f"data:{image_type};base64,{image_base64}"
                         }
                     }
                 ],
             }
         ],
-        max_tokens=300,
+        max_tokens=max_tokens,
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
@@ -74,7 +74,7 @@ def get_image_description(api_key, model_name, prompt, image_type, image_base64)
     return response_content
 
 # Function to get image description from the Azure OpenAI response.
-def get_image_description_azure(api_endpoint, api_key, api_version, deployment_name, prompt, image_type, image_base64):
+def get_image_description_azure(api_endpoint, api_key, api_version, deployment_name, prompt, image_type, image_base64, max_tokens=4000):
     client = AzureOpenAI(
         azure_endpoint = api_endpoint,
         api_key = api_key,
@@ -94,13 +94,13 @@ def get_image_description_azure(api_endpoint, api_key, api_version, deployment_n
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f'data:image/{image_type};base64,{image_base64}'
+                                "url": f"data:{image_type};base64,{image_base64}"
                             }
                         }
                     ],
                 }
         ],
-        max_tokens=300,
+        max_tokens=max_tokens,
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
@@ -205,7 +205,7 @@ Example of expected JSON response format:
     return prompt
 
 # Function to get threat model from the GPT response.
-def get_threat_model(api_key, model_name, prompt):
+def get_threat_model(api_key, model_name, prompt, max_tokens=4000):
     client = OpenAI(api_key=api_key)
 
     response = client.chat.completions.create(
@@ -215,7 +215,7 @@ def get_threat_model(api_key, model_name, prompt):
             {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=4000,
+        max_tokens=max_tokens,
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary

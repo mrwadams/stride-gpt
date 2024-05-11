@@ -275,14 +275,14 @@ st.markdown("""---""")
 # ------------------ Main App UI ------------------ #
 
 # Get application description from image upload
-uploaded_image, uploaded_image_filename = hf.get_image_input()
+uploaded_image, uploaded_image_filename, filetype = hf.get_image_input()
 image_submit_button = st.button(label="Generate description from image")
 
 if image_submit_button and uploaded_image:
     # check file type
-    filetype = Path(uploaded_image_filename).suffix.lower()[1:]
-    if filetype not in ['jpg', 'jpeg', 'png']:
-        st.error("Please upload an image file in JPG, JPEG or PNG format.")
+    # filetype = Path(uploaded_image_filename).suffix.lower()[1:]
+    if filetype not in ['image/jpeg', 'image/png']:
+        st.error("Please upload an image file in JPEG or PNG format.")
         st.stop()
     else:
         uploaded_image_base64 = hf.encode_image(uploaded_image)
