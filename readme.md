@@ -36,8 +36,9 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
 - [ ] Update UI to support multiple languages
 - [ ] Add RAG feature to augment with data such as threat library, design patterns
+- [ ] Prompt templates for optimization
 - [ ] Add capability to map if threat model is generic or from specific RAG document
-- [ ] Add capability to generate compliance check and report
+- [ ] Add capability to generate compliance check and report against approved patterns
 - [ ] Provide mitigation map to policy control reference from RAG
 - [ ] Retrieve latest data from security data sources online, e.g. git
 - [ ] Change to use classes and wrapper code for different AI providers, e.g. OpenAI, Gemini, etc.
