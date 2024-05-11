@@ -44,6 +44,8 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - [ ] Change to use classes and wrapper code for different AI providers, e.g. OpenAI, Gemini, etc.
 - [ ] Support for more application types and fields, e.g. hardware devices, operating models
 
+![alt text](conceptual_architecture.png)
+
 ## Talk at Open Security Summit
 
 In January 2024 I gave a talk about STRIDE GPT at the [Open Security Summit](https://open-security-summit.org/sessions/2024/mini-summits/jan/threat-modeling/ai-driven-threat-modelling-with-stride-gpt/). During the talk, I discussed the project's inception, its core functionalities, recent updates, and some future plans. You can watch the full presentation below:
