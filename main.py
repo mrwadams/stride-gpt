@@ -1,9 +1,9 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_mistral, json_to_markdown
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_mistral
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
 
 # ------------------ Helper Functions ------------------ #
 
@@ -120,7 +120,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Azure OpenAI Service", "Mistral API"],
+        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -180,6 +180,28 @@ with st.sidebar:
         azure_api_version = '2023-12-01-preview' # Update this as needed
 
         st.write(f"Azure API Version: {azure_api_version}")
+
+    if model_provider == "Google AI API":
+        st.markdown(
+        """
+    1. Enter your [Google AI API key](https://makersuite.google.com/app/apikey) and chosen model below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        # Add OpenAI API key input field to the sidebar
+        google_api_key = st.text_input(
+            "Enter your Google AI API key:",
+            type="password",
+            help="You can generate a Google AI API key in the [Google AI Studio](https://makersuite.google.com/app/apikey).",
+        )
+
+        # Add model selection input field to the sidebar
+        google_model = st.selectbox(
+            "Select the model you would like to use:",
+            ["gemini-1.5-pro-latest"],
+            key="selected_model",
+        )
 
     if model_provider == "Mistral API":
         st.markdown(
@@ -294,38 +316,49 @@ with st.expander("Threat Model", expanded=False):
 
         # Show a spinner while generating the threat model
         with st.spinner("Analysing potential threats..."):
-            try:
-                # Call one of the get_threat_model functions with the generated prompt
-                if model_provider == "Azure OpenAI Service":
-                    model_output = get_threat_model_azure(azure_api_key, azure_deployment_name, threat_model_prompt)
-                elif model_provider == "OpenAI API":
-                    model_output = get_threat_model(openai_api_key, selected_model, threat_model_prompt)
-                elif model_provider == "Mistral API":
-                    model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
-                        
-                # Access the threat model and improvement suggestions from the parsed content
-                threat_model = model_output.get("threat_model", [])
-                improvement_suggestions = model_output.get("improvement_suggestions", [])
+            max_retries = 3
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    # Call one of the get_threat_model functions with the generated prompt
+                    if model_provider == "Azure OpenAI Service":
+                        model_output = get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, threat_model_prompt)
+                    elif model_provider == "OpenAI API":
+                        model_output = get_threat_model(openai_api_key, selected_model, threat_model_prompt)
+                    elif model_provider == "Google AI API":
+                        model_output = get_threat_model_google(google_api_key, google_model, threat_model_prompt)
+                    elif model_provider == "Mistral API":
+                        model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
 
-                # Save the threat model to the session state for later use in mitigations
-                st.session_state['threat_model'] = threat_model
+                    # Access the threat model and improvement suggestions from the parsed content
+                    threat_model = model_output.get("threat_model", [])
+                    improvement_suggestions = model_output.get("improvement_suggestions", [])
 
-                # Convert the threat model JSON to Markdown
-                markdown_output = json_to_markdown(threat_model, improvement_suggestions)
+                    # Save the threat model to the session state for later use in mitigations
+                    st.session_state['threat_model'] = threat_model
+                    break  # Exit the loop if successful
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count == max_retries:
+                        st.error(f"Error generating threat model after {max_retries} attempts: {e}")
+                        threat_model = []
+                        improvement_suggestions = []
+                    else:
+                        st.warning(f"Error generating threat model. Retrying attempt {retry_count+1}/{max_retries}...")
 
-                # Display the threat model in Markdown
-                st.markdown(markdown_output)
+        # Convert the threat model JSON to Markdown
+        markdown_output = json_to_markdown(threat_model, improvement_suggestions)
 
-            except Exception as e:
-                st.error(f"Error generating threat model: {e}")
+        # Display the threat model in Markdown
+        st.markdown(markdown_output)
 
-            # Add a button to allow the user to download the output as a Markdown file
-            st.download_button(
-                label="Download Threat Model",
-                data=markdown_output,  # Use the Markdown output
-                file_name="stride_gpt_threat_model.md",
-                mime="text/markdown",
-            )
+        # Add a button to allow the user to download the output as a Markdown file
+        st.download_button(
+            label="Download Threat Model",
+            data=markdown_output,  # Use the Markdown output
+            file_name="stride_gpt_threat_model.md",
+            mime="text/markdown",
+        )
 
     # If the submit button is clicked and the user has not provided an application description
     if threat_model_submit_button and not app_input:
@@ -337,66 +370,69 @@ with st.expander("Threat Model", expanded=False):
 
 # Create a collapsible section for Attack Tree
 with st.expander("Attack Tree", expanded=False):
-    if model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
-        st.warning("⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use the Mistral Large model for generating attack trees, or select a different model provider.")
-    # Create a submit button for Attack Tree
-    attack_tree_submit_button = st.button(label="Generate Attack Tree")
+    if model_provider == "Google AI API":
+        st.warning("⚠️ Google's safety filters prevent the reliable generation of attack trees. Please use a different model provider.")
+    else:
+        if model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
+            st.warning("⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use the Mistral Large model for generating attack trees, or select a different model provider.")
+        
+        # Create a submit button for Attack Tree
+        attack_tree_submit_button = st.button(label="Generate Attack Tree")
 
-    # If the Generate Attack Tree button is clicked and the user has provided an application description
-    if attack_tree_submit_button and app_input:
-        # Generate the prompt using the create_attack_tree_prompt function
-        attack_tree_prompt = create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
+        # If the Generate Attack Tree button is clicked and the user has provided an application description
+        if attack_tree_submit_button and app_input:
+            # Generate the prompt using the create_attack_tree_prompt function
+            attack_tree_prompt = create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
 
-        # Show a spinner while generating the attack tree
-        with st.spinner("Generating attack tree..."):
-            try:
-                # Call to either of the get_attack_tree functions with the generated prompt
-                if model_provider == "Azure OpenAI Service":
-                    mermaid_code = get_attack_tree_azure(azure_api_key, azure_deployment_name, attack_tree_prompt)
-                elif model_provider == "OpenAI API":
-                    mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
-                elif model_provider == "Mistral API":
-                    mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
+            # Show a spinner while generating the attack tree
+            with st.spinner("Generating attack tree..."):
+                try:
+                    # Call to either of the get_attack_tree functions with the generated prompt
+                    if model_provider == "Azure OpenAI Service":
+                        mermaid_code = get_attack_tree_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, attack_tree_prompt)
+                    elif model_provider == "OpenAI API":
+                        mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
+                    elif model_provider == "Mistral API":
+                        mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
 
-                # Display the generated attack tree code
-                st.write("Attack Tree Code:")
-                st.code(mermaid_code)
+                    # Display the generated attack tree code
+                    st.write("Attack Tree Code:")
+                    st.code(mermaid_code)
 
-                # Visualise the attack tree using the Mermaid custom component
-                st.write("Attack Tree Diagram Preview:")
-                mermaid(mermaid_code)
-                
-                col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
-                
-                with col1:              
-                    # Add a button to allow the user to download the Mermaid code
-                    st.download_button(
-                        label="Download Diagram Code",
-                        data=mermaid_code,
-                        file_name="attack_tree.md",
-                        mime="text/plain",
-                        help="Download the Mermaid code for the attack tree diagram."
-                    )
+                    # Visualise the attack tree using the Mermaid custom component
+                    st.write("Attack Tree Diagram Preview:")
+                    mermaid(mermaid_code)
+                    
+                    col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+                    
+                    with col1:              
+                        # Add a button to allow the user to download the Mermaid code
+                        st.download_button(
+                            label="Download Diagram Code",
+                            data=mermaid_code,
+                            file_name="attack_tree.md",
+                            mime="text/plain",
+                            help="Download the Mermaid code for the attack tree diagram."
+                        )
 
-                with col2:
-                    # Add a button to allow the user to open the Mermaid Live editor
-                    mermaid_live_button = st.link_button("Open Mermaid Live", "https://mermaid.live")
-                
-                with col3:
-                    # Blank placeholder
-                    st.write("")
-                
-                with col4:
-                    # Blank placeholder
-                    st.write("")
-                
-                with col5:
-                    # Blank placeholder
-                    st.write("")
+                    with col2:
+                        # Add a button to allow the user to open the Mermaid Live editor
+                        mermaid_live_button = st.link_button("Open Mermaid Live", "https://mermaid.live")
+                    
+                    with col3:
+                        # Blank placeholder
+                        st.write("")
+                    
+                    with col4:
+                        # Blank placeholder
+                        st.write("")
+                    
+                    with col5:
+                        # Blank placeholder
+                        st.write("")
 
-            except Exception as e:
-                st.error(f"Error generating attack tree: {e}")
-
+                except Exception as e:
+                    st.error(f"Error generating attack tree: {e}")
 
 
 # ------------------ Mitigations Generation ------------------ #
@@ -417,26 +453,39 @@ with st.expander("Mitigations", expanded=False):
 
             # Show a spinner while suggesting mitigations
             with st.spinner("Suggesting mitigations..."):
-                try:
-                    # Call to either of the get_mitigations functions with the generated prompt
-                    if model_provider == "Azure OpenAI Service":
-                        mitigations_markdown = get_mitigations_azure(azure_api_key, azure_deployment_name, mitigations_prompt)
-                    elif model_provider == "OpenAI API":
-                        mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
-                    elif model_provider == "Mistral API":
-                        mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Call to either of the get_mitigations functions with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            mitigations_markdown = get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, mitigations_prompt)
+                        elif model_provider == "OpenAI API":
+                            mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
+                        elif model_provider == "Google AI API":
+                            mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
+                        elif model_provider == "Mistral API":
+                            mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
 
-                    # Display the suggested mitigations in Markdown
-                    st.markdown(mitigations_markdown)
+                        # Display the suggested mitigations in Markdown
+                        st.markdown(mitigations_markdown)
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error suggesting mitigations after {max_retries} attempts: {e}")
+                            mitigations_markdown = ""
+                        else:
+                            st.warning(f"Error suggesting mitigations. Retrying attempt {retry_count+1}/{max_retries}...")
+            
+            st.markdown("")
 
-                    # Add a button to allow the user to download the mitigations as a Markdown file
-                    st.download_button(
-                        label="Download Mitigations",
-                        data=mitigations_markdown,
-                        file_name="mitigations.md",
-                        mime="text/markdown",
-                    )
-                except Exception as e:
-                    st.error(f"Error suggesting mitigations: {e}")
+            # Add a button to allow the user to download the mitigations as a Markdown file
+            st.download_button(
+                label="Download Mitigations",
+                data=mitigations_markdown,
+                file_name="mitigations.md",
+                mime="text/markdown",
+            )
         else:
             st.error("Please generate a threat model first before suggesting mitigations.")

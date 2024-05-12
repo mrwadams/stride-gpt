@@ -54,7 +54,7 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
     return attack_tree_code
 
 # Function to get attack tree from the Azure OpenAI response.
-def get_attack_tree_azure(api_key, model_name, prompt):
+def get_attack_tree_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(
         azure_endpoint = azure_api_endpoint,
         api_key = azure_api_key,
@@ -94,9 +94,8 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
 
     return attack_tree_code
 
-
 # Function to get attack tree from the Mistral model's response.
-def get_attack_tree_mistral(api_key, model_name, prompt):
+def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
     client = MistralClient(api_key=mistral_api_key)
 
     response = client.chat(
