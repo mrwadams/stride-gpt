@@ -44,6 +44,12 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
+### Version 0.7-beta
+
+- **Google AI Integration**
+- **Refactored Codebase**
+- **Bug Fixes**
+
 ### Version 0.6
 
 Version 0.6 introduces several new features and improvements to STRIDE GPT, enhancing its capabilities and user experience. Here's what's new:
