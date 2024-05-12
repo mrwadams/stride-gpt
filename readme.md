@@ -31,6 +31,8 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - [x] Add support for gpt-4-vision to enable multi-modal threat modelling
 - [x] Add support for local LLM llama and llava
 - [x] Add support for gemini-pro and gemini-pro-vision
+- [x] Add fields and prompt to include threats from development and operations
+- [x] Added reference to OWASP Top 10 and mapping to relevant MITRE ATT&CK Techniques
 - [ ] Autogenerate application descriptions based on README files in GitHub repositories
 - [ ] Customisable and exportable reports (e.g. PDF, Word, Excel) that include the generated threat model, attack tree, and mitigations
 - [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
@@ -43,6 +45,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - [ ] Retrieve latest data from security data sources online, e.g. git
 - [ ] Change to use classes and wrapper code for different AI providers, e.g. OpenAI, Gemini, etc.
 - [ ] Support for more application types and fields, e.g. hardware devices, operating models
+- [ ] Add MITRE ATT&CK and D3FEND mapping to identified threats
 
 ![alt text](conceptual_architecture.png)
 

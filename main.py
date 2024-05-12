@@ -323,7 +323,8 @@ with col1:
             "Desktop application",
             "Cloud application",
             "IoT application",
-            "Pheripheral device with driver",
+            "AI/ML application",
+            "Peripheral device with driver",
             "Other",
         ],
         key="app_type",
@@ -348,6 +349,13 @@ with col1:
         key="pam",
     )
 
+    development_model = st.multiselect(
+        label="Who develops the code for application?",
+        options=["Internal employee", "External vendor", "Open source community"],
+        key="development_model",
+    )
+
+
 # Create input fields for internet_facing and authentication
 with col2:
     internet_facing = st.selectbox(
@@ -362,6 +370,18 @@ with col2:
         key="authentication",
     )
 
+    remote_admin = st.selectbox(
+        label="Is remote administration allowed?",
+        options=["Yes, via secure VPN", "No"],
+        key="remote_admin",
+    )
+
+    operation_model = st.selectbox(
+        label="Who deploy and operate the application?",
+        options=["Internal employee", "Managed service provider"],
+        key="operation_model",
+    )
+
 
 # ------------------ Threat Model Generation ------------------ #
 
@@ -373,7 +393,7 @@ with st.expander("Threat Model", expanded=False):
     # If the Generate Threat Model button is clicked and the user has provided an application description
     if threat_model_submit_button and app_input:
         # Generate the prompt using the create_prompt function
-        threat_model_prompt = hf.create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
+        threat_model_prompt = hf.create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, pam, remote_admin, development_model, operation_model, app_input)
 
         # Show a spinner while generating the threat model
         with st.spinner("Analysing potential threats..."):
@@ -431,7 +451,7 @@ with st.expander("Attack Tree", expanded=False):
     # If the Generate Attack Tree button is clicked and the user has provided an application description
     if attack_tree_submit_button and app_input:
         # Generate the prompt using the create_attack_tree_prompt function
-        attack_tree_prompt = hf.create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input)
+        attack_tree_prompt = hf.create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, remote_admin, development_model, operation_model, app_input)
 
         # Show a spinner while generating the attack tree
         with st.spinner("Generating attack tree..."):
