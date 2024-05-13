@@ -1,7 +1,11 @@
+#main.py
+
+import base64
+
 import streamlit as st
 import streamlit.components.v1 as components
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown, get_image_analysis
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
 
@@ -52,65 +56,6 @@ with col2:
     st.image("logo.png", width=450)
 
 
-
-# ------------------ Main App UI ------------------ #
-
-# Get application description from the user
-app_input = get_input()
-
-# Create two columns layout for input fields
-col1, col2 = st.columns(2)
-
-# Create input fields for app_type, sensitive_data and pam
-with col1:
-    app_type = st.selectbox(
-        label="Select the application type",
-        options=[
-            "Web application",
-            "Mobile application",
-            "Desktop application",
-            "Cloud application",
-            "IoT application",
-            "Other",
-        ],
-        key="app_type",
-    )
-
-    sensitive_data = st.selectbox(
-        label="What is the highest sensitivity level of the data processed by the application?",
-        options=[
-            "Top Secret",
-            "Secret",
-            "Confidential",
-            "Restricted",
-            "Unclassified",
-            "None",
-        ],
-        key="sensitive_data",
-    )
-
-    pam = st.selectbox(
-        label="Are privileged accounts stored in a Privileged Access Management (PAM) solution?",
-        options=["Yes", "No"],
-        key="pam",
-    )
-
-# Create input fields for internet_facing and authentication
-with col2:
-    internet_facing = st.selectbox(
-        label="Is the application internet-facing?",
-        options=["Yes", "No"],
-        key="internet_facing",
-    )
-
-    authentication = st.multiselect(
-        "What authentication methods are supported by the application?",
-        ["SSO", "MFA", "OAUTH2", "Basic", "None"],
-        key="authentication",
-    )
-
-
-
 # ------------------ Sidebar ------------------ #
 
 # Add instructions on how to use the app to the sidebar
@@ -143,9 +88,9 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"],
+            ["gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
             key="selected_model",
-            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo-preview` point to the latest available version of each model.",
+            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo` point to the latest available version of each model.",
         )
 
     if model_provider == "Azure OpenAI Service":
@@ -299,6 +244,109 @@ with st.sidebar:
     )
 
 st.markdown("""---""")
+
+
+# ------------------ Main App UI ------------------ #
+
+# If model provider is OpenAI API and the model is gpt-4-turbo
+if model_provider == "OpenAI API" and selected_model == "gpt-4-turbo":
+    uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
+
+    if uploaded_file is not None:
+        # Check if the OpenAI API key is provided
+        if not openai_api_key:
+            st.error("Please enter your OpenAI API key to analyse the image.")
+        else:
+            # Check if the uploaded file has changed
+            if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
+                st.session_state.uploaded_file = uploaded_file
+                with st.spinner("Analysing the uploaded image..."):
+                    # Encode the uploaded image
+                    def encode_image(uploaded_file):
+                        return base64.b64encode(uploaded_file.read()).decode('utf-8')
+
+                    # Get the base64-encoded image string
+                    base64_image = encode_image(uploaded_file)
+
+                    # Call the get_image_analysis function with the uploaded image
+                    try:
+                        image_analysis_output = get_image_analysis(openai_api_key, selected_model, "", base64_image)
+                        image_analysis_content = image_analysis_output['choices'][0]['message']['content']
+
+                        # Store the analysis content in session state
+                        st.session_state.image_analysis_content = image_analysis_content
+                    except KeyError as e:
+                        st.error("Failed to analyze the image. Please check the API key and try again.")
+                        print(f"Error: {e}")
+
+            # Use the stored image analysis content
+            app_input = st.text_area(
+                label="Describe the application to be modelled",
+                value=st.session_state.get('image_analysis_content', ''),
+                height=150,
+                key="app_input",
+                help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
+            )
+    else:
+        # Clear the session state if no file is uploaded
+        if 'image_analysis_content' in st.session_state:
+            del st.session_state.image_analysis_content
+        # Get application description from the user
+        app_input = get_input()
+else:
+    # Get application description from the user
+    app_input = get_input()
+
+# Create two columns layout for input fields
+col1, col2 = st.columns(2)
+
+# Create input fields for app_type, sensitive_data and pam
+with col1:
+    app_type = st.selectbox(
+        label="Select the application type",
+        options=[
+            "Web application",
+            "Mobile application",
+            "Desktop application",
+            "Cloud application",
+            "IoT application",
+            "Other",
+        ],
+        key="app_type",
+    )
+
+    sensitive_data = st.selectbox(
+        label="What is the highest sensitivity level of the data processed by the application?",
+        options=[
+            "Top Secret",
+            "Secret",
+            "Confidential",
+            "Restricted",
+            "Unclassified",
+            "None",
+        ],
+        key="sensitive_data",
+    )
+
+    pam = st.selectbox(
+        label="Are privileged accounts stored in a Privileged Access Management (PAM) solution?",
+        options=["Yes", "No"],
+        key="pam",
+    )
+
+# Create input fields for internet_facing and authentication
+with col2:
+    internet_facing = st.selectbox(
+        label="Is the application internet-facing?",
+        options=["Yes", "No"],
+        key="internet_facing",
+    )
+
+    authentication = st.multiselect(
+        "What authentication methods are supported by the application?",
+        ["SSO", "MFA", "OAUTH2", "Basic", "None"],
+        key="authentication",
+    )
 
 
 

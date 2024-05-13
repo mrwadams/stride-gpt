@@ -1,4 +1,7 @@
+#threat_model.py
+
 import json
+import requests
 import google.generativeai as genai
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
@@ -67,6 +70,64 @@ Example of expected JSON response format:
 """
     return prompt
 
+def create_image_analysis_prompt(uploaded_image):
+    prompt = f"""
+    Imagine you are a senior software developer tasked with explaining the architecture of an application to a security architect. The goal is to initiate a thorough threat modeling process. 
+
+    You have an architecture diagram in front of you, which you need to analyze and describe. Your description should cover the key components, their interactions, and any visible technologies used. Mention any potential security considerations that can be inferred from the diagram. 
+
+    Provide your findings in a clear, structured format, suitable for a professional discussion with a focus on security planning. 
+
+    Here is the base64-encoded image of the architecture diagram to analyze:
+    {uploaded_image}
+
+    Please detail the following:
+    - Overview of the application architecture
+    - Identification of critical components
+    - Description of data flow between components
+    - Any visible security mechanisms (e.g., firewalls, authentication nodes)
+    - Potential security vulnerabilities or concerns visible in the diagram
+
+    Your response should help lay the groundwork for a detailed and effective threat modeling session.
+
+    IMPORTANT: Do not refer to "the image" or "the diagram" in your response, just describe the architecture.
+    """
+    return prompt
+
+# Function to get analyse uploaded architecture diagrams.
+def get_image_analysis(api_key, model_name, prompt, uploaded_image=None):
+    client = OpenAI(api_key=api_key)
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    messages = [
+        {"role": "system", "content": "Do not refer to 'the image' or 'the diagram' in your response, just describe the architecture."},
+        {"role": "user", "content": prompt}
+    ]
+
+    if uploaded_image:
+        # Include the image in the messages
+        messages.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{uploaded_image}"}}
+            ]
+        })
+
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "max_tokens": 4000
+    }
+
+    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    response_content = response.json()
+
+    return response_content
 
 # Function to get threat model from the GPT response.
 def get_threat_model(api_key, model_name, prompt):
