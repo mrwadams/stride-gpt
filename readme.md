@@ -28,7 +28,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - Available as a Docker container image for easy deployment
 
 ## Roadmap
-- [ ] Add support for gpt-4-vision to enable multi-modal threat modelling
+- [x] Add support for gpt-4-vision to enable multi-modal threat modelling
 - [ ] Autogenerate application descriptions based on README files in GitHub repositories
 - [ ] Customisable and exportable reports (e.g. PDF, Word) that include the generated threat model, attack tree, and mitigations
 - [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
