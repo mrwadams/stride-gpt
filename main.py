@@ -88,7 +88,7 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+            ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
             key="selected_model",
             help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo` point to the latest available version of each model.",
         )
@@ -249,7 +249,7 @@ st.markdown("""---""")
 # ------------------ Main App UI ------------------ #
 
 # If model provider is OpenAI API and the model is gpt-4-turbo
-if model_provider == "OpenAI API" and selected_model == "gpt-4-turbo":
+if model_provider == "OpenAI API" and selected_model == "gpt-4-turbo" or selected_model == "gpt-4o":
     uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
 
     if uploaded_file is not None:

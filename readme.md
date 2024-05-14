@@ -46,7 +46,7 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ### Version 0.7-beta
 
-- **Multi-Modal Threat Modelling**: STRIDE GPT now supports multi-modal threat modelling using OpenAI's GPT-4-Turbo model. Users can provide an image of an architecture diagram, flowchart, or other visual representations of their applications to enhance the threat modelling process. GPT-4-Turbo will analyse the image and generate a description of the application to be used in the threat model generation.
+- **Multi-Modal Threat Modelling**: STRIDE GPT now supports multi-modal threat modelling using OpenAI's GPT-4o and GPT-4-Turbo models. Users can provide an image of an architecture diagram, flowchart, or other visual representations of their applications to enhance the threat modelling process. The GPT-4 model will analyse the image and generate a description of the application to be used in the threat model generation.
 - **Google AI Integration**
 - **Refactored Codebase**
 - **Bug Fixes**
