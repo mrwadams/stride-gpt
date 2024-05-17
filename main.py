@@ -249,48 +249,52 @@ st.markdown("""---""")
 # ------------------ Main App UI ------------------ #
 
 # If model provider is OpenAI API and the model is gpt-4-turbo
-if model_provider == "OpenAI API" and selected_model == "gpt-4-turbo" or selected_model == "gpt-4o":
-    uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
+if model_provider == "OpenAI API":
+    if selected_model == "gpt-4-turbo" or selected_model == "gpt-4o":
+        uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
 
-    if uploaded_file is not None:
-        # Check if the OpenAI API key is provided
-        if not openai_api_key:
-            st.error("Please enter your OpenAI API key to analyse the image.")
+        if uploaded_file is not None:
+            # Check if the OpenAI API key is provided
+            if not openai_api_key:
+                st.error("Please enter your OpenAI API key to analyse the image.")
+            else:
+                # Check if the uploaded file has changed
+                if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
+                    st.session_state.uploaded_file = uploaded_file
+                    with st.spinner("Analysing the uploaded image..."):
+                        # Encode the uploaded image
+                        def encode_image(uploaded_file):
+                            return base64.b64encode(uploaded_file.read()).decode('utf-8')
+
+                        # Get the base64-encoded image string
+                        base64_image = encode_image(uploaded_file)
+
+                        # Call the get_image_analysis function with the uploaded image
+                        try:
+                            image_analysis_output = get_image_analysis(openai_api_key, selected_model, "", base64_image)
+                            image_analysis_content = image_analysis_output['choices'][0]['message']['content']
+
+                            # Store the analysis content in session state
+                            st.session_state.image_analysis_content = image_analysis_content
+                        except KeyError as e:
+                            st.error("Failed to analyze the image. Please check the API key and try again.")
+                            print(f"Error: {e}")
+
+                # Use the stored image analysis content
+                app_input = st.text_area(
+                    label="Describe the application to be modelled",
+                    value=st.session_state.get('image_analysis_content', ''),
+                    height=150,
+                    key="app_input",
+                    help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
+                )
         else:
-            # Check if the uploaded file has changed
-            if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
-                st.session_state.uploaded_file = uploaded_file
-                with st.spinner("Analysing the uploaded image..."):
-                    # Encode the uploaded image
-                    def encode_image(uploaded_file):
-                        return base64.b64encode(uploaded_file.read()).decode('utf-8')
-
-                    # Get the base64-encoded image string
-                    base64_image = encode_image(uploaded_file)
-
-                    # Call the get_image_analysis function with the uploaded image
-                    try:
-                        image_analysis_output = get_image_analysis(openai_api_key, selected_model, "", base64_image)
-                        image_analysis_content = image_analysis_output['choices'][0]['message']['content']
-
-                        # Store the analysis content in session state
-                        st.session_state.image_analysis_content = image_analysis_content
-                    except KeyError as e:
-                        st.error("Failed to analyze the image. Please check the API key and try again.")
-                        print(f"Error: {e}")
-
-            # Use the stored image analysis content
-            app_input = st.text_area(
-                label="Describe the application to be modelled",
-                value=st.session_state.get('image_analysis_content', ''),
-                height=150,
-                key="app_input",
-                help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
-            )
+            # Clear the session state if no file is uploaded
+            if 'image_analysis_content' in st.session_state:
+                del st.session_state.image_analysis_content
+            # Get application description from the user
+            app_input = get_input()
     else:
-        # Clear the session state if no file is uploaded
-        if 'image_analysis_content' in st.session_state:
-            del st.session_state.image_analysis_content
         # Get application description from the user
         app_input = get_input()
 else:
