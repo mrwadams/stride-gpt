@@ -1,7 +1,6 @@
 #main.py
 
 import base64
-
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -254,36 +253,33 @@ if model_provider == "OpenAI API":
         uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
 
         if uploaded_file is not None:
-            # Check if the OpenAI API key is provided
             if not openai_api_key:
                 st.error("Please enter your OpenAI API key to analyse the image.")
             else:
-                # Check if the uploaded file has changed
                 if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
                     st.session_state.uploaded_file = uploaded_file
                     with st.spinner("Analysing the uploaded image..."):
-                        # Encode the uploaded image
                         def encode_image(uploaded_file):
                             return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
-                        # Get the base64-encoded image string
                         base64_image = encode_image(uploaded_file)
 
-                        # Create image analysis prompt
-                        image_analysis_prompt = create_image_analysis_prompt(base64_image)
+                        image_analysis_prompt = create_image_analysis_prompt()
 
-                        # Call the get_image_analysis function with the generated prompt
                         try:
-                            image_analysis_output = get_image_analysis(openai_api_key, selected_model, image_analysis_prompt)
-                            image_analysis_content = image_analysis_output['choices'][0]['message']['content']
-
-                            # Store the analysis content in session state
-                            st.session_state.image_analysis_content = image_analysis_content
+                            image_analysis_output = get_image_analysis(openai_api_key, selected_model, image_analysis_prompt, base64_image)
+                            if image_analysis_output and 'choices' in image_analysis_output and image_analysis_output['choices']:
+                                image_analysis_content = image_analysis_output['choices'][0]['message']['content']
+                                st.session_state.image_analysis_content = image_analysis_content
+                            else:
+                                st.error("Failed to analyze the image. Please check the API key and try again.")
                         except KeyError as e:
                             st.error("Failed to analyze the image. Please check the API key and try again.")
                             print(f"Error: {e}")
+                        except Exception as e:
+                            st.error("An unexpected error occurred while analyzing the image.")
+                            print(f"Error: {e}")
 
-                # Use the stored image analysis content
                 app_input = st.text_area(
                     label="Describe the application to be modelled",
                     value=st.session_state.get('image_analysis_content', ''),
@@ -292,14 +288,12 @@ if model_provider == "OpenAI API":
                     help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
                 )
         else:
-            # Clear the session state if no file is uploaded
             if 'image_analysis_content' in st.session_state:
                 del st.session_state.image_analysis_content
-            # Get application description from the user
             app_input = get_input()
 else:
-    # Get application description from the user
     app_input = get_input()
+
 
 # Create two columns layout for input fields
 col1, col2 = st.columns(2)

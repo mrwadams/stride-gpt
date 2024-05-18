@@ -8,6 +8,8 @@ from mistralai.models.chat_completion import ChatMessage
 from openai import OpenAI
 from openai import AzureOpenAI
 
+import streamlit as st
+
 # Function to convert JSON to Markdown for display.    
 def json_to_markdown(threat_model, improvement_suggestions):
     markdown_output = "## Threat Model\n\n"
@@ -70,13 +72,10 @@ Example of expected JSON response format:
 """
     return prompt
 
-def create_image_analysis_prompt(uploaded_image):
-    prompt = f"""
+def create_image_analysis_prompt():
+    prompt = """
     You are a Senior Solution Architect tasked with explaining the following architecture diagram to 
     a Security Architect to support the threat modelling of the system.
-
-    Here is the base64-encoded image of the architecture diagram:
-    {uploaded_image}
 
     In order to complete this task you must:
 
@@ -88,7 +87,7 @@ def create_image_analysis_prompt(uploaded_image):
     discussion.
     
     IMPORTANT INSTRUCTIONS:
-     - Do not include any words before or after the explaining itself. For example, do not start your
+     - Do not include any words before or after the explanation itself. For example, do not start your
     explanation with "The image shows..." or "The diagram shows..." just start explaining the key components
     and other relevant details.
      - Do not infer or speculate about information that is not visible in the diagram. Only provide information that can be
@@ -97,28 +96,27 @@ def create_image_analysis_prompt(uploaded_image):
     return prompt
 
 # Function to get analyse uploaded architecture diagrams.
-def get_image_analysis(api_key, model_name, prompt, uploaded_image=None):
-    client = OpenAI(api_key=api_key)
-
+def get_image_analysis(api_key, model_name, prompt, base64_image):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
 
     messages = [
-        {"role": "system", "content": "Do not refer to 'the image' or 'the diagram' in your response, just describe the architecture."},
-        {"role": "user", "content": prompt}
-    ]
-
-    if uploaded_image:
-        # Include the image in the messages
-        messages.append({
+        {
             "role": "user",
             "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{uploaded_image}"}}
+                {
+                    "type": "text",
+                    "text": prompt
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                }
             ]
-        })
+        }
+    ]
 
     payload = {
         "model": model_name,
@@ -127,9 +125,20 @@ def get_image_analysis(api_key, model_name, prompt, uploaded_image=None):
     }
 
     response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-    response_content = response.json()
 
-    return response_content
+    # Log the response for debugging
+    try:
+        response.raise_for_status()  # Raise an HTTPError for bad responses
+        response_content = response.json()
+        return response_content
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err}")  # HTTP error
+    except Exception as err:
+        print(f"Other error occurred: {err}")  # Other errors
+
+    print(f"Response content: {response.content}")  # Log the response content for further inspection
+    return None
+
 
 # Function to get threat model from the GPT response.
 def get_threat_model(api_key, model_name, prompt):
