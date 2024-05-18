@@ -72,25 +72,27 @@ Example of expected JSON response format:
 
 def create_image_analysis_prompt(uploaded_image):
     prompt = f"""
-    Imagine you are a senior software developer tasked with explaining the architecture of an application to a security architect. The goal is to initiate a thorough threat modeling process. 
+    You are a Senior Solution Architect tasked with explaining the following architecture diagram to 
+    a Security Architect to support the threat modelling of the system.
 
-    You have an architecture diagram in front of you, which you need to analyze and describe. Your description should cover the key components, their interactions, and any visible technologies used. Mention any potential security considerations that can be inferred from the diagram. 
-
-    Provide your findings in a clear, structured format, suitable for a professional discussion with a focus on security planning. 
-
-    Here is the base64-encoded image of the architecture diagram to analyze:
+    Here is the base64-encoded image of the architecture diagram:
     {uploaded_image}
 
-    Please detail the following:
-    - Overview of the application architecture
-    - Identification of critical components
-    - Description of data flow between components
-    - Any visible security mechanisms (e.g., firewalls, authentication nodes)
-    - Potential security vulnerabilities or concerns visible in the diagram
+    In order to complete this task you must:
 
-    Your response should help lay the groundwork for a detailed and effective threat modeling session.
-
-    IMPORTANT: Do not refer to "the image" or "the diagram" in your response, just describe the architecture.
+      1. Analyse the diagram
+      2. Explain the system architecture to the Security Architect. Your explanation should cover the key 
+         components, their interactions, and any technologies used.
+    
+    Provide a direct explanation of the diagram in a clear, structured format, suitable for a professional 
+    discussion.
+    
+    IMPORTANT INSTRUCTIONS:
+     - Do not include any words before or after the explaining itself. For example, do not start your
+    explanation with "The image shows..." or "The diagram shows..." just start explaining the key components
+    and other relevant details.
+     - Do not infer or speculate about information that is not visible in the diagram. Only provide information that can be
+    directly determined from the diagram itself.
     """
     return prompt
 
