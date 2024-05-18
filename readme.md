@@ -20,15 +20,15 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 ## Features
 - Simple and user-friendly interface
 - Generates threat models based on the STRIDE methodology
+- 🆕 Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling 
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
-- Utilises either OpenAI or Mistral models for AI-driven threat analysis
 - No data storage; application details are not saved
-- Supports models accessed via OpenAI API, Azure OpenAI Service, or Mistral API
+- Supports models accessed via OpenAI API, Azure OpenAI Service, 🆕 Google AI API or Mistral API
 - Available as a Docker container image for easy deployment
 
 ## Roadmap
-- [x] Add support for gpt-4-vision to enable multi-modal threat modelling
+- [x] Add support for multi-modal threat modelling
 - [ ] Autogenerate application descriptions based on README files in GitHub repositories
 - [ ] Customisable and exportable reports (e.g. PDF, Word) that include the generated threat model, attack tree, and mitigations
 - [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
@@ -44,16 +44,18 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.7-beta
+### Version 0.7
 
-- **Multi-Modal Threat Modelling**: STRIDE GPT now supports multi-modal threat modelling using OpenAI's GPT-4o and GPT-4-Turbo models. Users can provide an image of an architecture diagram, flowchart, or other visual representations of their applications to enhance the threat modelling process. The GPT-4 model will analyse the image and generate a description of the application to be used in the threat model generation.
-- **Google AI Integration**
-- **Refactored Codebase**
-- **Bug Fixes**
+Version 0.7 introduces several new features and improvements to STRIDE GPT, enhancing its capabilities and user experience. Here's what's new:
+
+- **Multi-Modal Threat Modelling**: STRIDE GPT now supports multi-modal threat modelling using OpenAI's GPT-4o and GPT-4-Turbo models. Users can provide an image of an architecture diagram, flowchart, or other visual representations of their application to enhance the threat modelling process.
+- **Google AI Integration**: I've added support for Gemini 1.5 Pro via the Google AI API. Please note that Gemini doesn't consistently generate JSON output so you may need to retry some requests. In addition, Attack Trees can't be generated using Google AI models because of Google's safety restrictions.
+- **Refactored Codebase**: I've refactored some parts of the codebase to improve maintainability and readability. This should make it easier to add new features and enhancements in future releases.
+- **Bug Fixes**: Minor bug fixes and error handling improvements.
+
+This release represents a significant step forward for STRIDE GPT, providing users with more flexibility and options for threat modelling. I hope you enjoy using them!
 
 ### Version 0.6
-
-Version 0.6 introduces several new features and improvements to STRIDE GPT, enhancing its capabilities and user experience. Here's what's new:
 
 - **Mistral API Integration**: Users can now choose to use LLMs provided by Mistral AI to generate threat models, attack trees and mitigation suggestions. This provides an alternative to OpenAI's GPT models, offering greater flexibility and choice for users.
 
@@ -62,8 +64,6 @@ Version 0.6 introduces several new features and improvements to STRIDE GPT, enha
 - **Public Roadmap**: I've created a public roadmap to provide visibility into upcoming features and improvements.
 
 - **UI Enhancements**: I've made some minor updates to the UI to accommodate the new Mistral API integration and improve the overall user experience.
-
-These updates are designed to make STRIDE GPT more powerful and user-friendly tool, and I'm excited to see how they help users improve their threat modelling processes.
 
 ### Version 0.5
 
