@@ -5,7 +5,7 @@ import base64
 import streamlit as st
 import streamlit.components.v1 as components
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown, get_image_analysis
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown, get_image_analysis, create_image_analysis_prompt
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
 
@@ -269,9 +269,12 @@ if model_provider == "OpenAI API":
                         # Get the base64-encoded image string
                         base64_image = encode_image(uploaded_file)
 
-                        # Call the get_image_analysis function with the uploaded image
+                        # Create image analysis prompt
+                        image_analysis_prompt = create_image_analysis_prompt(base64_image)
+
+                        # Call the get_image_analysis function with the generated prompt
                         try:
-                            image_analysis_output = get_image_analysis(openai_api_key, selected_model, "", base64_image)
+                            image_analysis_output = get_image_analysis(openai_api_key, selected_model, image_analysis_prompt)
                             image_analysis_content = image_analysis_output['choices'][0]['message']['content']
 
                             # Store the analysis content in session state
@@ -294,9 +297,6 @@ if model_provider == "OpenAI API":
                 del st.session_state.image_analysis_content
             # Get application description from the user
             app_input = get_input()
-    else:
-        # Get application description from the user
-        app_input = get_input()
 else:
     # Get application description from the user
     app_input = get_input()
