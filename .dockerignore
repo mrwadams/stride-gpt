@@ -1,4 +1,6 @@
 .gitignore
 api_key.txt
 venv/
+__pycache__/
 test_functions.py
+
