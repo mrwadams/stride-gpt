@@ -139,7 +139,6 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
     print(f"Response content: {response.content}")  # Log the response content for further inspection
     return None
 
-
 # Function to get threat model from the GPT response.
 def get_threat_model(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
@@ -181,10 +180,7 @@ def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version,
 
     return response_content
 
-
 # Function to get threat model from the Google response.
-import json
-
 def get_threat_model_google(google_api_key, google_model, prompt):
     genai.configure(api_key=google_api_key)
     
