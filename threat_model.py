@@ -158,6 +158,7 @@ def get_threat_model(api_key, model_name, prompt):
 
     return response_content
 
+
 # Function to get threat model from the Azure OpenAI response.
 def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(
@@ -182,8 +183,6 @@ def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version,
 
 
 # Function to get threat model from the Google response.
-import json
-
 def get_threat_model_google(google_api_key, google_model, prompt):
     genai.configure(api_key=google_api_key)
     
