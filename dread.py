@@ -1,6 +1,7 @@
 import json
 import google.generativeai as genai
 from mistralai.client import MistralClient
+from mistralai.models.chat_completion import ChatMessage
 from openai import OpenAI
 from openai import AzureOpenAI
 
@@ -79,7 +80,7 @@ Ensure the JSON response is correctly formatted and does not contain any additio
 """
     return prompt
 
-# Function to get test cases from the GPT response.
+# Function to get DREAD risk assessment from the GPT response.
 def get_dread_assessment(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
@@ -100,12 +101,8 @@ def get_dread_assessment(api_key, model_name, prompt):
     
     return dread_assessment
 
-
-# TODO: Update the following functions to generate DREAD risk assessments.
-
-
-# Function to get mitigations from the Azure OpenAI response.
-def get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
+# Function to get DREAD risk assessment from the Azure OpenAI response.
+def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(
         azure_endpoint = azure_api_endpoint,
         api_key = azure_api_key,
@@ -114,51 +111,53 @@ def get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, 
 
     response = client.chat.completions.create(
         model = azure_deployment_name,
+        response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
             {"role": "user", "content": prompt}
         ]
     )
 
-    # Access the content directly as the response will be in text format
-    mitigations = response.choices[0].message.content
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    try:
+        dread_assessment = json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError as e:
+        st.write(f"JSON decoding error: {e}")
+        dread_assessment = {}
+    
+    return dread_assessment
 
-    return mitigations
-
-# Function to get mitigations from the Google model's response.
-def get_mitigations_google(google_api_key, google_model, prompt):
+# Function to get DREAD risk assessment from the Google model's response.
+def get_dread_assessment_google(google_api_key, google_model, prompt):
     genai.configure(api_key=google_api_key)
     model = genai.GenerativeModel(
         google_model,
-        system_instruction="You are a helpful assistant that provides threat mitigation strategies in Markdown format.",
-    )
+        generation_config={"response_mime_type": "application/json"})
     response = model.generate_content(prompt)
     try:
-        # Extract the text content from the 'candidates' attribute
-        mitigations = response.candidates[0].content.parts[0].text
-        # Replace '\n' with actual newline characters
-        mitigations = mitigations.replace('\\n', '\n')
-    except (IndexError, AttributeError) as e:
-        print(f"Error accessing response content: {str(e)}")
-        print("Raw response:")
-        print(response)
+        # Access the JSON content from the 'parts' attribute of the 'content' object
+        response_content = json.loads(response.candidates[0].content.parts[0].text)
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {str(e)}")
+        print("Raw JSON string:")
+        print(response.candidates[0].content.parts[0].text)
         return None
 
-    return mitigations
+    return response_content
 
-# Function to get mitigations from the Mistral model's response.
-def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
+# Function to get DREAD risk assessment from the Mistral model's response.
+def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     client = MistralClient(api_key=mistral_api_key)
 
     response = client.chat(
         model = mistral_model,
+        response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
-            {"role": "user", "content": prompt}
+            ChatMessage(role="user", content=prompt)
         ]
     )
 
-    # Access the content directly as the response will be in text format
-    mitigations = response.choices[0].message.content
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    response_content = json.loads(response.choices[0].message.content)
 
-    return mitigations
+    return response_content
