@@ -29,7 +29,7 @@ def json_to_markdown(threat_model, improvement_suggestions):
     return markdown_output
 
 # Function to create a prompt for generating a threat model
-def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input):
+def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
     prompt = f"""
 Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description and additional provided to you to produce a list of specific threats for the application.
 
@@ -43,7 +43,6 @@ APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
 INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
-PRIVILEGED ACCESS MANAGEMENT: {pam}
 APPLICATION DESCRIPTION: {app_input}
 
 Example of expected JSON response format:
