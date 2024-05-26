@@ -184,12 +184,10 @@ def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version,
 # Function to get threat model from the Google response.
 def get_threat_model_google(google_api_key, google_model, prompt):
     genai.configure(api_key=google_api_key)
-    
-    model = genai.GenerativeModel(google_model,
-                                  generation_config={"response_mime_type": "application/json"})
-
+    model = genai.GenerativeModel(
+        google_model,
+        generation_config={"response_mime_type": "application/json"})
     response = model.generate_content(prompt)
-
     try:
         # Access the JSON content from the 'parts' attribute of the 'content' object
         response_content = json.loads(response.candidates[0].content.parts[0].text)
