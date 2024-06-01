@@ -20,11 +20,13 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 ## Features
 - Simple and user-friendly interface
 - Generates threat models based on the STRIDE methodology
-- 🆕 Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling 
+- Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling 
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
+- 🆕 Supports DREAD risk scoring for identified threats
+- 🆕 Generates Gherkin test cases based on identified threats
 - No data storage; application details are not saved
-- Supports models accessed via OpenAI API, Azure OpenAI Service, 🆕 Google AI API or Mistral API
+- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API or Mistral API
 - Available as a Docker container image for easy deployment
 
 ## Roadmap
