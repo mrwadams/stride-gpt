@@ -44,7 +44,7 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.8
+### Version 0.8 (latest)
 
 Version 0.8 introduces new features and improvements that enhance STRIDE GPT's capabilities and user experience. Here's what's new:
 
@@ -53,8 +53,6 @@ Version 0.8 introduces new features and improvements that enhance STRIDE GPT's c
 - **Gherkin Test Cases**: Users can now generate Gherkin test cases based on the identified threats. This feature helps bridge the gap between threat modelling and testing, ensuring that security considerations are integrated into the testing process.
 
 - **UI Enhancements**: I've refreshed the user interface making it easier to navigate and interact with the application and its features.
-
-This release builds on the existing functionality of STRIDE GPT and further enhances its utility as an AI-powered threat modelling tool.
 
 ### Version 0.7
 
