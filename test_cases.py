@@ -14,8 +14,16 @@ Below is the list of identified threats:
 {threats}
 
 Use the threat descriptions in the 'Given' steps so that the test cases are specific to the threats identified.
+Put the Gherkin syntax inside triple backticks (```) to format the test cases in Markdown. Add a title for each test case.
+For example:
 
-YOUR RESPONSE (do not wrap in a code block):
+    ```gherkin
+    Given a user with a valid account
+    When the user logs in
+    Then the user should be able to access the system
+    ```
+
+YOUR RESPONSE (do not add introductory text, just provide the Gherkin test cases):
 """
     return prompt
 
