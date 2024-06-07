@@ -180,7 +180,7 @@ with st.sidebar:
         # Add LM Studio endpoint input field to the sidebar
         lmstudio_endpoint = st.text_input(
             "Enter your LM Studio endpoint:",
-            help="In most cases this will be http://localhost:1234/v1/chat/completions",
+            help="In most cases this will be http://localhost:1234/v1/",
         )
 
         lmstudio_model = st.text_input(

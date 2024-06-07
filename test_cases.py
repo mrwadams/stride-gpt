@@ -98,7 +98,7 @@ def get_test_cases_mistral(mistral_api_key, mistral_model, prompt):
     return test_cases
 
 # Function to get test cases from the GPT response.
-def get_test_cases(lmstudio_endpoint, model_name, prompt):
+def get_test_cases_lmstudio(lmstudio_endpoint, model_name, prompt):
     client = OpenAI(base_url=lmstudio_endpoint, api_key="lm-studio")
 
     response = client.chat.completions.create(
