@@ -4,13 +4,12 @@ from openai import OpenAI
 from openai import AzureOpenAI
 
 # Function to create a prompt to generate an attack tree
-def create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input):
+def create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
     prompt = f"""
 APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
 INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
-PRIVILEGED ACCESS MANAGEMENT: {pam}
 APPLICATION DESCRIPTION: {app_input}
 """
     return prompt

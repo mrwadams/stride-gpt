@@ -29,12 +29,11 @@ def json_to_markdown(threat_model, improvement_suggestions):
     return markdown_output
 
 # Function to create a prompt for generating a threat model
-def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, pam, app_input):
+def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
     prompt = f"""
 Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to use the application description and additional provided to you to produce a list of specific threats for the application.
 
 For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege), list multiple (3 or 4) credible threats if applicable. Each threat scenario should provide a credible scenario in which the threat could occur in the context of the application. It is very important that your responses are tailored to reflect the details you are given.
-
 
 When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact". 
 
@@ -44,7 +43,6 @@ APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
 INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
-PRIVILEGED ACCESS MANAGEMENT: {pam}
 APPLICATION DESCRIPTION: {app_input}
 
 Example of expected JSON response format:
@@ -159,6 +157,7 @@ def get_threat_model(api_key, model_name, prompt):
 
     return response_content
 
+
 # Function to get threat model from the Azure OpenAI response.
 def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(
@@ -183,16 +182,12 @@ def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version,
 
 
 # Function to get threat model from the Google response.
-import json
-
 def get_threat_model_google(google_api_key, google_model, prompt):
     genai.configure(api_key=google_api_key)
-    
-    model = genai.GenerativeModel(google_model,
-                                  generation_config={"response_mime_type": "application/json"})
-
+    model = genai.GenerativeModel(
+        google_model,
+        generation_config={"response_mime_type": "application/json"})
     response = model.generate_content(prompt)
-
     try:
         # Access the JSON content from the 'parts' attribute of the 'content' object
         response_content = json.loads(response.candidates[0].content.parts[0].text)
