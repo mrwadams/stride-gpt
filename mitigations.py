@@ -97,3 +97,21 @@ def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
     mitigations = response.choices[0].message.content
 
     return mitigations
+
+
+# Function to get mitigations from the GPT response.
+def get_mitigations_lmstudio(lmstudio_endpoint, model_name, prompt):
+    client = OpenAI(base_url=lmstudio_endpoint, api_key="lm-studio")
+
+    response = client.chat.completions.create(
+        model = model_name,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    mitigations = response.choices[0].message.content
+
+    return mitigations

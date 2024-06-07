@@ -161,3 +161,24 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     response_content = json.loads(response.choices[0].message.content)
 
     return response_content
+
+# Function to get DREAD risk assessment from the GPT response.
+def get_dread_assessment_lmstudio(lmstudio_endpoint, model_name, prompt):
+    client = OpenAI(base_url=lmstudio_endpoint, api_key="lm-studio")
+    response = client.chat.completions.create(
+        model=model_name,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    try:
+        dread_assessment = json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError as e:
+        st.write(f"JSON decoding error: {e}")
+        dread_assessment = {}
+    
+    return dread_assessment

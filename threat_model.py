@@ -215,3 +215,21 @@ def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
     response_content = json.loads(response.choices[0].message.content)
 
     return response_content
+
+def get_threat_model_lmstudio(lmstudio_endpoint, model_name, prompt):
+    client = OpenAI(base_url=lmstudio_endpoint, api_key="lm-studio")
+
+    response = client.chat.completions.create(
+        model=model_name,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=-1,
+    )
+
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    response_content = json.loads(response.choices[0].message.content)
+
+    return response_content

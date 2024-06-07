@@ -4,11 +4,11 @@ import base64
 import streamlit as st
 import streamlit.components.v1 as components
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown, get_image_analysis, create_image_analysis_prompt
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
-from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral
-from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, dread_json_to_markdown
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_lmstudio, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_lmstudio
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_lmstudio
+from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_lmstudio
+from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_lmstudio, dread_json_to_markdown
 
 # ------------------ Helper Functions ------------------ #
 
@@ -63,7 +63,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API"],
+        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API", "LMStudio Server"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -167,6 +167,28 @@ with st.sidebar:
             ["mistral-large-latest", "mistral-small-latest"],
             key="selected_model",
         )
+    
+    if model_provider == "LMStudio Server":
+        st.markdown(
+        """
+    1. Enter your LM Studio Server IP address 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        
+        # Add LM Studio endpoint input field to the sidebar
+        lmstudio_endpoint = st.text_input(
+            "Enter your LM Studio endpoint:",
+            help="In most cases this will be http://localhost:1234/v1/chat/completions",
+        )
+
+        lmstudio_model = st.text_input(
+            "Enter your LM Studio model name:",
+            help="Check the LM Studio Server examples to see which model name is in use (Publisher/Repository)",
+        )
+
+
 
     st.markdown("""---""")
 
@@ -374,6 +396,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_google(google_api_key, google_model, threat_model_prompt)
                     elif model_provider == "Mistral API":
                         model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
+                    elif model_provider == "LMStudio Server":
+                        model_output = get_threat_model_lmstudio(lmstudio_endpoint, lmstudio_model, threat_model_prompt)
 
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
@@ -445,6 +469,9 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
+                    elif model_provider == "LMStudio Server":
+                        mermaid_code = get_attack_tree_lmstudio(lm_studio_endpoint, lmstudio_model, attack_tree_prompt)
+                        
 
                     # Display the generated attack tree code
                     st.write("Attack Tree Code:")
@@ -523,6 +550,8 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
+                        elif model_provider == "LMStudio Server":
+                            mitigations_markdown = get_mitigations_lmstudio(lm_studio_endpoint, lmstudio_model, mitigations_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(mitigations_markdown)
@@ -581,6 +610,9 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                             dread_assessment = get_dread_assessment_google(google_api_key, google_model, dread_assessment_prompt)
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
+                        elif model_provider == "LMStudio Server":
+                            dread_assessment = get_dread_assessment_lmstudio(lm_studio_endpoint, lmstudio_model, dread_assessment_prompt)
+
                         # Save the DREAD assessment to the session state for later use in test cases
                         st.session_state['dread_assessment'] = dread_assessment
                         break  # Exit the loop if successful
@@ -644,6 +676,8 @@ scenarios.
                             test_cases_markdown = get_test_cases_google(google_api_key, google_model, test_cases_prompt)
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
+                        elif model_provider == "LMStudio Server":
+                            get_test_cases_lmstudio(lm_studio_endpoint, lmstudio_model, test_cases_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(test_cases_markdown)
