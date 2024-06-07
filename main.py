@@ -470,7 +470,7 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
                     elif model_provider == "LMStudio Server":
-                        mermaid_code = get_attack_tree_lmstudio(lm_studio_endpoint, lmstudio_model, attack_tree_prompt)
+                        mermaid_code = get_attack_tree_lmstudio(lmstudio_endpoint, lmstudio_model, attack_tree_prompt)
                         
 
                     # Display the generated attack tree code
@@ -551,7 +551,7 @@ the security posture of the application and protect against potential attacks.
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
                         elif model_provider == "LMStudio Server":
-                            mitigations_markdown = get_mitigations_lmstudio(lm_studio_endpoint, lmstudio_model, mitigations_prompt)
+                            mitigations_markdown = get_mitigations_lmstudio(lmstudio_endpoint, lmstudio_model, mitigations_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(mitigations_markdown)
@@ -611,7 +611,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
                         elif model_provider == "LMStudio Server":
-                            dread_assessment = get_dread_assessment_lmstudio(lm_studio_endpoint, lmstudio_model, dread_assessment_prompt)
+                            dread_assessment = get_dread_assessment_lmstudio(lmstudio_endpoint, lmstudio_model, dread_assessment_prompt)
 
                         # Save the DREAD assessment to the session state for later use in test cases
                         st.session_state['dread_assessment'] = dread_assessment
@@ -677,7 +677,7 @@ scenarios.
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
                         elif model_provider == "LMStudio Server":
-                            get_test_cases_lmstudio(lm_studio_endpoint, lmstudio_model, test_cases_prompt)
+                            get_test_cases_lmstudio(lmstudio_endpoint, lmstudio_model, test_cases_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(test_cases_markdown)
