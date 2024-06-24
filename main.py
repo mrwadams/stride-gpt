@@ -256,14 +256,14 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     # Two column layout for the main app content
     col1, col2 = st.columns([1, 1])
 
+    # Initialize app_input in the session state if it doesn't exist
+    if 'app_input' not in st.session_state:
+        st.session_state['app_input'] = ''
+
     # If model provider is OpenAI API and the model is gpt-4-turbo or gpt-4o
     with col1:
         if model_provider == "OpenAI API" and selected_model in ["gpt-4-turbo", "gpt-4o"]:
             uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
-
-            # Initialize app_input in the session state if it doesn't exist
-            if 'app_input' not in st.session_state:
-                st.session_state['app_input'] = ''
 
             if uploaded_file is not None:
                 if not openai_api_key:
@@ -295,25 +295,24 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                                 st.error("An unexpected error occurred while analyzing the image.")
                                 print(f"Error: {e}")
 
-                    # Use text_area with the session state value
-                    st.session_state['app_input'] = st.text_area(
-                        label="Describe the application to be modelled",
-                        value=st.session_state['app_input'],
-                        key="app_input_widget",
-                        help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
-                    )
-            else:
-                if 'image_analysis_content' in st.session_state:
-                    del st.session_state.image_analysis_content
-                
-                # Use get_input() function and update session state
-                st.session_state['app_input'] = get_input()
+            # Use text_area with the session state value and update the session state on change
+            app_input = st.text_area(
+                label="Describe the application to be modelled",
+                value=st.session_state['app_input'],
+                key="app_input_widget",
+                help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
+            )
+            # Update session state only if the text area content has changed
+            if app_input != st.session_state['app_input']:
+                st.session_state['app_input'] = app_input
 
         else:
-            # For other model providers or models, use the original get_input() function
-            st.session_state['app_input'] = get_input()
+            # For other model providers or models, use the get_input() function
+            app_input = get_input()
+            # Update session state
+            st.session_state['app_input'] = app_input
 
-    # Ensure app_input is always updated in session state
+    # Ensure app_input is always up to date in the session state
     app_input = st.session_state['app_input']
 
 
