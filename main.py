@@ -68,6 +68,7 @@ with st.sidebar:
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
 
+
     if model_provider == "OpenAI API":
         st.markdown(
         """
