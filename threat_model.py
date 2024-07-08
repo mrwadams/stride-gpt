@@ -35,7 +35,9 @@ Act as a cyber security expert with more than 20 years experience of using the S
 
 For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege), list multiple (3 or 4) credible threats if applicable. Each threat scenario should provide a credible scenario in which the threat could occur in the context of the application. It is very important that your responses are tailored to reflect the details you are given.
 
-When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact". 
+When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario","Potential Impact", and "MITRE ATT&CK Keywords". 
+
+Under "MITRE ATT&CK Keywords", include an array of relevant, descriptive keywords or phrases that accurately represent the threat scenario and can be used to search for corresponding MITRE ATT&CK techniques in the STIX data. Do not use fictional codes; instead, provide searchable terms that can be looked up in the MITRE ATT&CK STIX Data.
 
 Under "improvement_suggestions", include an array of strings with suggestions on how the threat modeller can improve their application description in order to allow the tool to produce a more comprehensive threat model.
 
@@ -52,12 +54,14 @@ Example of expected JSON response format:
         {{
           "Threat Type": "Spoofing",
           "Scenario": "Example Scenario 1",
-          "Potential Impact": "Example Potential Impact 1"
+          "Potential Impact": "Example Potential Impact 1",
+          "MITRE ATT&CK Keywords": ["Example Keyword 1", "Example Keyword 2"]
         }},
         {{
           "Threat Type": "Spoofing",
           "Scenario": "Example Scenario 2",
-          "Potential Impact": "Example Potential Impact 2"
+          "Potential Impact": "Example Potential Impact 2",
+          "MITRE ATT&CK Keywords": ["Example Keyword 1", "Example Keyword 2"]
         }},
         // ... more threats
       ],
