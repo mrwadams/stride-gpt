@@ -6,7 +6,8 @@ def fetch_mitre_attack_data():
     collections = api_root.collections
 
     # For demonstration, let's use the Enterprise ATT&CK collection
-    enterprise_attack_collection = collections[0]  # Ensure the correct index for your collection
+    # 2024-07-07: Updated to production TAXII 2.1
+    enterprise_attack_collection = collections[0]
     stix_data = enterprise_attack_collection.get_objects()
     
     return stix_data
