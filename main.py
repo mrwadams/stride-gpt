@@ -46,7 +46,7 @@ def mermaid(code: str, height: int = 500) -> None:
 # ------------------ Streamlit UI Configuration ------------------ #
 
 st.set_page_config(
-    page_title="STRIDE GPT",
+    page_title="adversys",
     page_icon=":shield:",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -57,7 +57,7 @@ st.set_page_config(
 st.sidebar.image("logo.png")
 
 # Add instructions on how to use the app to the sidebar
-st.sidebar.header("How to use STRIDE GPT")
+st.sidebar.header("How to use adversys")
 
 with st.sidebar:
     # Add model selection input field to the sidebar
@@ -175,12 +175,12 @@ st.sidebar.header("About")
 
 with st.sidebar:
     st.markdown(
-        "Welcome to STRIDE GPT, an AI-powered tool designed to help teams produce better threat models for their applications."
+        "Welcome to adversys, an AI-powered tool designed to help teams produce better threat models for their applications."
     )
     st.markdown(
-        "Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of Large Language Models (LLMs) to generate a threat list, attack tree and/or mitigating controls for an application based on the details provided."
+        "Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. adversys aims to help teams produce more comprehensive threat models by leveraging the power of Large Language Models (LLMs) to generate a threat list, attack tree and/or mitigating controls for an application based on the details provided."
     )
-    st.markdown("Created by [Matt Adams](https://www.linkedin.com/in/matthewrwadams/).")
+    st.markdown("Created by [Haydar Majeed](https://www.linkedin.com/in/haydarm/).")
     # Add "Star on GitHub" link to the sidebar
     st.sidebar.markdown(
         "⭐ Star on GitHub: [![Star on GitHub](https://img.shields.io/github/stars/mrwadams/stride-gpt?style=social)](https://github.com/mrwadams/stride-gpt)"
@@ -193,7 +193,7 @@ st.sidebar.header("Example Application Description")
 
 with st.sidebar:
     st.markdown(
-        "Below is an example application description that you can use to test STRIDE GPT:"
+        "Below is an example application description that you can use to test adversys:"
     )
     st.markdown(
         "> A web application that allows users to create, store, and share personal notes. The application is built using the React frontend framework and a Node.js backend with a MongoDB database. Users can sign up for an account and log in using OAuth2 with Google or Facebook. The notes are encrypted at rest and are only accessible by the user who created them. The application also supports real-time collaboration on notes with other users."
@@ -212,14 +212,14 @@ with st.sidebar:
     )
     st.markdown(
         """
-    ### **How does STRIDE GPT work?**
+    ### **How does adversys work?**
     When you enter an application description and other relevant details, the tool will use a GPT model to generate a threat model for your application. The model uses the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
     """
     )
     st.markdown(
         """
     ### **Do you store the application details provided?**
-    No, STRIDE GPT does not store your application description or other details. All entered data is deleted after you close the browser tab.
+    No, adversys does not store your application description or other details. All entered data is deleted after you close the browser tab.
     """
     )
     st.markdown(
@@ -231,7 +231,7 @@ with st.sidebar:
     st.markdown(
         """
     ### **Are the threat models 100% accurate?**
-    No, the threat models are not 100% accurate. STRIDE GPT uses GPT Large Language Models (LLMs) to generate its output. The GPT models are powerful, but they sometimes makes mistakes and are prone to 'hallucinations' (generating irrelevant or inaccurate content). Please use the output only as a starting point for identifying and addressing potential security risks in your applications.
+    No, the threat models are not 100% accurate. adversys uses GPT Large Language Models (LLMs) to generate its output. The GPT models are powerful, but they sometimes makes mistakes and are prone to 'hallucinations' (generating irrelevant or inaccurate content). Please use the output only as a starting point for identifying and addressing potential security risks in your applications.
     """
     )
     st.markdown(
