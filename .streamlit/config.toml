@@ -1,0 +1,6 @@
+[theme]
+primaryColor="#4CAF50"  # A fresh green color
+backgroundColor="#FFFFFF"  # White background for a clean look
+secondaryBackgroundColor="#F0F0F0"  # Light grey for secondary background
+textColor="#333333"  # Dark grey for text
+font="sans serif"

@@ -1,0 +1,3 @@
+so the issue is that mistral requires a newer version of pydantic and langchain requires an older one for this to work so in this case I need to get rid of mistral ai as we have seen from this error:
+
+mistralai package requires pydantic version >=2.5.2
