@@ -3,3 +3,12 @@ myenv/
 __pycache__/
 .env
 
+# ignote data directory
+data/
+
+# ignore chroma directory
+chroma/
+
+# ignore embedding statistics directory
+embedding_statistics/
+
