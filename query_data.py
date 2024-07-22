@@ -1,6 +1,6 @@
 import argparse
 from langchain.prompts import ChatPromptTemplate
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from db_ops import reload_chroma_db
 from get_embedding_function import get_embedding_function
@@ -13,18 +13,18 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 
 PROMPT_TEMPLATE = """
-BMSbot is a large language model trained by Meta.
+Bolt is a large language model trained by Adversys.
 
-BMSbot is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, BMSbot is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
+Bolt is designed to be able to assist with a wide range of tasks, from answering simple questions to providing in-depth explanations and discussions on a wide range of topics. As a language model, Bolt is able to generate human-like text based on the input it receives, allowing it to engage in natural-sounding conversations and provide responses that are coherent and relevant to the topic at hand.
 
-BMSbot is constantly learning and improving, and its capabilities are constantly evolving. It is able to process and understand large amounts of text, and can use this knowledge to provide accurate and informative responses to a wide range of questions. Additionally, BMSbot is able to generate its own text based on the input it receives, allowing it to engage in discussions and provide explanations and descriptions on a wide range of topics.
+Bolt is constantly learning and improving, and its capabilities are constantly evolving. It is able to process and understand large amounts of text, and can use this knowledge to provide accurate and informative responses to a wide range of questions. Additionally, Bolt is able to generate its own text based on the input it receives, allowing it to engage in discussions and provide explanations and descriptions on a wide range of topics.
 
-Overall, BMSbot is a powerful tool that can help with a wide range of tasks and provide valuable insights and information on a wide range of topics. Whether you need help with a specific question or just want to have a conversation about a particular topic, BMSbot is here to assist.
+Overall, Bolt is a powerful tool that can help with a wide range of tasks and provide valuable insights and information on a wide range of topics. Whether you need help with a specific question or just want to have a conversation about a particular topic, Bolt is here to assist.
 
 Previous conversation history:
 {chat_history}
 
-the user will typically ask BMSbot a specific question.
+the user will typically ask Bolt a specific question.
 
 Answer the question based only on the following context if appropriate:
 
@@ -43,7 +43,7 @@ def setup_chroma_db():
 
 def query_rag(query_text: str, chat_history: str, fetch_context: bool, chroma_db, route: str):
     try:
-        model = ChatOpenAI(model="gpt-3.5-turbo")
+        model = ChatOpenAI(model="gpt-4o-mini")
 
         if fetch_context:
             chroma_db = setup_chroma_db()

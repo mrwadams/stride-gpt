@@ -31,17 +31,19 @@ from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_
 # UI operations class
 class UIOps:
     def __init__(self):
-        self.chat_history = ""
         self.chroma_db = None
 
-    def handle_text_submission(self, text):
+    def handle_text_submission(self, text, chat_history):
         user_input = text
-        self.chat_history += f"User: {user_input}\n"
+        chat_history += f"User: {user_input}\n"
+        print("chat_history: ", chat_history)
+        print("END OF CHAT HISTORY ------------------------------------------------------")
         
-        result = query_rag(user_input, self.chat_history, fetch_context=True, chroma_db=self.chroma_db, route = None)
-        self.chat_history += f"Bot: {result}\n"
+        result = query_rag(user_input, chat_history, fetch_context=True, chroma_db=self.chroma_db, route=None)
+        result = result.content
+        chat_history += f"Bot: {result}\n"
         
-        return result
+        return result, chat_history
 
 ui_ops = UIOps()
 
@@ -662,21 +664,21 @@ def main():
             """)
     elif selected == "Copilot":
 
+        # Title of the page
         st.title("Copilot Page")
 
         # Define sections with appropriate spacing and headers
 
         # Chats section
         st.subheader("Chats")
-        st.session_state.history = []
-        ui_ops.chat_history = ""
+        if "history" not in st.session_state:
+            st.session_state.history = []
+
         st.text("(Chat list would appear here)")
         st.markdown("---")  # Add a horizontal rule for separation
 
         # Chatbox section
         st.subheader("Chatbox")
-        if "history" not in st.session_state:
-            st.session_state.history = []
 
         # Display chat history
         chat_history_container = st.container()
@@ -689,7 +691,9 @@ def main():
         send_button = st.button("Send", key="send_button")
 
         if send_button and chat_input:
-            result = ui_ops.handle_text_submission(chat_input)
+            history_text = "\n".join([f"{speaker}: {message}" for speaker, message in st.session_state.history])
+            result, updated_history = ui_ops.handle_text_submission(chat_input, history_text)
+            
             st.session_state.history.append(("User", chat_input))
             st.session_state.history.append(("Bot", result))
 
