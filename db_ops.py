@@ -19,36 +19,48 @@ PDF_DATA_PATH = './data/pdf'
 CSV_DATA_PATH = './data/csv'
 CHROMA_PATH = "chroma"
 
+import os
+import shutil
+
 def add_data(file):
     data_dir = "data"
     pdf_dir = os.path.join(data_dir, "pdf")
     csv_dir = os.path.join(data_dir, "csv")
+
+    # Print current working directory
+    current_working_directory = os.getcwd()
+    print(f"Current working directory: {current_working_directory}")
 
     # Create directories if they don't exist
     for directory in [pdf_dir, csv_dir]:
         if not os.path.exists(directory):
             try:
                 os.makedirs(directory)
+                print(f"Created directory {directory}")
             except Exception as e:
                 print(f"Failed to create directory {directory}: {e}")
                 return
 
     # Determine the destination directory based on the file type
     if file.name.endswith(".pdf"):
+        print(f"File type: pdf")
         destination_dir = pdf_dir
     elif file.name.endswith(".csv"):
+        print(f"File type: csv")
         destination_dir = csv_dir
     else:
         print("Unsupported file type. Only PDF and CSV files are supported.")
+        print(f"File type: {file.name.split('.')[-1]}")
         return
 
     file_path = os.path.join(destination_dir, os.path.basename(file.name))
+    print(f"Destination directory: {destination_dir}")
+    print(f"File path: {file_path}")
 
-    try:
-        shutil.move(file.name, file_path)
-    except Exception as e:
-        print(f"Error moving file {file.name} to {file_path}: {e}")
-        return
+    # Save the uploaded file to the destination directory
+    with open(file_path, "wb") as f:
+        f.write(file.getbuffer())
+    print(f"Saved file {file.name} to {file_path}")
 
     if not os.path.exists(file_path):
         print(f"File {file_path} does not exist after attempting to save it.")
@@ -56,6 +68,8 @@ def add_data(file):
 
     populate_database()
     reload_chroma_db()
+    print(f"File {file_path} processed successfully.")
+
 
 def populate_database(reset=False):
     if reset:

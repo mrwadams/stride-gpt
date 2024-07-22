@@ -32,12 +32,13 @@ from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_
 class UIOps:
     def __init__(self):
         self.chat_history = ""
+        self.chroma_db = None
 
     def handle_text_submission(self, text):
         user_input = text
         self.chat_history += f"User: {user_input}\n"
         
-        result = query_rag(user_input, self.chat_history, fetch_context=True)
+        result = query_rag(user_input, self.chat_history, fetch_context=True, chroma_db=self.chroma_db, route = None)
         self.chat_history += f"Bot: {result}\n"
         
         return result
@@ -660,39 +661,51 @@ def main():
             authentication methods, and other relevant details. The more information you provide, the more accurate the threat models will be.
             """)
     elif selected == "Copilot":
+
         st.title("Copilot Page")
 
-        col1, col2, col3 = st.columns([1, 2, 1])
+        # Define sections with appropriate spacing and headers
 
-        with col1:
-            st.subheader("Chats")
-            if st.button("+ New Chat"):
-                st.session_state.history = []
-                ui_ops.chat_history = ""
-            st.text("(Chat list would appear here)")
+        # Chats section
+        st.subheader("Chats")
+        st.session_state.history = []
+        ui_ops.chat_history = ""
+        st.text("(Chat list would appear here)")
+        st.markdown("---")  # Add a horizontal rule for separation
 
-        with col2:
-            st.subheader("Chatbox")
-            if "history" not in st.session_state:
-                st.session_state.history = []
+        # Chatbox section
+        st.subheader("Chatbox")
+        if "history" not in st.session_state:
+            st.session_state.history = []
 
-            chat_input = st.text_input("Send a message...")
-            if st.button("Send"):
-                if chat_input:
-                    result = ui_ops.handle_text_submission(chat_input)
-                    st.session_state.history.append(("User", chat_input))
-                    st.session_state.history.append(("Bot", result))
-
+        # Display chat history
+        chat_history_container = st.container()
+        with chat_history_container:
             for speaker, message in st.session_state.history:
-                st.write(f"{speaker}: {message}")
+                st.markdown(f"**{speaker}**: {message}")
 
-        with col3:
-            st.subheader("Local Docs")
-            uploaded_file = st.file_uploader("+ Add Docs")
-            if uploaded_file:
-                add_data(uploaded_file)
-                st.success("Document added successfully")
-                st.text("Select a collection to make it available to the chat model")
+        # Chat input and send button
+        chat_input = st.text_input("Send a message...", key="chat_input")
+        send_button = st.button("Send", key="send_button")
+
+        if send_button and chat_input:
+            result = ui_ops.handle_text_submission(chat_input)
+            st.session_state.history.append(("User", chat_input))
+            st.session_state.history.append(("Bot", result))
+
+            # Update chat history
+            with chat_history_container:
+                st.markdown(f"**User**: {chat_input}")
+                st.markdown(f"**Bot**: {result}")
+        st.markdown("---")  # Add a horizontal rule for separation
+
+        # Local Docs section
+        st.subheader("Local Docs")
+        uploaded_file = st.file_uploader("Add Docs")
+        if uploaded_file:
+            add_data(uploaded_file)
+            st.success("Document added successfully")
+            st.text("Select a collection to make it available to the chat model")
     else:
         st.title(f"{selected} Page")
         st.write("This page is under construction.")
