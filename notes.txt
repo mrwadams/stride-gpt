@@ -1,3 +1,16 @@
 so the issue is that mistral requires a newer version of pydantic and langchain requires an older one for this to work so in this case I need to get rid of mistral ai as we have seen from this error:
 
 mistralai package requires pydantic version >=2.5.2
+
+
+TODO:
+
+connect a database that will compile all of the text output by the threat model and store it by date
+
+have a way to select from each of these dates on the copilot page 
+
+when you select a date it adds that as context to the bot from the vector store but will probably just be the raw text as a POC at first
+
+create a function to call the chatgpt api for multiple questions based on the date one date and output them to an excel file 
+
+turn the above functionality into an excel plugin
