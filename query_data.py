@@ -11,7 +11,6 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
-
 PROMPT_TEMPLATE = """
 Bolt is a large language model trained by Adversys.
 
@@ -43,6 +42,8 @@ def setup_chroma_db():
 
 def query_rag(query_text: str, chat_history: str, fetch_context: bool, chroma_db, route: str):
     try:
+        print("Querying RAG")
+        print("openai key: ", OPENAI_API_KEY)
         model = ChatOpenAI(model="gpt-4o-mini")
 
         if fetch_context:
