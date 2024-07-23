@@ -86,9 +86,9 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
+            ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
             key="selected_model",
-            help="OpenAI have moved to continuous model upgrades so `gpt-3.5-turbo`, `gpt-4` and `gpt-4-turbo` point to the latest available version of each model.",
+            help="GPT-4o and GPT-4o mini are OpenAI's latest models and are recommended."
         )
 
     if model_provider == "Azure OpenAI Service":
@@ -262,7 +262,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
 
     # If model provider is OpenAI API and the model is gpt-4-turbo or gpt-4o
     with col1:
-        if model_provider == "OpenAI API" and selected_model in ["gpt-4-turbo", "gpt-4o"]:
+        if model_provider == "OpenAI API" and selected_model in ["gpt-4-turbo", "gpt-4o", "gpt-4o-mini"]:
             uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
 
             if uploaded_file is not None:
