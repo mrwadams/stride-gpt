@@ -9,8 +9,38 @@ from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_t
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral
 from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, dread_json_to_markdown
+from mitre_attack import fetch_mitre_attack_data, process_mitre_attack_data
 
 # ------------------ Helper Functions ------------------ #
+
+# Function to display MITRE ATT&CK data
+def display_mitre_data(mitre_data):
+    for entry in mitre_data:
+        st.write(f"### Threat: {entry['threat']['Threat Type']}")
+        st.write(f"**Scenario**: {entry['threat']['Scenario']}")
+        st.write(f"**Potential Impact**: {entry['threat']['Potential Impact']}")
+        if entry['mitre_techniques']:
+            st.write("#### MITRE ATT&CK Techniques")
+            for item in entry['mitre_techniques']:
+                st.write(f"**Name**: {item['name']}")
+                st.write(f"  - **Description**: {item['description']}")
+                st.write(f"  - **ID**: {item['id']}")
+                st.write("---")
+        else:
+            st.write("- No relevant MITRE ATT&CK techniques found.")
+        st.write("---")
+# Main function to handle MITRE ATT&CK data fetching and displaying
+def handle_mitre_data():
+    with st.spinner("Fetching MITRE ATT&CK data..."):
+        try:
+            stix_data = fetch_mitre_attack_data()
+            
+            threat_model = st.session_state.get('threat_model', [])
+            
+            mitre_data = process_mitre_attack_data(stix_data, threat_model)
+            display_mitre_data(mitre_data)
+        except Exception as e:
+            st.error(f"Error fetching MITRE ATT&CK data: {e}")
 
 # Function to get user input for the application description and key details
 def get_input():
@@ -67,6 +97,7 @@ with st.sidebar:
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
+
 
     if model_provider == "OpenAI API":
         st.markdown(
@@ -244,7 +275,7 @@ with st.sidebar:
 
 # ------------------ Main App UI ------------------ #
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases", "MITRE ATT&CK"])
 
 with tab1:
     st.markdown("""
@@ -390,6 +421,13 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
                     improvement_suggestions = model_output.get("improvement_suggestions", [])
+                    
+                    # Ensure MITRE ATT&CK Keyword is included
+                    for threat in threat_model:
+                        if 'MITRE ATT&CK Keywords' not in threat or not threat['MITRE ATT&CK Keywords']:
+                            threat['MITRE ATT&CK Keywords'] = f"{threat.get('Scenario', '')} Potential impact: {threat.get('Potential Impact', '')}"
+
+
 
                     # Save the threat model to the session state for later use in mitigations
                     st.session_state['threat_model'] = threat_model
@@ -679,3 +717,25 @@ scenarios.
             )
         else:
             st.error("Please generate a threat model first before requesting test cases.")
+
+# ------------------ MITRE ATT&CK Data ------------------ #
+
+with tab6:
+    st.markdown("""
+Mapping MITRE ATT&CK techniques helps in identifying and understanding the tactics, techniques, and procedures (TTPs) used by adversaries to compromise systems and data. This feature allows you to map the generated threats from your threat model to relevant MITRE ATT&CK techniques.
+
+The MITRE ATT&CK framework is a globally accessible knowledge base of adversary tactics and techniques based on real-world observations. It provides a common language to describe how adversaries operate and is used to develop and improve security models and defenses.
+
+We utilize MITRE ATT&CK STIX 2.1 data, a standardized format for representing threat intelligence, to enrich your threat model. By mapping your threats to this data, you gain deeper insights into potential attack vectors, helping to improve the overall security posture of your application.
+""")
+    st.markdown("""---""")
+
+    # Create a submit button for mapping MITRE ATT&CK TTPs
+    map_mitre_ttp_button = st.button(label="Map MITRE Tactics, Techniques, and Procedures")
+    
+    if 'threat_model' not in st.session_state or not st.session_state['threat_model']:
+        st.error("Please generate a threat model first before requesting MITRE ATT&CK data.")
+    else:
+        if map_mitre_ttp_button:
+            handle_mitre_data()
+
