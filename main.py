@@ -142,7 +142,7 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-1.5-pro-latest"],
+            ["gemini-1.5-pro-latest", "gemini-1.5-pro"],
             key="selected_model",
         )
 
