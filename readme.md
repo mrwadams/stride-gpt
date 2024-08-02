@@ -46,9 +46,17 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.8 (latest)
+### Version 0.8.1 (latest)
 
-Version 0.8 introduces new features and improvements that enhance STRIDE GPT's capabilities and user experience. Here's what's new:
+This release adds support for the following models:
+
+- **GPT4o mini**: I've added support for OpenAI's recently released GPT4o mini model. GPT4o mini is a cost-efficient small model that still provides high-quality responses for threat modelling tasks.
+
+- **Gemini 1.5 Pro (stable)**: Users can now choose from either the stable or preview versions of the Gemini 1.5 Pro model.
+
+### Version 0.8
+
+Release highlights:
 
 - **DREAD Risk Scoring**: STRIDE GPT now supports DREAD risk scoring, allowing users to assign risk scores to identified threats based on the DREAD model. This feature provides a more comprehensive threat assessment and helps prioritise mitigation efforts.
 
@@ -65,6 +73,8 @@ Release highlights:
 - **Refactored Codebase**: I've refactored some parts of the codebase to improve maintainability and readability. This should make it easier to add new features and enhancements in future releases.
 - **Bug Fixes**: Minor bug fixes and error handling improvements.
 
+<details>
+  <summary>Click to view release notes for earlier versions.</summary>
 
 ### Version 0.6
 
@@ -78,8 +88,6 @@ Release highlights:
 
 - **UI Enhancements**: I've made some minor updates to the UI to accommodate the new Mistral API integration and improve the overall user experience.
 
-<details>
-  <summary>Click to view release notes for earlier versions.</summary>
 
 ### Version 0.5
 
