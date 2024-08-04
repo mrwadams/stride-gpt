@@ -1,10 +1,8 @@
-import json
 import re
 import requests
 import streamlit as st
 from mistralai.client import MistralClient
-from openai import OpenAI
-from openai import AzureOpenAI
+from openai import OpenAI, AzureOpenAI
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):

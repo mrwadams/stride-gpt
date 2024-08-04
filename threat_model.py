@@ -1,14 +1,11 @@
-#threat_model.py
-
 import json
 import requests
-import google.generativeai as genai
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
-from openai import OpenAI
-from openai import AzureOpenAI
-
+from openai import OpenAI, AzureOpenAI
 import streamlit as st
+
+import google.generativeai as genai
 
 # Function to convert JSON to Markdown for display.    
 def json_to_markdown(threat_model, improvement_suggestions):

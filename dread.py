@@ -1,13 +1,12 @@
 import json
 import requests
 import time
-import google.generativeai as genai
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
-from openai import OpenAI
-from openai import AzureOpenAI
-
+from openai import OpenAI, AzureOpenAI
 import streamlit as st
+
+import google.generativeai as genai
 
 def dread_json_to_markdown(dread_assessment):
     markdown_output = "| Threat Type | Scenario | Damage Potential | Reproducibility | Exploitability | Affected Users | Discoverability | Risk Score |\n"
