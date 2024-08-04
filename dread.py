@@ -1,4 +1,6 @@
 import json
+import requests
+import time
 import google.generativeai as genai
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
@@ -182,3 +184,51 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
         dread_assessment = {}
 
     return dread_assessment
+
+# Function to get DREAD risk assessment from Ollama hosted LLM.
+def get_dread_assessment_ollama(ollama_model, prompt):
+    url = "http://localhost:11434/api/chat"
+    max_retries = 3
+    retry_delay = 2  # seconds
+
+    for attempt in range(1, max_retries + 1):
+        data = {
+            "model": ollama_model,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "system", 
+                    "content": "You are a helpful assistant designed to output JSON. Only provide the DREAD risk assessment in JSON format with no additional text."
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "format": "json"
+                }
+            ]
+        }
+        
+        try:
+            response = requests.post(url, json=data)
+            outer_json = response.json()
+            response_content = outer_json["message"]["content"]
+
+            # Attempt to parse JSON
+            dread_assessment = json.loads(response_content)
+            return dread_assessment
+
+        except json.JSONDecodeError as e:
+            st.error(f"Attempt {attempt}: Error decoding JSON. Retrying...")
+            print(f"Error decoding JSON: {str(e)}")
+            print("Raw JSON string:")
+            print(response_content)
+            
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+            else:
+                st.error("Max retries reached. Unable to generate valid JSON response.")
+                return {}
+
+    # This line should never be reached due to the return statements above,
+    # but it's here as a fallback
+    return {}

@@ -1,3 +1,4 @@
+import requests
 import google.generativeai as genai
 from mistralai.client import MistralClient
 from openai import OpenAI
@@ -96,3 +97,30 @@ def get_test_cases_mistral(mistral_api_key, mistral_model, prompt):
     test_cases = response.choices[0].message.content
 
     return test_cases
+
+# Function to get test cases from Ollama hosted LLM.
+def get_test_cases_ollama(ollama_model, prompt):
+    
+    url = "http://localhost:11434/api/chat"
+
+    data = {
+        "model": ollama_model,
+        "stream": False,
+        "messages": [
+            {
+                "role": "system", 
+                "content": "You are a helpful assistant that provides Gherkin test cases in Markdown format."},
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    }
+    response = requests.post(url, json=data)
+
+    outer_json = response.json()
+    
+    # Access the 'content' attribute of the 'message' dictionary
+    mitigations = outer_json["message"]["content"]
+
+    return mitigations

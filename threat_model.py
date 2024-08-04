@@ -215,3 +215,23 @@ def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
     response_content = json.loads(response.choices[0].message.content)
 
     return response_content
+
+# Function to get threat model from Ollama hosted LLM.
+def get_threat_model_ollama(ollama_model, prompt):
+
+    url = "http://localhost:11434/api/generate"
+
+    data = {
+        "model": ollama_model,
+        "prompt": prompt,
+        "format": "json",
+        "stream": False
+    }
+
+    response = requests.post(url, json=data)
+
+    outer_json = response.json()
+
+    inner_json = json.loads(outer_json['response'])
+
+    return inner_json

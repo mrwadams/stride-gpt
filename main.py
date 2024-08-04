@@ -1,14 +1,15 @@
 #main.py
 
 import base64
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown, get_image_analysis, create_image_analysis_prompt
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
-from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral
-from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, dread_json_to_markdown
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama
+from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama
+from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, dread_json_to_markdown
 
 # ------------------ Helper Functions ------------------ #
 
@@ -63,7 +64,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API"],
+        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Ollama"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -167,6 +168,25 @@ with st.sidebar:
             ["mistral-large-latest", "mistral-small-latest"],
             key="selected_model",
         )
+
+    if model_provider == "Ollama":
+        # Make a request to the Ollama API to get the list of available models
+        try:
+            response = requests.get("http://localhost:11434/api/tags")
+            response.raise_for_status() # Raise an exception for 4xx/5xx status codes
+        except requests.exceptions.RequestException as e:
+            st.error("Ollama endpoint not found, please select a different model provider.")
+            response = None
+        
+        if response:
+            data = response.json()
+            available_models = [model["name"] for model in data["models"]]
+            # Add model selection input field to the sidebar
+            ollama_model = st.selectbox(
+                "Select the model you would like to use:",
+                available_models,
+                key="selected_model",
+            )
 
     st.markdown("""---""")
 
@@ -386,6 +406,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_google(google_api_key, google_model, threat_model_prompt)
                     elif model_provider == "Mistral API":
                         model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
+                    elif model_provider == "Ollama":
+                        model_output = get_threat_model_ollama(ollama_model, threat_model_prompt)
 
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
@@ -434,9 +456,11 @@ vulnerabilities and prioritising mitigation efforts.
     st.markdown("""---""")
     if model_provider == "Google AI API":
         st.warning("⚠️ Google's safety filters prevent the reliable generation of attack trees. Please use a different model provider.")
-    else:
-        if model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
+    elif model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
             st.warning("⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use the Mistral Large model for generating attack trees, or select a different model provider.")
+    else:
+        if model_provider == "Ollama":
+            st.warning("⚠️ Users are likely to encounter syntax errors when generating attack trees using local LLMs. Experiment with different local LLMs to assess their output quality, or consider using a hosted model provider to generate attack trees.")
         
         # Create a submit button for Attack Tree
         attack_tree_submit_button = st.button(label="Generate Attack Tree")
@@ -457,6 +481,8 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
+                    elif model_provider == "Ollama":
+                        mermaid_code = get_attack_tree_ollama(ollama_model, attack_tree_prompt)
 
                     # Display the generated attack tree code
                     st.write("Attack Tree Code:")
@@ -535,6 +561,8 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
+                        elif model_provider == "Ollama":
+                            mitigations_markdown = get_mitigations_ollama(ollama_model, mitigations_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(mitigations_markdown)
@@ -593,6 +621,8 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                             dread_assessment = get_dread_assessment_google(google_api_key, google_model, dread_assessment_prompt)
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
+                        elif model_provider == "Ollama":
+                            dread_assessment = get_dread_assessment_ollama(ollama_model, dread_assessment_prompt)
                         # Save the DREAD assessment to the session state for later use in test cases
                         st.session_state['dread_assessment'] = dread_assessment
                         break  # Exit the loop if successful
@@ -656,6 +686,8 @@ scenarios.
                             test_cases_markdown = get_test_cases_google(google_api_key, google_model, test_cases_prompt)
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
+                        elif model_provider == "Ollama":
+                            test_cases_markdown = get_test_cases_ollama(ollama_model, test_cases_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(test_cases_markdown)
