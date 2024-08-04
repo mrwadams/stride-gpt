@@ -130,20 +130,35 @@ def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_vers
 # Function to get DREAD risk assessment from the Google model's response.
 def get_dread_assessment_google(google_api_key, google_model, prompt):
     genai.configure(api_key=google_api_key)
-    model = genai.GenerativeModel(
-        google_model,
-        generation_config={"response_mime_type": "application/json"})
-    response = model.generate_content(prompt)
+    
+    model = genai.GenerativeModel(google_model)
+    
+    # Create the system message
+    system_message = "You are a helpful assistant designed to output JSON. Only provide the DREAD risk assessment in JSON format with no additional text. Do not wrap the output in a code block."
+    
+    # Start a chat session with the system message in the history
+    chat = model.start_chat(history=[
+        {"role": "user", "parts": [system_message]},
+        {"role": "model", "parts": ["Understood. I will provide DREAD risk assessments in JSON format only and will not wrap the output in a code block."]}
+    ])
+    
+    # Send the actual prompt
+    response = chat.send_message(
+        prompt, 
+        safety_settings={
+            'DANGEROUS': 'block_only_high' # Set safety filter to allow generation of DREAD risk assessments
+        })
+    print(response)
+    
     try:
-        # Access the JSON content from the 'parts' attribute of the 'content' object
-        response_content = json.loads(response.candidates[0].content.parts[0].text)
+        # Access the JSON content from the response
+        dread_assessment = json.loads(response.text)
+        return dread_assessment
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON: {str(e)}")
         print("Raw JSON string:")
-        print(response.candidates[0].content.parts[0].text)
-        return None
-
-    return response_content
+        print(response.text)
+        return {}
 
 # Function to get DREAD risk assessment from the Mistral model's response.
 def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
