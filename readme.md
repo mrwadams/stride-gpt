@@ -46,9 +46,13 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.8.1 (latest)
+### Version 0.9 (latest)
 
-This release adds support for the following models:
+- **Local Model Hosting**: STRIDE GPT now supports the use of locally hosted LLMs via an integration with Ollama. This feature is particularly useful for organisations with strict data privacy requirements or those who prefer to keep their data on-premises. Please note that this feature is not available for users of the STRIDE GPT version hosted on Streamlit Community Cloud at https://stridegpt.streamlit.app
+
+### Version 0.8.1
+
+This release added support for the following models:
 
 - **GPT4o mini**: I've added support for OpenAI's recently released GPT4o mini model. GPT4o mini is a cost-efficient small model that still provides high-quality responses for threat modelling tasks.
 
@@ -64,6 +68,9 @@ Release highlights:
 
 - **UI Enhancements**: I've refreshed the user interface making it easier to navigate and interact with the application and its features.
 
+<details>
+  <summary>Click to view release notes for earlier versions.</summary>
+
 ### Version 0.7
 
 Release highlights:
@@ -73,8 +80,6 @@ Release highlights:
 - **Refactored Codebase**: I've refactored some parts of the codebase to improve maintainability and readability. This should make it easier to add new features and enhancements in future releases.
 - **Bug Fixes**: Minor bug fixes and error handling improvements.
 
-<details>
-  <summary>Click to view release notes for earlier versions.</summary>
 
 ### Version 0.6
 
