@@ -165,14 +165,20 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     client = MistralClient(api_key=mistral_api_key)
 
     response = client.chat(
-        model = mistral_model,
+        model=mistral_model,
         response_format={"type": "json_object"},
         messages=[
             ChatMessage(role="user", content=prompt)
         ]
     )
 
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
+    try:
+        # Convert the JSON string in the 'content' field to a Python dictionary
+        dread_assessment = json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {str(e)}")
+        print("Raw JSON string:")
+        print(response.choices[0].message.content)
+        dread_assessment = {}
 
-    return response_content
+    return dread_assessment
