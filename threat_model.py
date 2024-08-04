@@ -187,7 +187,11 @@ def get_threat_model_google(google_api_key, google_model, prompt):
     model = genai.GenerativeModel(
         google_model,
         generation_config={"response_mime_type": "application/json"})
-    response = model.generate_content(prompt)
+    response = model.generate_content(
+        prompt,
+        safety_settings={
+            'DANGEROUS': 'block_only_high' # Set safety filter to allow generation of threat models
+        })
     try:
         # Access the JSON content from the 'parts' attribute of the 'content' object
         response_content = json.loads(response.candidates[0].content.parts[0].text)
