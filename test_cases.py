@@ -1,7 +1,8 @@
 import requests
-from google.generativeai import genai
 from mistralai.client import MistralClient
 from openai import OpenAI, AzureOpenAI
+
+import google.generativeai as genai
 
 # Function to create a prompt to generate mitigating controls
 def create_test_cases_prompt(threats):
