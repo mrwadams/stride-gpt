@@ -45,28 +45,27 @@ INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
 APPLICATION DESCRIPTION: {app_input}
 
-Example of expected JSON response format:
-  
+Only only return the response in this JSON response format:
+{{
+  "threat_model": [
     {{
-      "threat_model": [
-        {{
-          "Threat Type": "Spoofing",
-          "Scenario": "Example Scenario 1",
-          "Potential Impact": "Example Potential Impact 1"
-        }},
-        {{
-          "Threat Type": "Spoofing",
-          "Scenario": "Example Scenario 2",
-          "Potential Impact": "Example Potential Impact 2"
-        }},
-        // ... more threats
-      ],
-      "improvement_suggestions": [
-        "Example improvement suggestion 1.",
-        "Example improvement suggestion 2.",
-        // ... more suggestions
-      ]
-    }}
+      "Threat Type": "Spoofing",
+      "Scenario": "Example Scenario 1",
+      "Potential Impact": "Example Potential Impact 1"
+    }},
+    {{
+      "Threat Type": "Spoofing",
+      "Scenario": "Example Scenario 2",
+      "Potential Impact": "Example Potential Impact 2"
+    }},
+    // ... more threats
+  ],
+  "improvement_suggestions": [
+    "Example improvement suggestion 1.",
+    "Example improvement suggestion 2.",
+    // ... more suggestions
+  ]
+}}
 """
     return prompt
 
@@ -220,13 +219,19 @@ def get_threat_model_claude(claude_api_key, claude_model, prompt):
     client = Anthropic(api_key=claude_api_key)
     response = client.messages.create(
         model=claude_model,
-        max_tokens=1024,
+        max_tokens=4096,
         messages=[
             {"role": "user", "content": prompt}
         ]
     )
 
     # Access the content directly as the response will be in text format
-    response_content = response.content[0].text
-
+    try:
+        # Access the JSON content from the 'parts' attribute of the 'content' object
+        response_content = json.loads(response.content[0].text)
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {str(e)}")
+        print("Raw JSON string:")
+        print(response.content[0].text)
+        return None
     return response_content
