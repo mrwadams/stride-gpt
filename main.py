@@ -63,7 +63,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API"],
+        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Claude API"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
