@@ -158,7 +158,7 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
         ]
     )
 
-    # Convert the JSON string in the 'content' field to a Python dictionary
+    # Access the content directly as the response will be in text format
     response_content = response.content[0].text
 
     return response_content

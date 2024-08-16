@@ -4,11 +4,11 @@ import base64
 import streamlit as st
 import streamlit.components.v1 as components
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown, get_image_analysis, create_image_analysis_prompt
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_claude, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_claude
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_claude
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_claude
-from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, dread_json_to_markdown
+from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_claude, dread_json_to_markdown
 
 # ------------------ Helper Functions ------------------ #
 
@@ -178,14 +178,14 @@ with st.sidebar:
     """
     )
         # Add OpenAI API key input field to the sidebar
-        mistral_api_key = st.text_input(
+        claude_api_key = st.text_input(
             "Enter your Claude API key:",
             type="password",
             help="You can generate a Claude API key in the [Claude console](https://console.anthropic.com/settings/keys).",
         )
 
         # Add model selection input field to the sidebar
-        mistral_model = st.selectbox(
+        claude_model = st.selectbox(
             "Select the model you would like to use:",
             ["claude-3-opus-20240229", "claude-3-5-sonnet-20240620"],
             key="selected_model",
@@ -409,7 +409,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_google(google_api_key, google_model, threat_model_prompt)
                     elif model_provider == "Mistral API":
                         model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
-
+                    elif model_provider == "Claude API":
+                        model_output = get_threat_model_claude(claude_api_key, claude_model, threat_model_prompt)
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
                     improvement_suggestions = model_output.get("improvement_suggestions", [])
@@ -480,7 +481,8 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
-
+                    elif model_provider == "Claude API":
+                        mermaid_code = get_attack_tree_claude(claude_api_key, claude_model, attack_tree_prompt)
                     # Display the generated attack tree code
                     st.write("Attack Tree Code:")
                     st.code(mermaid_code)
@@ -558,7 +560,8 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
-
+                        elif model_provider == "Claude API":
+                            mitigations_markdown = get_mitigations_claude(claude_api_key, claude_model, mitigations_prompt)
                         # Display the suggested mitigations in Markdown
                         st.markdown(mitigations_markdown)
                         break  # Exit the loop if successful
@@ -616,6 +619,8 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                             dread_assessment = get_dread_assessment_google(google_api_key, google_model, dread_assessment_prompt)
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
+                        elif model_provider == "Claude API":
+                            dread_assessment = get_dread_assessment_claude(claude_api_key, claude_model, dread_assessment_prompt)
                         # Save the DREAD assessment to the session state for later use in test cases
                         st.session_state['dread_assessment'] = dread_assessment
                         break  # Exit the loop if successful
