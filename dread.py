@@ -4,6 +4,7 @@ from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
 from openai import OpenAI
 from openai import AzureOpenAI
+from anthropic import Anthropic
 
 import streamlit as st
 
@@ -158,6 +159,22 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
+    response_content = response.content[0].text
+
+    return response_content
+
+# Function to get DREAD risk assessment from the Claude model's response.
+def get_dread_assessment_claude(claude_api_key, claude_model, prompt):
+    client = Anthropic(api_key=claude_api_key)
+    response = client.messages.create(
+        model=claude_model,
+        max_tokens=1024,
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    response_content = response.content[0].text
 
     return response_content

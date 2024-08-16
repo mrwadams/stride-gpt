@@ -7,7 +7,7 @@ import streamlit.components.v1 as components
 from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, json_to_markdown, get_image_analysis, create_image_analysis_prompt
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral
-from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral
+from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_claude
 from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, dread_json_to_markdown
 
 # ------------------ Helper Functions ------------------ #
@@ -165,6 +165,29 @@ with st.sidebar:
         mistral_model = st.selectbox(
             "Select the model you would like to use:",
             ["mistral-large-latest", "mistral-small-latest"],
+            key="selected_model",
+        )
+
+
+    if model_provider == "Claude API":
+        st.markdown(
+        """
+    1. Enter your [Claude API key](https://console.anthropic.com/settings/keys) and chosen model below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        # Add OpenAI API key input field to the sidebar
+        mistral_api_key = st.text_input(
+            "Enter your Claude API key:",
+            type="password",
+            help="You can generate a Claude API key in the [Claude console](https://console.anthropic.com/settings/keys).",
+        )
+
+        # Add model selection input field to the sidebar
+        mistral_model = st.selectbox(
+            "Select the model you would like to use:",
+            ["claude-3-opus-20240229", "claude-3-5-sonnet-20240620"],
             key="selected_model",
         )
 
@@ -656,6 +679,8 @@ scenarios.
                             test_cases_markdown = get_test_cases_google(google_api_key, google_model, test_cases_prompt)
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
+                        elif model_provider == "Claude API":
+                            test_cases_markdown = get_test_cases_claude(claude_api_key, claude_model, test_cases_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(test_cases_markdown)

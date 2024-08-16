@@ -1,4 +1,5 @@
 google.generativeai
 mistralai
 openai
+anthropic
 streamlit
