@@ -3,10 +3,10 @@
 import json
 import requests
 import google.generativeai as genai
-from mistralai.client import MistralClient
-from mistralai.models.chat_completion import ChatMessage
+from mistralai import Mistral
 from openai import OpenAI
 from openai import AzureOpenAI
+from anthropic import Anthropic
 
 import streamlit as st
 
@@ -45,28 +45,27 @@ INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
 APPLICATION DESCRIPTION: {app_input}
 
-Example of expected JSON response format:
-  
+Only only return the response in this JSON response format:
+{{
+  "threat_model": [
     {{
-      "threat_model": [
-        {{
-          "Threat Type": "Spoofing",
-          "Scenario": "Example Scenario 1",
-          "Potential Impact": "Example Potential Impact 1"
-        }},
-        {{
-          "Threat Type": "Spoofing",
-          "Scenario": "Example Scenario 2",
-          "Potential Impact": "Example Potential Impact 2"
-        }},
-        // ... more threats
-      ],
-      "improvement_suggestions": [
-        "Example improvement suggestion 1.",
-        "Example improvement suggestion 2.",
-        // ... more suggestions
-      ]
-    }}
+      "Threat Type": "Spoofing",
+      "Scenario": "Example Scenario 1",
+      "Potential Impact": "Example Potential Impact 1"
+    }},
+    {{
+      "Threat Type": "Spoofing",
+      "Scenario": "Example Scenario 2",
+      "Potential Impact": "Example Potential Impact 2"
+    }},
+    // ... more threats
+  ],
+  "improvement_suggestions": [
+    "Example improvement suggestion 1.",
+    "Example improvement suggestion 2.",
+    // ... more suggestions
+  ]
+}}
 """
     return prompt
 
@@ -201,17 +200,38 @@ def get_threat_model_google(google_api_key, google_model, prompt):
 
 # Function to get threat model from the Mistral response.
 def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
-    client = MistralClient(api_key=mistral_api_key)
+    client = Mistral(api_key=mistral_api_key)
 
-    response = client.chat(
+    response = client.chat.complete(
         model = mistral_model,
-        response_format={"type": "json_object"},
         messages=[
-            ChatMessage(role="user", content=prompt)
+            {"role": "user", "content": prompt}
         ]
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
     response_content = json.loads(response.choices[0].message.content)
 
+    return response_content
+
+# Function to get threat model from the Claude response.
+def get_threat_model_claude(claude_api_key, claude_model, prompt):
+    client = Anthropic(api_key=claude_api_key)
+    response = client.messages.create(
+        model=claude_model,
+        max_tokens=4096,
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    try:
+        # Access the JSON content from the 'parts' attribute of the 'content' object
+        response_content = json.loads(response.content[0].text)
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {str(e)}")
+        print("Raw JSON string:")
+        print(response.content[0].text)
+        return None
     return response_content

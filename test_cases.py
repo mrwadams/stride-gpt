@@ -1,7 +1,8 @@
 import google.generativeai as genai
-from mistralai.client import MistralClient
+from mistralai import Mistral
 from openai import OpenAI
 from openai import AzureOpenAI
+from anthropic import Anthropic
 
 # Function to create a prompt to generate mitigating controls
 def create_test_cases_prompt(threats):
@@ -82,9 +83,9 @@ def get_test_cases_google(google_api_key, google_model, prompt):
 
 # Function to get test cases from the Mistral model's response.
 def get_test_cases_mistral(mistral_api_key, mistral_model, prompt):
-    client = MistralClient(api_key=mistral_api_key)
+    client = Mistral(api_key=mistral_api_key)
 
-    response = client.chat(
+    response = client.chat.complete(
         model = mistral_model,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that provides Gherkin test cases in Markdown format."},
@@ -94,5 +95,22 @@ def get_test_cases_mistral(mistral_api_key, mistral_model, prompt):
 
     # Access the content directly as the response will be in text format
     test_cases = response.choices[0].message.content
+
+    return test_cases
+
+# Function to get test cases from the Claude model's response.
+def get_test_cases_claude(claude_api_key, claude_model, prompt):
+    client = Anthropic(api_key=claude_api_key)
+    response = client.messages.create(
+        model=claude_model,
+        max_tokens=1024,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that provides Gherkin test cases in Markdown format."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    test_cases = response.content[0].text
 
     return test_cases
