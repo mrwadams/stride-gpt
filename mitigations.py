@@ -1,5 +1,5 @@
 import requests
-from mistralai.client import MistralClient
+from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
 
 import google.generativeai as genai
@@ -84,9 +84,9 @@ def get_mitigations_google(google_api_key, google_model, prompt):
 
 # Function to get mitigations from the Mistral model's response.
 def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
-    client = MistralClient(api_key=mistral_api_key)
+    client = Mistral(api_key=mistral_api_key)
 
-    response = client.chat(
+    response = client.chat.complete(
         model = mistral_model,
         messages=[
             {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},

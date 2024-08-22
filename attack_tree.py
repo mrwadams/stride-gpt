@@ -1,7 +1,7 @@
 import re
 import requests
 import streamlit as st
-from mistralai.client import MistralClient
+from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
 
 # Function to create a prompt to generate an attack tree
@@ -96,9 +96,9 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
 
 # Function to get attack tree from the Mistral model's response.
 def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
-    client = MistralClient(api_key=mistral_api_key)
+    client = Mistral(api_key=mistral_api_key)
 
-    response = client.chat(
+    response = client.chat.complete(
         model=mistral_model,
         messages=[
             {"role": "system", "content": """

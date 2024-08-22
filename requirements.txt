@@ -1,4 +1,4 @@
 google.generativeai
-mistralai
+mistralai<=1.0.0
 openai
 streamlit
