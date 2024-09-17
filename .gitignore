@@ -1,4 +1,6 @@
-api_key.txt
-venv/
 __pycache__/
+.env
+.streamlit/secrets.toml
+api_key.txt
 test_functions.py
+venv/
