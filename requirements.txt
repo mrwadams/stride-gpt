@@ -4,3 +4,5 @@ openai
 pyGithub
 streamlit
 python-dotenv
+requests>=2.32.2 # not directly required, pinned by Snyk to avoid a vulnerability
+urllib3>=2.2.2 # not directly required, pinned by Snyk to avoid a vulnerability
