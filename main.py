@@ -4,6 +4,11 @@ import base64
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
+from github import Github
+from collections import defaultdict
+import re
+import os
+from dotenv import load_dotenv
 
 from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, json_to_markdown, get_image_analysis, create_image_analysis_prompt
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama
@@ -15,17 +20,110 @@ from dread import create_dread_assessment_prompt, get_dread_assessment, get_drea
 
 # Function to get user input for the application description and key details
 def get_input():
-       input_text = st.text_area(
-           label="Describe the application to be modelled",
-           placeholder="Enter your application details...",
-           height=150,
-           key="app_desc",
-           help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
-       )
+    github_url = st.text_input(
+        label="Enter GitHub repository URL (optional)",
+        placeholder="https://github.com/owner/repo",
+        key="github_url",
+        help="Enter the URL of the GitHub repository you want to analyze.",
+    )
 
-       st.session_state['app_input'] = input_text
+    if github_url and github_url != st.session_state.get('last_analyzed_url', ''):
+        if 'github_api_key' not in st.session_state or not st.session_state['github_api_key']:
+            st.warning("Please enter a GitHub API key to analyze the repository.")
+        else:
+            with st.spinner('Analyzing GitHub repository...'):
+                system_description = analyze_github_repo(github_url)
+                st.session_state['github_analysis'] = system_description
+                st.session_state['last_analyzed_url'] = github_url
+                st.session_state['app_input'] = system_description + "\n\n" + st.session_state.get('app_input', '')
 
-       return input_text
+    input_text = st.text_area(
+        label="Describe the application to be modelled",
+        value=st.session_state.get('app_input', ''),
+        placeholder="Enter your application details...",
+        height=300,
+        key="app_desc",
+        help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
+    )
+
+    st.session_state['app_input'] = input_text
+
+    return input_text
+
+def analyze_github_repo(repo_url):
+    # Extract owner and repo name from URL
+    parts = repo_url.split('/')
+    owner = parts[-2]
+    repo_name = parts[-1]
+
+    # Initialize PyGithub
+    g = Github(st.session_state.get('github_api_key', ''))
+
+    # Get the repository
+    repo = g.get_repo(f"{owner}/{repo_name}")
+
+    # Get the default branch
+    default_branch = repo.default_branch
+
+    # Get the tree of the default branch
+    tree = repo.get_git_tree(default_branch, recursive=True)
+
+    # Analyze files
+    file_summaries = defaultdict(list)
+    total_chars = 0
+    char_limit = 100000  # Adjust this based on your model's token limit
+    readme_content = ""
+
+    for file in tree.tree:
+        if file.path.lower() == 'readme.md':
+            content = repo.get_contents(file.path, ref=default_branch)
+            readme_content = base64.b64decode(content.content).decode()
+        elif file.type == "blob" and file.path.endswith(('.py', '.js', '.ts', '.html', '.css', '.java', '.go', '.rb')):
+            content = repo.get_contents(file.path, ref=default_branch)
+            decoded_content = base64.b64decode(content.content).decode()
+            
+            # Summarize the file content
+            summary = summarize_file(file.path, decoded_content)
+            file_summaries[file.path.split('.')[-1]].append(summary)
+            
+            total_chars += len(summary)
+            if total_chars > char_limit:
+                break
+
+    # Compile the analysis into a system description
+    system_description = f"Repository: {repo_url}\n\n"
+    
+    if readme_content:
+        system_description += "README.md Content:\n"
+        # Truncate README if it's too long
+        if len(readme_content) > 5000:
+            system_description += readme_content[:5000] + "...\n(README truncated due to length)\n\n"
+        else:
+            system_description += readme_content + "\n\n"
+
+    for file_type, summaries in file_summaries.items():
+        system_description += f"{file_type.upper()} Files:\n"
+        for summary in summaries:
+            system_description += summary + "\n"
+        system_description += "\n"
+
+    return system_description
+
+def summarize_file(file_path, content):
+    # Extract important parts of the file
+    imports = re.findall(r'^import .*|^from .* import .*', content, re.MULTILINE)
+    functions = re.findall(r'def .*\(.*\):', content)
+    classes = re.findall(r'class .*:', content)
+
+    summary = f"File: {file_path}\n"
+    if imports:
+        summary += "Imports:\n" + "\n".join(imports[:5]) + "\n"  # Limit to first 5 imports
+    if functions:
+        summary += "Functions:\n" + "\n".join(functions[:5]) + "\n"  # Limit to first 5 functions
+    if classes:
+        summary += "Classes:\n" + "\n".join(classes[:5]) + "\n"  # Limit to first 5 classes
+
+    return summary
 
 # Function to render Mermaid diagram
 def mermaid(code: str, height: int = 500) -> None:
@@ -43,6 +141,43 @@ def mermaid(code: str, height: int = 500) -> None:
         height=height,
     )
 
+def load_env_variables():
+    # Try to load from .env file
+    if os.path.exists('.env'):
+        load_dotenv('.env')
+    
+    # Load GitHub API key from environment variable
+    github_api_key = os.getenv('GITHUB_API_KEY')
+    if github_api_key:
+        st.session_state['github_api_key'] = github_api_key
+
+    # Load other API keys if needed
+    openai_api_key = os.getenv('OPENAI_API_KEY')
+    if openai_api_key:
+        st.session_state['openai_api_key'] = openai_api_key
+
+    azure_api_key = os.getenv('AZURE_API_KEY')
+    if azure_api_key:
+        st.session_state['azure_api_key'] = azure_api_key
+
+    azure_api_endpoint = os.getenv('AZURE_API_ENDPOINT')
+    if azure_api_endpoint:
+        st.session_state['azure_api_endpoint'] = azure_api_endpoint
+
+    azure_deployment_name = os.getenv('AZURE_DEPLOYMENT_NAME')
+    if azure_deployment_name:
+        st.session_state['azure_deployment_name'] = azure_deployment_name
+
+    google_api_key = os.getenv('GOOGLE_API_KEY')
+    if google_api_key:
+        st.session_state['google_api_key'] = google_api_key
+
+    mistral_api_key = os.getenv('MISTRAL_API_KEY')
+    if mistral_api_key:
+        st.session_state['mistral_api_key'] = mistral_api_key
+
+# Call this function at the start of your app
+load_env_variables()
 
 # ------------------ Streamlit UI Configuration ------------------ #
 
@@ -80,9 +215,12 @@ with st.sidebar:
         # Add OpenAI API key input field to the sidebar
         openai_api_key = st.text_input(
             "Enter your OpenAI API key:",
+            value=st.session_state.get('openai_api_key', ''),
             type="password",
             help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
         )
+        if openai_api_key:
+            st.session_state['openai_api_key'] = openai_api_key
 
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
@@ -104,20 +242,29 @@ with st.sidebar:
         # Add Azure OpenAI API key input field to the sidebar
         azure_api_key = st.text_input(
             "Azure OpenAI API key:",
+            value=st.session_state.get('azure_api_key', ''),
             type="password",
             help="You can find your Azure OpenAI API key on the [Azure portal](https://portal.azure.com/).",
         )
+        if azure_api_key:
+            st.session_state['azure_api_key'] = azure_api_key
         
         # Add Azure OpenAI endpoint input field to the sidebar
         azure_api_endpoint = st.text_input(
             "Azure OpenAI endpoint:",
+            value=st.session_state.get('azure_api_endpoint', ''),
             help="Example endpoint: https://YOUR_RESOURCE_NAME.openai.azure.com/",
         )
+        if azure_api_endpoint:
+            st.session_state['azure_api_endpoint'] = azure_api_endpoint
 
         # Add Azure OpenAI deployment name input field to the sidebar
         azure_deployment_name = st.text_input(
             "Deployment name:",
+            value=st.session_state.get('azure_deployment_name', ''),
         )
+        if azure_deployment_name:
+            st.session_state['azure_deployment_name'] = azure_deployment_name
         
         st.info("Please note that you must use an 1106-preview model deployment.")
 
@@ -136,9 +283,12 @@ with st.sidebar:
         # Add OpenAI API key input field to the sidebar
         google_api_key = st.text_input(
             "Enter your Google AI API key:",
+            value=st.session_state.get('google_api_key', ''),
             type="password",
             help="You can generate a Google AI API key in the [Google AI Studio](https://makersuite.google.com/app/apikey).",
         )
+        if google_api_key:
+            st.session_state['google_api_key'] = google_api_key
 
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
@@ -158,9 +308,12 @@ with st.sidebar:
         # Add OpenAI API key input field to the sidebar
         mistral_api_key = st.text_input(
             "Enter your Mistral API key:",
+            value=st.session_state.get('mistral_api_key', ''),
             type="password",
             help="You can generate a Mistral API key in the [Mistral console](https://console.mistral.ai/api-keys/).",
         )
+        if mistral_api_key:
+            st.session_state['mistral_api_key'] = mistral_api_key
 
         # Add model selection input field to the sidebar
         mistral_model = st.selectbox(
@@ -187,6 +340,18 @@ with st.sidebar:
                 available_models,
                 key="selected_model",
             )
+
+    # Add GitHub API key input field to the sidebar
+    github_api_key = st.sidebar.text_input(
+        "Enter your GitHub API key (optional):",
+        value=st.session_state.get('github_api_key', ''),
+        type="password",
+        help="You can find or create your GitHub API key in your GitHub account settings under Developer settings > Personal access tokens.",
+    )
+
+    # Store the GitHub API key in session state
+    if github_api_key:
+        st.session_state['github_api_key'] = github_api_key
 
     st.markdown("""---""")
 
@@ -315,21 +480,10 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                                 st.error("An unexpected error occurred while analyzing the image.")
                                 print(f"Error: {e}")
 
-            # Use text_area with the session state value and update the session state on change
-            app_input = st.text_area(
-                label="Describe the application to be modelled",
-                value=st.session_state['app_input'],
-                key="app_input_widget",
-                help="Please provide a detailed description of the application, including the purpose of the application, the technologies used, and any other relevant information.",
-            )
-            # Update session state only if the text area content has changed
-            if app_input != st.session_state['app_input']:
-                st.session_state['app_input'] = app_input
-
-        else:
-            # For other model providers or models, use the get_input() function
-            app_input = get_input()
-            # Update session state
+        # Use the get_input() function to get the application description and GitHub URL
+        app_input = get_input()
+        # Update session state only if the text area content has changed
+        if app_input != st.session_state['app_input']:
             st.session_state['app_input'] = app_input
 
     # Ensure app_input is always up to date in the session state
@@ -532,182 +686,3 @@ Use this tab to generate potential mitigations for the threats identified in the
 countermeasures that can help reduce the likelihood or impact of a security threat. The generated mitigations can be used to enhance
 the security posture of the application and protect against potential attacks.
 """)
-    st.markdown("""---""")
-    
-    # Create a submit button for Mitigations
-    mitigations_submit_button = st.button(label="Suggest Mitigations")
-
-    # If the Suggest Mitigations button is clicked and the user has identified threats
-    if mitigations_submit_button:
-        # Check if threat_model data exists
-        if 'threat_model' in st.session_state and st.session_state['threat_model']:
-            # Convert the threat_model data into a Markdown list
-            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
-            # Generate the prompt using the create_mitigations_prompt function
-            mitigations_prompt = create_mitigations_prompt(threats_markdown)
-
-            # Show a spinner while suggesting mitigations
-            with st.spinner("Suggesting mitigations..."):
-                max_retries = 3
-                retry_count = 0
-                while retry_count < max_retries:
-                    try:
-                        # Call the relevant get_mitigations function with the generated prompt
-                        if model_provider == "Azure OpenAI Service":
-                            mitigations_markdown = get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, mitigations_prompt)
-                        elif model_provider == "OpenAI API":
-                            mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
-                        elif model_provider == "Google AI API":
-                            mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
-                        elif model_provider == "Mistral API":
-                            mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
-                        elif model_provider == "Ollama":
-                            mitigations_markdown = get_mitigations_ollama(ollama_model, mitigations_prompt)
-
-                        # Display the suggested mitigations in Markdown
-                        st.markdown(mitigations_markdown)
-                        break  # Exit the loop if successful
-                    except Exception as e:
-                        retry_count += 1
-                        if retry_count == max_retries:
-                            st.error(f"Error suggesting mitigations after {max_retries} attempts: {e}")
-                            mitigations_markdown = ""
-                        else:
-                            st.warning(f"Error suggesting mitigations. Retrying attempt {retry_count+1}/{max_retries}...")
-            
-            st.markdown("")
-
-            # Add a button to allow the user to download the mitigations as a Markdown file
-            st.download_button(
-                label="Download Mitigations",
-                data=mitigations_markdown,
-                file_name="mitigations.md",
-                mime="text/markdown",
-            )
-        else:
-            st.error("Please generate a threat model first before suggesting mitigations.")
-
-# ------------------ DREAD Risk Assessment Generation ------------------ #
-with tab4:
-    st.markdown("""
-DREAD is a method for evaluating and prioritising risks associated with security threats. It assesses threats based on **D**amage potential, 
-**R**eproducibility, **E**xploitability, **A**ffected users, and **D**iscoverability. This helps in determining the overall risk level and 
-focusing on the most critical threats first. Use this tab to perform a DREAD risk assessment for your application / system.
-""")
-    st.markdown("""---""")
-    
-    # Create a submit button for DREAD Risk Assessment
-    dread_assessment_submit_button = st.button(label="Generate DREAD Risk Assessment")
-    # If the Generate DREAD Risk Assessment button is clicked and the user has identified threats
-    if dread_assessment_submit_button:
-        # Check if threat_model data exists
-        if 'threat_model' in st.session_state and st.session_state['threat_model']:
-            # Convert the threat_model data into a Markdown list
-            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
-            # Generate the prompt using the create_dread_assessment_prompt function
-            dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown)
-            # Show a spinner while generating DREAD Risk Assessment
-            with st.spinner("Generating DREAD Risk Assessment..."):
-                max_retries = 3
-                retry_count = 0
-                while retry_count < max_retries:
-                    try:
-                        # Call the relevant get_dread_assessment function with the generated prompt
-                        if model_provider == "Azure OpenAI Service":
-                            dread_assessment = get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, dread_assessment_prompt)
-                        elif model_provider == "OpenAI API":
-                            dread_assessment = get_dread_assessment(openai_api_key, selected_model, dread_assessment_prompt)
-                        elif model_provider == "Google AI API":
-                            dread_assessment = get_dread_assessment_google(google_api_key, google_model, dread_assessment_prompt)
-                        elif model_provider == "Mistral API":
-                            dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
-                        elif model_provider == "Ollama":
-                            dread_assessment = get_dread_assessment_ollama(ollama_model, dread_assessment_prompt)
-                        # Save the DREAD assessment to the session state for later use in test cases
-                        st.session_state['dread_assessment'] = dread_assessment
-                        break  # Exit the loop if successful
-                    except Exception as e:
-                        retry_count += 1
-                        if retry_count == max_retries:
-                            st.error(f"Error generating DREAD risk assessment after {max_retries} attempts: {e}")
-                            dread_assessment = []
-                        else:
-                            st.warning(f"Error generating DREAD risk assessment. Retrying attempt {retry_count+1}/{max_retries}...")
-            # Convert the DREAD assessment JSON to Markdown
-            dread_assessment_markdown = dread_json_to_markdown(dread_assessment)
-            # Display the DREAD assessment in Markdown
-            st.markdown(dread_assessment_markdown)
-            # Add a button to allow the user to download the test cases as a Markdown file
-            st.download_button(
-                label="Download DREAD Risk Assessment",
-                data=dread_assessment_markdown,
-                file_name="dread_assessment.md",
-                mime="text/markdown",
-            )
-        else:
-            st.error("Please generate a threat model first before requesting a DREAD risk assessment.")
-
-
-# ------------------ Test Cases Generation ------------------ #
-
-with tab5:
-    st.markdown("""
-Test cases are used to validate the security of an application and ensure that potential vulnerabilities are identified and 
-addressed. This tab allows you to generate test cases using Gherkin syntax. Gherkin provides a structured way to describe application 
-behaviours in plain text, using a simple syntax of Given-When-Then statements. This helps in creating clear and executable test 
-scenarios.
-""")
-    st.markdown("""---""")
-                
-    # Create a submit button for Test Cases
-    test_cases_submit_button = st.button(label="Generate Test Cases")
-
-    # If the Generate Test Cases button is clicked and the user has identified threats
-    if test_cases_submit_button:
-        # Check if threat_model data exists
-        if 'threat_model' in st.session_state and st.session_state['threat_model']:
-            # Convert the threat_model data into a Markdown list
-            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
-            # Generate the prompt using the create_test_cases_prompt function
-            test_cases_prompt = create_test_cases_prompt(threats_markdown)
-
-            # Show a spinner while generating test cases
-            with st.spinner("Generating test cases..."):
-                max_retries = 3
-                retry_count = 0
-                while retry_count < max_retries:
-                    try:
-                        # Call to the relevant get_test_cases function with the generated prompt
-                        if model_provider == "Azure OpenAI Service":
-                            test_cases_markdown = get_test_cases_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, test_cases_prompt)
-                        elif model_provider == "OpenAI API":
-                            test_cases_markdown = get_test_cases(openai_api_key, selected_model, test_cases_prompt)
-                        elif model_provider == "Google AI API":
-                            test_cases_markdown = get_test_cases_google(google_api_key, google_model, test_cases_prompt)
-                        elif model_provider == "Mistral API":
-                            test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
-                        elif model_provider == "Ollama":
-                            test_cases_markdown = get_test_cases_ollama(ollama_model, test_cases_prompt)
-
-                        # Display the suggested mitigations in Markdown
-                        st.markdown(test_cases_markdown)
-                        break  # Exit the loop if successful
-                    except Exception as e:
-                        retry_count += 1
-                        if retry_count == max_retries:
-                            st.error(f"Error generating test cases after {max_retries} attempts: {e}")
-                            test_cases_markdown = ""
-                        else:
-                            st.warning(f"Error generating test cases. Retrying attempt {retry_count+1}/{max_retries}...")
-            
-            st.markdown("")
-
-            # Add a button to allow the user to download the test cases as a Markdown file
-            st.download_button(
-                label="Download Test Cases",
-                data=test_cases_markdown,
-                file_name="test_cases.md",
-                mime="text/markdown",
-            )
-        else:
-            st.error("Please generate a threat model first before requesting test cases.")

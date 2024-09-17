@@ -1,4 +1,6 @@
 google.generativeai
 mistralai<=1.0.0
 openai
+pyGithub
 streamlit
+python-dotenv
