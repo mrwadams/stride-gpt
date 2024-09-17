@@ -1,5 +1,6 @@
 .gitignore
 api_key.txt
+.env
 venv/
 __pycache__/
 test_functions.py
