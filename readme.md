@@ -23,15 +23,17 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling 
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
-- 🆕 Supports DREAD risk scoring for identified threats
-- 🆕 Generates Gherkin test cases based on identified threats
+- Supports DREAD risk scoring for identified threats
+- Generates Gherkin test cases based on identified threats
+- 🆕 GitHub repository analysis for comprehensive threat modelling
 - No data storage; application details are not saved
-- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API or Mistral API
+- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API, Mistral API, or 🆕 locally hosted models via Ollama
 - Available as a Docker container image for easy deployment
+- 🆕 Environment variable support for secure configuration
 
 ## Roadmap
 - [x] Add support for multi-modal threat modelling
-- [ ] Autogenerate application descriptions based on README files in GitHub repositories
+- [x] Autogenerate application descriptions based on README files in GitHub repositories
 - [ ] Customisable and exportable reports (e.g. PDF, Word) that include the generated threat model, attack tree, and mitigations
 - [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
 - [ ] Update UI to support multiple languages
@@ -46,7 +48,16 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.9 (latest)
+### Version 0.10 (latest)
+
+- **GitHub Repository Analysis**: STRIDE GPT now supports automatic analysis of GitHub repositories. Users can provide a GitHub repository URL, and the tool will analyse the README and key files to generate a more comprehensive threat model.
+- **Environment Variable Support**: Added support for loading API keys and other configuration from environment variables, improving security and ease of deployment.
+- **Improved Error Handling**: Enhanced error handling and retry mechanisms for API calls to improve reliability.
+- **UI Enhancements**: Updated the user interface to accommodate new features and improve overall user experience.
+
+### Version 0.9
+
+Release highlights:
 
 - **Local Model Hosting**: STRIDE GPT now supports the use of locally hosted LLMs via an integration with Ollama. This feature is particularly useful for organisations with strict data privacy requirements or those who prefer to keep their data on-premises. Please note that this feature is not available for users of the STRIDE GPT version hosted on Streamlit Community Cloud at https://stridegpt.streamlit.app
 - **Mistral Client v1.0**: STRIDE GPT now uses v1.0 of the Mistral Client, which resolves the breaking changes introduced in the latest version of the Mistral API. This ensures that STRIDE GPT users can continue to leverage the Mistral API for threat modelling tasks.
@@ -59,6 +70,10 @@ This release added support for the following models:
 
 - **Gemini 1.5 Pro (stable)**: Users can now choose from either the stable or preview versions of the Gemini 1.5 Pro model.
 
+<details>
+  <summary>Click to view release notes for earlier versions.</summary>
+
+
 ### Version 0.8
 
 Release highlights:
@@ -68,9 +83,6 @@ Release highlights:
 - **Gherkin Test Cases**: Users can now generate Gherkin test cases based on the identified threats. This feature helps bridge the gap between threat modelling and testing, ensuring that security considerations are integrated into the testing process.
 
 - **UI Enhancements**: I've refreshed the user interface making it easier to navigate and interact with the application and its features.
-
-<details>
-  <summary>Click to view release notes for earlier versions.</summary>
 
 ### Version 0.7
 
@@ -159,6 +171,20 @@ Release highlights:
     pip install -r requirements.txt
     ```
 
+4. Set up environment variables:
+   
+   a. Copy the `.env.example` file to a new file named `.env`:
+   ```
+   cp .env.example .env
+   ```
+   
+   b. Edit the `.env` file and add your API keys:
+   ```
+   GITHUB_API_KEY=your_actual_github_api_key
+   OPENAI_API_KEY=your_actual_openai_api_key
+   # ... add other API keys as needed
+   ```
+
 ### Option 2: Using Docker Container
 
 1. Pull the Docker image from Docker Hub:
@@ -166,6 +192,8 @@ Release highlights:
     ```bash
     docker pull mrwadams/stridegpt:latest
     ```
+
+2. Create a `.env` file with your API keys as described in step 4 of Option 1.
 
 ## Usage
 
@@ -183,16 +211,18 @@ Release highlights:
 
 ### Option 2: Using Docker Container
 
-1. Run the Docker container:
+1. Run the Docker container, mounting the `.env` file:
 
     ```bash
-    docker run -p 8501:8501 mrwadams/stridegpt
+    docker run -p 8501:8501 --env-file .env mrwadams/stridegpt
     ```
-    This command will start the container and map port 8501 (default for Streamlit apps) from the container to your host machine.
+    This command will start the container, map port 8501 (default for Streamlit apps) from the container to your host machine, and load the environment variables from the `.env` file.
 
 2. Open a web browser and navigate to `http://localhost:8501` to access the app running inside the container.
 
 3. Follow the steps in the Streamlit interface to use STRIDE GPT.
+
+Note: When you run the application (either locally or via Docker), it will automatically load the environment variables you've set in the `.env` file. This will pre-fill the API keys in the application interface.
 
 ## Contributing
 
