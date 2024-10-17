@@ -686,3 +686,182 @@ Use this tab to generate potential mitigations for the threats identified in the
 countermeasures that can help reduce the likelihood or impact of a security threat. The generated mitigations can be used to enhance
 the security posture of the application and protect against potential attacks.
 """)
+    st.markdown("""---""")
+    
+    # Create a submit button for Mitigations
+    mitigations_submit_button = st.button(label="Suggest Mitigations")
+
+    # If the Suggest Mitigations button is clicked and the user has identified threats
+    if mitigations_submit_button:
+        # Check if threat_model data exists
+        if 'threat_model' in st.session_state and st.session_state['threat_model']:
+            # Convert the threat_model data into a Markdown list
+            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+            # Generate the prompt using the create_mitigations_prompt function
+            mitigations_prompt = create_mitigations_prompt(threats_markdown)
+
+            # Show a spinner while suggesting mitigations
+            with st.spinner("Suggesting mitigations..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Call the relevant get_mitigations function with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            mitigations_markdown = get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, mitigations_prompt)
+                        elif model_provider == "OpenAI API":
+                            mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
+                        elif model_provider == "Google AI API":
+                            mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
+                        elif model_provider == "Mistral API":
+                            mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
+                        elif model_provider == "Ollama":
+                            mitigations_markdown = get_mitigations_ollama(ollama_model, mitigations_prompt)
+
+                        # Display the suggested mitigations in Markdown
+                        st.markdown(mitigations_markdown)
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error suggesting mitigations after {max_retries} attempts: {e}")
+                            mitigations_markdown = ""
+                        else:
+                            st.warning(f"Error suggesting mitigations. Retrying attempt {retry_count+1}/{max_retries}...")
+            
+            st.markdown("")
+
+            # Add a button to allow the user to download the mitigations as a Markdown file
+            st.download_button(
+                label="Download Mitigations",
+                data=mitigations_markdown,
+                file_name="mitigations.md",
+                mime="text/markdown",
+            )
+        else:
+            st.error("Please generate a threat model first before suggesting mitigations.")
+
+# ------------------ DREAD Risk Assessment Generation ------------------ #
+with tab4:
+    st.markdown("""
+DREAD is a method for evaluating and prioritising risks associated with security threats. It assesses threats based on **D**amage potential, 
+**R**eproducibility, **E**xploitability, **A**ffected users, and **D**iscoverability. This helps in determining the overall risk level and 
+focusing on the most critical threats first. Use this tab to perform a DREAD risk assessment for your application / system.
+""")
+    st.markdown("""---""")
+    
+    # Create a submit button for DREAD Risk Assessment
+    dread_assessment_submit_button = st.button(label="Generate DREAD Risk Assessment")
+    # If the Generate DREAD Risk Assessment button is clicked and the user has identified threats
+    if dread_assessment_submit_button:
+        # Check if threat_model data exists
+        if 'threat_model' in st.session_state and st.session_state['threat_model']:
+            # Convert the threat_model data into a Markdown list
+            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+            # Generate the prompt using the create_dread_assessment_prompt function
+            dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown)
+            # Show a spinner while generating DREAD Risk Assessment
+            with st.spinner("Generating DREAD Risk Assessment..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Call the relevant get_dread_assessment function with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            dread_assessment = get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, dread_assessment_prompt)
+                        elif model_provider == "OpenAI API":
+                            dread_assessment = get_dread_assessment(openai_api_key, selected_model, dread_assessment_prompt)
+                        elif model_provider == "Google AI API":
+                            dread_assessment = get_dread_assessment_google(google_api_key, google_model, dread_assessment_prompt)
+                        elif model_provider == "Mistral API":
+                            dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
+                        elif model_provider == "Ollama":
+                            dread_assessment = get_dread_assessment_ollama(ollama_model, dread_assessment_prompt)
+                        # Save the DREAD assessment to the session state for later use in test cases
+                        st.session_state['dread_assessment'] = dread_assessment
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error generating DREAD risk assessment after {max_retries} attempts: {e}")
+                            dread_assessment = []
+                        else:
+                            st.warning(f"Error generating DREAD risk assessment. Retrying attempt {retry_count+1}/{max_retries}...")
+            # Convert the DREAD assessment JSON to Markdown
+            dread_assessment_markdown = dread_json_to_markdown(dread_assessment)
+            # Display the DREAD assessment in Markdown
+            st.markdown(dread_assessment_markdown)
+            # Add a button to allow the user to download the test cases as a Markdown file
+            st.download_button(
+                label="Download DREAD Risk Assessment",
+                data=dread_assessment_markdown,
+                file_name="dread_assessment.md",
+                mime="text/markdown",
+            )
+        else:
+            st.error("Please generate a threat model first before requesting a DREAD risk assessment.")
+
+
+# ------------------ Test Cases Generation ------------------ #
+
+with tab5:
+    st.markdown("""
+Test cases are used to validate the security of an application and ensure that potential vulnerabilities are identified and 
+addressed. This tab allows you to generate test cases using Gherkin syntax. Gherkin provides a structured way to describe application 
+behaviours in plain text, using a simple syntax of Given-When-Then statements. This helps in creating clear and executable test 
+scenarios.
+""")
+    st.markdown("""---""")
+                
+    # Create a submit button for Test Cases
+    test_cases_submit_button = st.button(label="Generate Test Cases")
+
+    # If the Generate Test Cases button is clicked and the user has identified threats
+    if test_cases_submit_button:
+        # Check if threat_model data exists
+        if 'threat_model' in st.session_state and st.session_state['threat_model']:
+            # Convert the threat_model data into a Markdown list
+            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+            # Generate the prompt using the create_test_cases_prompt function
+            test_cases_prompt = create_test_cases_prompt(threats_markdown)
+
+            # Show a spinner while generating test cases
+            with st.spinner("Generating test cases..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Call to the relevant get_test_cases function with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            test_cases_markdown = get_test_cases_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, test_cases_prompt)
+                        elif model_provider == "OpenAI API":
+                            test_cases_markdown = get_test_cases(openai_api_key, selected_model, test_cases_prompt)
+                        elif model_provider == "Google AI API":
+                            test_cases_markdown = get_test_cases_google(google_api_key, google_model, test_cases_prompt)
+                        elif model_provider == "Mistral API":
+                            test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
+                        elif model_provider == "Ollama":
+                            test_cases_markdown = get_test_cases_ollama(ollama_model, test_cases_prompt)
+
+                        # Display the suggested mitigations in Markdown
+                        st.markdown(test_cases_markdown)
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error generating test cases after {max_retries} attempts: {e}")
+                            test_cases_markdown = ""
+                        else:
+                            st.warning(f"Error generating test cases. Retrying attempt {retry_count+1}/{max_retries}...")
+            
+            st.markdown("")
+
+            # Add a button to allow the user to download the test cases as a Markdown file
+            st.download_button(
+                label="Download Test Cases",
+                data=test_cases_markdown,
+                file_name="test_cases.md",
+                mime="text/markdown",
+            )
+        else:
+            st.error("Please generate a threat model first before requesting test cases.")
