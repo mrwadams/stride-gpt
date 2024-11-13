@@ -176,6 +176,10 @@ def load_env_variables():
     if mistral_api_key:
         st.session_state['mistral_api_key'] = mistral_api_key
 
+    ollama_endpoint = os.getenv('OLLAMA_ENDPOINT')
+    if ollama_endpoint:
+        st.session_state['ollama_endpoint'] = ollama_endpoint
+
 # Call this function at the start of your app
 load_env_variables()
 
@@ -323,9 +327,25 @@ with st.sidebar:
         )
 
     if model_provider == "Ollama":
-        # Make a request to the Ollama API to get the list of available models
+        st.markdown(
+        """
+    1. Enter the Ollama endpoint to query (should end in /api, ex http://localhost:11434/api)
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+
+    )
+        ollama_endpoint = st.text_input(
+            "Enter your Ollama Endpoint:",
+            value=st.session_state.get('ollama_endpoint', ''),
+            help="This is usually a URL which includes the hostname of the system running your model: http://<hostname>:11434/api.",
+        )
+        if ollama_endpoint:
+            st.session_state['ollama_endpoint'] = ollama_endpoint
+
+
         try:
-            response = requests.get("http://localhost:11434/api/tags")
+            response = requests.get(ollama_endpoint +"/tags")
             response.raise_for_status() # Raise an exception for 4xx/5xx status codes
         except requests.exceptions.RequestException as e:
             st.error("Ollama endpoint not found, please select a different model provider.")
@@ -561,7 +581,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                     elif model_provider == "Mistral API":
                         model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
                     elif model_provider == "Ollama":
-                        model_output = get_threat_model_ollama(ollama_model, threat_model_prompt)
+                        model_output = get_threat_model_ollama(ollama_endpoint, ollama_model, threat_model_prompt)
 
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
@@ -636,7 +656,7 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
                     elif model_provider == "Ollama":
-                        mermaid_code = get_attack_tree_ollama(ollama_model, attack_tree_prompt)
+                        mermaid_code = get_attack_tree_ollama(ollama_endpoint, ollama_model, attack_tree_prompt)
 
                     # Display the generated attack tree code
                     st.write("Attack Tree Code:")
@@ -716,7 +736,7 @@ the security posture of the application and protect against potential attacks.
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
                         elif model_provider == "Ollama":
-                            mitigations_markdown = get_mitigations_ollama(ollama_model, mitigations_prompt)
+                            mitigations_markdown = get_mitigations_ollama(ollama_endpoint, ollama_model, mitigations_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(mitigations_markdown)
@@ -776,7 +796,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
                         elif model_provider == "Ollama":
-                            dread_assessment = get_dread_assessment_ollama(ollama_model, dread_assessment_prompt)
+                            dread_assessment = get_dread_assessment_ollama(ollama_endpoint, ollama_model, dread_assessment_prompt)
                         # Save the DREAD assessment to the session state for later use in test cases
                         st.session_state['dread_assessment'] = dread_assessment
                         break  # Exit the loop if successful
@@ -841,7 +861,7 @@ scenarios.
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
                         elif model_provider == "Ollama":
-                            test_cases_markdown = get_test_cases_ollama(ollama_model, test_cases_prompt)
+                            test_cases_markdown = get_test_cases_ollama(ollama_endpoint, ollama_model, test_cases_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(test_cases_markdown)

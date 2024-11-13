@@ -100,9 +100,9 @@ def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
     return mitigations
 
 # Function to get mitigations from Ollama hosted LLM.
-def get_mitigations_ollama(ollama_model, prompt):
+def get_mitigations_ollama(ollama_endpoint, ollama_model, prompt):
     
-    url = "http://localhost:11434/api/chat"
+    url = ollama_endpoint + "/chat"
 
     data = {
         "model": ollama_model,

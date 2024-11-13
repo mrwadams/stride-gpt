@@ -184,8 +184,8 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     return dread_assessment
 
 # Function to get DREAD risk assessment from Ollama hosted LLM.
-def get_dread_assessment_ollama(ollama_model, prompt):
-    url = "http://localhost:11434/api/chat"
+def get_dread_assessment_ollama(ollama_endpoint, ollama_model, prompt):
+    url = ollama_endpoint + "/chat"
     max_retries = 3
     retry_delay = 2  # seconds
 

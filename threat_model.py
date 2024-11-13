@@ -220,9 +220,9 @@ def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
     return response_content
 
 # Function to get threat model from Ollama hosted LLM.
-def get_threat_model_ollama(ollama_model, prompt):
+def get_threat_model_ollama(ollama_endpoint, ollama_model, prompt):
 
-    url = "http://localhost:11434/api/generate"
+    url = ollama_endpoint + "/generate"
 
     data = {
         "model": ollama_model,

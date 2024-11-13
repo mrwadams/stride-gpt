@@ -132,9 +132,9 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
     return attack_tree_code
 
 # Function to get attack tree from Ollama hosted LLM.
-def get_attack_tree_ollama(ollama_model, prompt):
+def get_attack_tree_ollama(ollama_endpoint, ollama_model, prompt):
     
-    url = "http://localhost:11434/api/chat"
+    url = ollama_endpoint + "/chat"
 
     data = {
         "model": ollama_model,
