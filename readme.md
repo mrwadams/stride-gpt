@@ -199,7 +199,7 @@ Release highlights:
 
 ### Option 1: Running the Streamlit App Locally
 
-1. Run the Streamlit app:
+1. Run the help:
 
     ```bash
     streamlit run main.py
@@ -209,7 +209,24 @@ Release highlights:
 
 3. Follow the steps in the Streamlit interface to use STRIDE GPT.
 
-### Option 2: Using Docker Container
+### Option 2: Run via CLI
+
+
+1. (Optional) Generate an application description:
+
+    ```bash
+    python3 cli.py analyze-local-repo --repo-path .  --output-file app_description.txt
+    ```
+    ```bash
+    python3 cli.py analyze-github-repo --repo-url [URL] --github-api-key [KEY] --output-file app_description.txt
+    ```
+2. Generate a threat model passing in an application description file:
+
+    ```
+    python3 cli.py threat-model --provider Ollama --model llama3.2:latest --application-type Other --sensitive-data Secret --authentication MFA --application-input "$(cat app_descripion.txt)" --output-file threat_model.md
+    ```
+
+### Option 3: Using Docker Container
 
 1. Run the Docker container, mounting the `.env` file:
 
