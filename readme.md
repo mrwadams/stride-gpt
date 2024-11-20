@@ -199,7 +199,7 @@ Release highlights:
 
 ### Option 1: Running the Streamlit App Locally
 
-1. Run the help:
+1. Run the Streamlit app:
 
     ```bash
     streamlit run main.py
@@ -223,7 +223,7 @@ Release highlights:
 2. Generate a threat model passing in an application description file:
 
     ```
-    python3 cli.py threat-model --provider Ollama --model llama3.2:latest --application-type Other --sensitive-data Secret --authentication MFA --application-input "$(cat app_descripion.txt)" --output-file threat_model.md
+    python3 cli.py threat-model --provider ollama --model llama3.2:latest --application-type "Web application" --internet-facing  --sensitive-data Secret --authentication MFA --application-input "$(cat app_description.txt)" --output-file threat_model.md
     ```
 
 ### Option 3: Using Docker Container
