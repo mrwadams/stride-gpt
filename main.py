@@ -4,6 +4,7 @@ import base64
 import streamlit as st
 import streamlit.components.v1 as components
 from github import Github
+from git import Repo
 from collections import defaultdict
 import re
 import os
@@ -13,11 +14,25 @@ import requests
 import json
 import tiktoken
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq
-from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
-from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, get_dread_assessment_groq, dread_json_to_markdown
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama
+from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama
+from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, dread_json_to_markdown
+
+from config import (  # Importing strings
+    ABOUT_SECTION,
+    EXAMPLE_APPLICATION_SECTION,
+    FAQ_SECTION,
+    THREAT_MODEL_SECTION,
+    COMBINED_MARKDOWN,
+    PROVIDERS,
+    APPLICATION_TYPES,
+    CLASSIFICATION_LEVELS,
+    AUTHENTICATION_METHODS,
+    ARG_HELPERS,
+    INTERNET_FACING,
+)
 
 # ------------------ Helper Functions ------------------ #
 
@@ -117,7 +132,7 @@ def get_input():
             st.warning("Please enter a GitHub API key to analyze the repository.")
         else:
             with st.spinner('Analyzing GitHub repository...'):
-                system_description = analyze_github_repo(github_url)
+                system_description = analyze_github_repo(github_url, st.session_state.get('github_api_key', ''))
                 st.session_state['github_analysis'] = system_description
                 st.session_state['last_analyzed_url'] = github_url
                 st.session_state['app_input'] = system_description + "\n\n" + st.session_state.get('app_input', '')
@@ -164,7 +179,7 @@ def analyze_github_repo(repo_url):
     repo_name = parts[-1]
 
     # Initialize PyGithub
-    g = Github(st.session_state.get('github_api_key', ''))
+    g = Github(key)
 
     # Get the repository
     repo = g.get_repo(f"{owner}/{repo_name}")
@@ -287,8 +302,54 @@ def analyze_github_repo(repo_url):
     progress_bar.empty()
     status_text.empty()
     
+
+    return get_system_description(repo_name, readme_content, file_summaries)
+
+def analyze_local_repo(repo_path):
+
+    # Initialize the repository object
+    repo = Repo(repo_path)
+
+    # Ensure it's a valid repository
+    if not repo.bare:
+        print(f"Repository at {repo_path} is loaded successfully.")
+
+        # Get the active branch
+        active_branch = repo.active_branch
+        print(f"Active Branch: {active_branch}")
+
+        # Get the latest commit
+        latest_commit = repo.head.commit
+        print(f"Latest Commit: {latest_commit.message.strip()} by {latest_commit.author.name}")
+
+        # Analyze files
+        file_summaries = defaultdict(list)
+        total_chars = 0
+        char_limit = 100000  # Adjust this based on your model's token limit
+        readme_content = ""
+
+        for item in repo.tree().traverse():
+            if item.name == 'readme.md':
+                with open(item.path, 'r', encoding='utf-8', errors='ignore') as file:
+                    readme_content = file.read()
+            elif item.type == "blob" and item.path.endswith(('.py', '.js', '.ts', '.html', '.css', '.java', '.go', '.rb')):
+                with open(item.path, 'r', encoding='utf-8', errors='ignore') as file:
+                    content = file.read()
+                
+                # Summarize the file content
+                summary = summarize_file(file, content)
+                file_summaries[file.name.split('.')[-1]].append(summary)
+                
+                total_chars += len(summary)
+                if total_chars > char_limit:
+                    break
+
+        return get_system_description(repo, readme_content, file_summaries)
+
+def get_system_description(repo_name, readme_content, file_summaries):
+
     # Compile the analysis into a system description
-    system_description = f"Repository: {repo_url}\n\n"
+    system_description = f"Repository: {repo_name}\n\n"
     
     if readme_content:
         system_description += "README.md Content:\n"
@@ -471,8 +532,41 @@ def load_env_variables():
     lm_studio_endpoint = os.getenv('LM_STUDIO_ENDPOINT', 'http://localhost:1234')
     st.session_state['lm_studio_endpoint'] = lm_studio_endpoint
 
-# Call this function at the start of your app
-load_env_variables()
+def generate_threat_model(app_type, authentication, internet_facing, sensitive_data, app_input,
+                          provider, model, key, azure_api_endpoint=None, azure_api_version=None, azure_deployment_name=None):
+
+    threat_model_prompt = create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
+
+    print(f"Threat Model Prompt:\n\n{threat_model_prompt}")
+
+    max_retries = 3
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            # Call the relevant get_threat_model function with the generated prompt
+            if provider == PROVIDERS['azure']:
+                return get_threat_model_azure(azure_api_endpoint, key, azure_api_version, azure_deployment_name, threat_model_prompt)
+            elif provider == PROVIDERS['openai']:
+                return get_threat_model(key, model, threat_model_prompt)
+            elif provider == PROVIDERS['google']:
+                return get_threat_model_google(key, model, threat_model_prompt)
+            elif provider == PROVIDERS['mistral']:
+                return get_threat_model_mistral(key, model, threat_model_prompt)
+            elif provider == PROVIDERS['ollama']:
+                return get_threat_model_ollama(model, threat_model_prompt)
+
+            break  # Exit the loop if successful
+        except Exception as e:
+            retry_count += 1
+            if retry_count == max_retries:
+                raise Exception(f"Error generating threat model after {max_retries} attempts: {e}")
+            else:
+                print(f"Error generating threat model. Retrying attempt {retry_count+1}/{max_retries}...")
+
+
+if __name__ == "__main__":
+    # Call this function at the start of your app
+    load_env_variables()
 
 # ------------------ Model Token Limits ------------------ #
 
@@ -516,12 +610,12 @@ model_token_limits = {
     "LM Studio Server:default": {"default": 8000, "max": 32000}
 }
 
-st.set_page_config(
-    page_title="STRIDE GPT",
-    page_icon=":shield:",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+    st.set_page_config(
+        page_title="STRIDE GPT",
+        page_icon=":shield:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
 
 # Define callback for model provider change
 def on_model_provider_change():
@@ -587,10 +681,10 @@ def on_model_selection_change():
 
 # ------------------ Sidebar ------------------ #
 
-st.sidebar.image("logo.png")
+    st.sidebar.image("logo.png")
 
-# Add instructions on how to use the app to the sidebar
-st.sidebar.header("How to use STRIDE GPT")
+    # Add instructions on how to use the app to the sidebar
+    st.sidebar.header("How to use STRIDE GPT")
 
 with st.sidebar:
     # Add model selection input field to the sidebar
@@ -602,23 +696,23 @@ with st.sidebar:
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
 
-    if model_provider == "OpenAI API":
-        st.markdown(
+        if model_provider == "OpenAI API":
+            st.markdown(
+            """
+        1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
+        2. Provide details of the application that you would like to threat model  📝
+        3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
         """
-    1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-    )
-        # Add OpenAI API key input field to the sidebar
-        openai_api_key = st.text_input(
-            "Enter your OpenAI API key:",
-            value=st.session_state.get('openai_api_key', ''),
-            type="password",
-            help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
         )
-        if openai_api_key:
-            st.session_state['openai_api_key'] = openai_api_key
+            # Add OpenAI API key input field to the sidebar
+            openai_api_key = st.text_input(
+                "Enter your OpenAI API key:",
+                value=st.session_state.get('openai_api_key', ''),
+                type="password",
+                help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
+            )
+            if openai_api_key:
+                st.session_state['openai_api_key'] = openai_api_key
 
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
@@ -656,47 +750,47 @@ with st.sidebar:
             help="Select 'claude-3-7-sonnet-thinking' to use Claude's extended thinking mode for enhanced reasoning capabilities."
         )
 
-    if model_provider == "Azure OpenAI Service":
-        st.markdown(
+        if model_provider == "Azure OpenAI Service":
+            st.markdown(
+            """
+        1. Enter your Azure OpenAI API key, endpoint and deployment name below 🔑
+        2. Provide details of the application that you would like to threat model  📝
+        3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
         """
-    1. Enter your Azure OpenAI API key, endpoint and deployment name below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-    )
-
-        # Add Azure OpenAI API key input field to the sidebar
-        azure_api_key = st.text_input(
-            "Azure OpenAI API key:",
-            value=st.session_state.get('azure_api_key', ''),
-            type="password",
-            help="You can find your Azure OpenAI API key on the [Azure portal](https://portal.azure.com/).",
         )
-        if azure_api_key:
-            st.session_state['azure_api_key'] = azure_api_key
-        
-        # Add Azure OpenAI endpoint input field to the sidebar
-        azure_api_endpoint = st.text_input(
-            "Azure OpenAI endpoint:",
-            value=st.session_state.get('azure_api_endpoint', ''),
-            help="Example endpoint: https://YOUR_RESOURCE_NAME.openai.azure.com/",
-        )
-        if azure_api_endpoint:
-            st.session_state['azure_api_endpoint'] = azure_api_endpoint
 
-        # Add Azure OpenAI deployment name input field to the sidebar
-        azure_deployment_name = st.text_input(
-            "Deployment name:",
-            value=st.session_state.get('azure_deployment_name', ''),
-        )
-        if azure_deployment_name:
-            st.session_state['azure_deployment_name'] = azure_deployment_name
-        
-        st.info("Please note that you must use an 1106-preview model deployment.")
+            # Add Azure OpenAI API key input field to the sidebar
+            azure_api_key = st.text_input(
+                "Azure OpenAI API key:",
+                value=st.session_state.get('azure_api_key', ''),
+                type="password",
+                help="You can find your Azure OpenAI API key on the [Azure portal](https://portal.azure.com/).",
+            )
+            if azure_api_key:
+                st.session_state['azure_api_key'] = azure_api_key
+            
+            # Add Azure OpenAI endpoint input field to the sidebar
+            azure_api_endpoint = st.text_input(
+                "Azure OpenAI endpoint:",
+                value=st.session_state.get('azure_api_endpoint', ''),
+                help="Example endpoint: https://YOUR_RESOURCE_NAME.openai.azure.com/",
+            )
+            if azure_api_endpoint:
+                st.session_state['azure_api_endpoint'] = azure_api_endpoint
 
-        azure_api_version = '2023-12-01-preview' # Update this as needed
+            # Add Azure OpenAI deployment name input field to the sidebar
+            azure_deployment_name = st.text_input(
+                "Deployment name:",
+                value=st.session_state.get('azure_deployment_name', ''),
+            )
+            if azure_deployment_name:
+                st.session_state['azure_deployment_name'] = azure_deployment_name
+            
+            st.info("Please note that you must use an 1106-preview model deployment.")
 
-        st.write(f"Azure API Version: {azure_api_version}")
+            azure_api_version = '2023-12-01-preview' # Update this as needed
+
+            st.write(f"Azure API Version: {azure_api_version}")
 
     if model_provider == "Google AI API":
         st.markdown(
@@ -857,9 +951,9 @@ with st.sidebar:
         help="You can find or create your GitHub API key in your GitHub account settings under Developer settings > Personal access tokens.",
     )
 
-    # Store the GitHub API key in session state
-    if github_api_key:
-        st.session_state['github_api_key'] = github_api_key
+        # Store the GitHub API key in session state
+        if github_api_key:
+            st.session_state['github_api_key'] = github_api_key
 
     # Add Advanced Settings section with token limit configuration
     with st.expander("Advanced Settings"):
@@ -908,113 +1002,45 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Add "About" section to the sidebar
-    st.header("About")
-    
-    st.markdown(
-        "Welcome to STRIDE GPT, an AI-powered tool designed to help teams produce better threat models for their applications."
-    )
-    st.markdown(
-        "Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of Large Language Models (LLMs) to generate a threat list, attack tree and/or mitigating controls for an application based on the details provided."
-    )
-    st.markdown("Created by [Matt Adams](https://www.linkedin.com/in/matthewrwadams/).")
-    # Add "Star on GitHub" link to the sidebar
-    st.markdown(
-        "⭐ Star on GitHub: [![Star on GitHub](https://img.shields.io/github/stars/mrwadams/stride-gpt?style=social)](https://github.com/mrwadams/stride-gpt)"
-    )
-    st.markdown("""---""")
+    # Add sections to the sidebar
+    with st.sidebar:
+        st.markdown(ABOUT_SECTION)
+        st.markdown(EXAMPLE_APPLICATION_SECTION)
+        st.markdown(FAQ_SECTION)
 
+    # ------------------ Main App UI ------------------ #
 
-# Add "Example Application Description" section to the sidebar
-st.sidebar.header("Example Application Description")
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"])
 
-with st.sidebar:
-    st.markdown(
-        "Below is an example application description that you can use to test STRIDE GPT:"
-    )
-    st.markdown(
-        "> A web application that allows users to create, store, and share personal notes. The application is built using the React frontend framework and a Node.js backend with a MongoDB database. Users can sign up for an account and log in using OAuth2 with Google or Facebook. The notes are encrypted at rest and are only accessible by the user who created them. The application also supports real-time collaboration on notes with other users."
-    )
-    st.markdown("""---""")
+    with tab1:
+        st.markdown(THREAT_MODEL_SECTION)
+        st.markdown("""---""")
+        
+        # Two column layout for the main app content
+        col1, col2 = st.columns([1, 1])
 
-# Add "FAQs" section to the sidebar
-st.sidebar.header("FAQs")
-
-with st.sidebar:
-    st.markdown(
-        """
-    ### **What is STRIDE?**
-    STRIDE is a threat modeling methodology that helps to identify and categorise potential security risks in software applications. It stands for **S**poofing, **T**ampering, **R**epudiation, **I**nformation Disclosure, **D**enial of Service, and **E**levation of Privilege.
-    """
-    )
-    st.markdown(
-        """
-    ### **How does STRIDE GPT work?**
-    When you enter an application description and other relevant details, the tool will use a GPT model to generate a threat model for your application. The model uses the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
-    """
-    )
-    st.markdown(
-        """
-    ### **Do you store the application details provided?**
-    No, STRIDE GPT does not store your application description or other details. All entered data is deleted after you close the browser tab.
-    """
-    )
-    st.markdown(
-        """
-    ### **Why does it take so long to generate a threat model?**
-    If you are using a free OpenAI API key, it will take a while to generate a threat model. This is because the free API key has strict rate limits. To speed up the process, you can use a paid API key.
-    """
-    )
-    st.markdown(
-        """
-    ### **Are the threat models 100% accurate?**
-    No, the threat models are not 100% accurate. STRIDE GPT uses GPT Large Language Models (LLMs) to generate its output. The GPT models are powerful, but they sometimes makes mistakes and are prone to 'hallucinations' (generating irrelevant or inaccurate content). Please use the output only as a starting point for identifying and addressing potential security risks in your applications.
-    """
-    )
-    st.markdown(
-        """
-    ### **How can I improve the accuracy of the threat models?**
-    You can improve the accuracy of the threat models by providing a detailed description of the application and selecting the correct application type, authentication methods, and other relevant details. The more information you provide, the more accurate the threat models will be.
-    """
-    )
-
-
-# ------------------ Main App UI ------------------ #
-
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"])
-
-with tab1:
-    st.markdown("""
-A threat model helps identify and evaluate potential security threats to applications / systems. It provides a systematic approach to 
-understanding possible vulnerabilities and attack vectors. Use this tab to generate a threat model using the STRIDE methodology.
-""")
-    st.markdown("""---""")
-    
-    # Two column layout for the main app content
-    col1, col2 = st.columns([1, 1])
-
-    # Initialize app_input in the session state if it doesn't exist
-    if 'app_input' not in st.session_state:
-        st.session_state['app_input'] = ''
+        # Initialize app_input in the session state if it doesn't exist
+        if 'app_input' not in st.session_state:
+            st.session_state['app_input'] = ''
 
     # If model provider is OpenAI API and the model is gpt-4o or gpt-4o-mini
     with col1:
         if model_provider == "OpenAI API" and selected_model in ["gpt-4o", "gpt-4o-mini"]:
             uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
 
-            if uploaded_file is not None:
-                if not openai_api_key:
-                    st.error("Please enter your OpenAI API key to analyse the image.")
-                else:
-                    if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
-                        st.session_state.uploaded_file = uploaded_file
-                        with st.spinner("Analysing the uploaded image..."):
-                            def encode_image(uploaded_file):
-                                return base64.b64encode(uploaded_file.read()).decode('utf-8')
+                if uploaded_file is not None:
+                    if not openai_api_key:
+                        st.error("Please enter your OpenAI API key to analyse the image.")
+                    else:
+                        if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
+                            st.session_state.uploaded_file = uploaded_file
+                            with st.spinner("Analysing the uploaded image..."):
+                                def encode_image(uploaded_file):
+                                    return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
-                            base64_image = encode_image(uploaded_file)
+                                base64_image = encode_image(uploaded_file)
 
-                            image_analysis_prompt = create_image_analysis_prompt()
+                                image_analysis_prompt = create_image_analysis_prompt()
 
                             try:
                                 image_analysis_output = get_image_analysis(openai_api_key, selected_model, image_analysis_prompt, base64_image)
@@ -1030,70 +1056,54 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             except Exception as e:
                                 st.error("An unexpected error occurred while analyzing the image.")
 
-        # Use the get_input() function to get the application description and GitHub URL
-        app_input = get_input()
-        # Update session state only if the text area content has changed
-        if app_input != st.session_state['app_input']:
-            st.session_state['app_input'] = app_input
+            # Use the get_input() function to get the application description and GitHub URL
+            app_input = get_input()
+            # Update session state only if the text area content has changed
+            if app_input != st.session_state['app_input']:
+                st.session_state['app_input'] = app_input
 
-    # Ensure app_input is always up to date in the session state
-    app_input = st.session_state['app_input']
-
-
-
-        # Create input fields for additional details
-    with col2:
-            app_type = st.selectbox(
-                label="Select the application type",
-                options=[
-                    "Web application",
-                    "Mobile application",
-                    "Desktop application",
-                    "Cloud application",
-                    "IoT application",
-                    "Other",
-                ],
-                key="app_type",
-            )
-
-            sensitive_data = st.selectbox(
-                label="What is the highest sensitivity level of the data processed by the application?",
-                options=[
-                    "Top Secret",
-                    "Secret",
-                    "Confidential",
-                    "Restricted",
-                    "Unclassified",
-                    "None",
-                ],
-                key="sensitive_data",
-            )
-
-        # Create input fields for internet_facing and authentication
-            internet_facing = st.selectbox(
-                label="Is the application internet-facing?",
-                options=["Yes", "No"],
-                key="internet_facing",
-            )
-
-            authentication = st.multiselect(
-                "What authentication methods are supported by the application?",
-                ["SSO", "MFA", "OAUTH2", "Basic", "None"],
-                key="authentication",
-            )
+        # Ensure app_input is always up to date in the session state
+        app_input = st.session_state['app_input']
 
 
 
-    # ------------------ Threat Model Generation ------------------ #
+            # Create input fields for additional details
+        with col2:
+                app_type = st.selectbox(
+                    label=ARG_HELPERS['application-type'],
+                    options=APPLICATION_TYPES,
+                    key="app_type",
+                )
 
-    # Create a submit button for Threat Modelling
-    threat_model_submit_button = st.button(label="Generate Threat Model")
+                sensitive_data = st.selectbox(
+                    label=ARG_HELPERS['sensitive-data'],
+                    options=CLASSIFICATION_LEVELS,
+                    key="sensitive_data",
+                )
 
-    # If the Generate Threat Model button is clicked and the user has provided an application description
-    if threat_model_submit_button and st.session_state.get('app_input'):
-        app_input = st.session_state['app_input']  # Retrieve from session state
-        # Generate the prompt using the create_prompt function
-        threat_model_prompt = create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
+            # Create input fields for internet_facing and authentication
+                internet_facing = st.selectbox(
+                    label=ARG_HELPERS['internet-facing'],
+                    options=INTERNET_FACING,
+                    key="internet_facing",
+                )
+
+                authentication = st.multiselect(
+                    ARG_HELPERS['authentication'],
+                    AUTHENTICATION_METHODS,
+                    key="authentication",
+                )
+
+
+
+        # ------------------ Threat Model Generation ------------------ #
+
+        # Create a submit button for Threat Modelling
+        threat_model_submit_button = st.button(label="Generate Threat Model")
+
+        # If the Generate Threat Model button is clicked and the user has provided an application description
+        if threat_model_submit_button and st.session_state.get('app_input'):
+            app_input = st.session_state['app_input']  # Retrieve from session state
 
         # Clear thinking content when switching models or starting a new operation
         if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
@@ -1135,18 +1145,9 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
 
                     # Save the threat model to the session state for later use in mitigations
                     st.session_state['threat_model'] = threat_model
-                    break  # Exit the loop if successful
-                except Exception as e:
-                    retry_count += 1
-                    if retry_count == max_retries:
-                        st.error(f"Error generating threat model after {max_retries} attempts: {e}")
-                        threat_model = []
-                        improvement_suggestions = []
-                    else:
-                        st.warning(f"Error generating threat model. Retrying attempt {retry_count+1}/{max_retries}...")
 
-        # Convert the threat model JSON to Markdown
-        markdown_output = json_to_markdown(threat_model, improvement_suggestions)
+                    # Convert the threat model JSON to Markdown
+                    markdown_output = json_to_markdown(threat_model, improvement_suggestions)
 
         # Display thinking content in an expander if available and using Claude thinking mode
         if ('last_thinking_content' in st.session_state and 
@@ -1173,7 +1174,7 @@ if threat_model_submit_button and not st.session_state.get('app_input'):
 
 
 
-# ------------------ Attack Tree Generation ------------------ #
+    # ------------------ Attack Tree Generation ------------------ #
 
 with tab2:
     st.markdown("""
@@ -1230,25 +1231,25 @@ vulnerabilities and prioritising mitigation efforts.
                         with st.expander("View Claude's thinking process"):
                             st.markdown(st.session_state['last_thinking_content'])
 
-                    # Display the generated attack tree code
-                    st.write("Attack Tree Code:")
-                    st.code(mermaid_code)
+                        # Display the generated attack tree code
+                        st.write("Attack Tree Code:")
+                        st.code(mermaid_code)
 
-                    # Visualise the attack tree using the Mermaid custom component
-                    st.write("Attack Tree Diagram Preview:")
-                    mermaid(mermaid_code)
-                    
-                    col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
-                    
-                    with col1:              
-                        # Add a button to allow the user to download the Mermaid code
-                        st.download_button(
-                            label="Download Diagram Code",
-                            data=mermaid_code,
-                            file_name="attack_tree.md",
-                            mime="text/plain",
-                            help="Download the Mermaid code for the attack tree diagram."
-                        )
+                        # Visualise the attack tree using the Mermaid custom component
+                        st.write("Attack Tree Diagram Preview:")
+                        mermaid(mermaid_code)
+                        
+                        col1, col2, col3, col4, col5 = st.columns([1,1,1,1,1])
+                        
+                        with col1:              
+                            # Add a button to allow the user to download the Mermaid code
+                            st.download_button(
+                                label="Download Diagram Code",
+                                data=mermaid_code,
+                                file_name="attack_tree.md",
+                                mime="text/plain",
+                                help="Download the Mermaid code for the attack tree diagram."
+                            )
 
                     with col2:
                         # Add a button to allow the user to open the Mermaid Live editor
@@ -1270,27 +1271,27 @@ vulnerabilities and prioritising mitigation efforts.
                     st.error(f"Error generating attack tree: {e}")
 
 
-# ------------------ Mitigations Generation ------------------ #
+    # ------------------ Mitigations Generation ------------------ #
 
-with tab3:
-    st.markdown("""
-Use this tab to generate potential mitigations for the threats identified in the threat model. Mitigations are security controls or
-countermeasures that can help reduce the likelihood or impact of a security threat. The generated mitigations can be used to enhance
-the security posture of the application and protect against potential attacks.
-""")
-    st.markdown("""---""")
-    
-    # Create a submit button for Mitigations
-    mitigations_submit_button = st.button(label="Suggest Mitigations")
+    with tab3:
+        st.markdown("""
+    Use this tab to generate potential mitigations for the threats identified in the threat model. Mitigations are security controls or
+    countermeasures that can help reduce the likelihood or impact of a security threat. The generated mitigations can be used to enhance
+    the security posture of the application and protect against potential attacks.
+    """)
+        st.markdown("""---""")
+        
+        # Create a submit button for Mitigations
+        mitigations_submit_button = st.button(label="Suggest Mitigations")
 
-    # If the Suggest Mitigations button is clicked and the user has identified threats
-    if mitigations_submit_button:
-        # Check if threat_model data exists
-        if 'threat_model' in st.session_state and st.session_state['threat_model']:
-            # Convert the threat_model data into a Markdown list
-            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
-            # Generate the prompt using the create_mitigations_prompt function
-            mitigations_prompt = create_mitigations_prompt(threats_markdown)
+        # If the Suggest Mitigations button is clicked and the user has identified threats
+        if mitigations_submit_button:
+            # Check if threat_model data exists
+            if 'threat_model' in st.session_state and st.session_state['threat_model']:
+                # Convert the threat_model data into a Markdown list
+                threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+                # Generate the prompt using the create_mitigations_prompt function
+                mitigations_prompt = create_mitigations_prompt(threats_markdown)
 
             # Clear thinking content when switching models or starting a new operation
             if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
@@ -1446,28 +1447,28 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
             st.error("Please generate a threat model first before requesting a DREAD risk assessment.")
 
 
-# ------------------ Test Cases Generation ------------------ #
+    # ------------------ Test Cases Generation ------------------ #
 
-with tab5:
-    st.markdown("""
-Test cases are used to validate the security of an application and ensure that potential vulnerabilities are identified and 
-addressed. This tab allows you to generate test cases using Gherkin syntax. Gherkin provides a structured way to describe application 
-behaviours in plain text, using a simple syntax of Given-When-Then statements. This helps in creating clear and executable test 
-scenarios.
-""")
-    st.markdown("""---""")
-                
-    # Create a submit button for Test Cases
-    test_cases_submit_button = st.button(label="Generate Test Cases")
+    with tab5:
+        st.markdown("""
+    Test cases are used to validate the security of an application and ensure that potential vulnerabilities are identified and 
+    addressed. This tab allows you to generate test cases using Gherkin syntax. Gherkin provides a structured way to describe application 
+    behaviours in plain text, using a simple syntax of Given-When-Then statements. This helps in creating clear and executable test 
+    scenarios.
+    """)
+        st.markdown("""---""")
+                    
+        # Create a submit button for Test Cases
+        test_cases_submit_button = st.button(label="Generate Test Cases")
 
-    # If the Generate Test Cases button is clicked and the user has identified threats
-    if test_cases_submit_button:
-        # Check if threat_model data exists
-        if 'threat_model' in st.session_state and st.session_state['threat_model']:
-            # Convert the threat_model data into a Markdown list
-            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
-            # Generate the prompt using the create_test_cases_prompt function
-            test_cases_prompt = create_test_cases_prompt(threats_markdown)
+        # If the Generate Test Cases button is clicked and the user has identified threats
+        if test_cases_submit_button:
+            # Check if threat_model data exists
+            if 'threat_model' in st.session_state and st.session_state['threat_model']:
+                # Convert the threat_model data into a Markdown list
+                threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+                # Generate the prompt using the create_test_cases_prompt function
+                test_cases_prompt = create_test_cases_prompt(threats_markdown)
 
             # Clear thinking content when switching models or starting a new operation
             if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
