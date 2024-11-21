@@ -209,21 +209,21 @@ Release highlights:
 
 3. Follow the steps in the Streamlit interface to use STRIDE GPT.
 
-### Option 2: Run via CLI
+### Option 2: Using CLI
 
 
 1. (Optional) Generate an application description:
 
     ```bash
-    python3 cli.py analyze-local-repo --repo-path .  --output-file app_description.txt
+    python cli.py analyze-local-repo --repo-path .  --output-file app_description.txt
     ```
     ```bash
-    python3 cli.py analyze-github-repo --repo-url [URL] --github-api-key [KEY] --output-file app_description.txt
+    python cli.py analyze-github-repo --repo-url [URL] --github-api-key [KEY] --output-file app_description.txt
     ```
 2. Generate a threat model passing in an application description file:
 
     ```
-    python3 cli.py threat-model --provider ollama --model llama3.2:latest --application-type "Web application" --internet-facing  --sensitive-data Secret --authentication MFA --application-input "$(cat app_description.txt)" --output-file threat_model.md
+    python cli.py threat-model --provider ollama --model llama3.2:latest --application-type "Web application" --internet-facing  --sensitive-data Secret --authentication MFA --application-input "$(cat app_description.txt)" --output-file threat_model.md
     ```
 
 ### Option 3: Using Docker Container
@@ -240,6 +240,18 @@ Release highlights:
 3. Follow the steps in the Streamlit interface to use STRIDE GPT.
 
 Note: When you run the application (either locally or via Docker), it will automatically load the environment variables you've set in the `.env` file. This will pre-fill the API keys in the application interface.
+
+### Option 4: Using CLI via Docker
+1. Analyze a local repository by, running the docker container, mounting the working directory, running python, and passing in the CLI arguments:
+    ```
+    docker run -it --rm -v $(pwd):/app --entrypoint python stride-gpt cli.py analyze-local-repo --repo-path .  --output-file app_description.txt
+    ```
+
+2. Generate a threat model:
+    ```
+    docker run -it --rm -v $(pwd):/app -p 11434:11434 --entrypoint python stride-gpt cli.py threat-model --provider ollama --model llama3.2:latest --application-type "Web application" --internet-facing  --sensitive-data Secret --authentication MFA --application-input "$(cat app_description.txt)" --output-file threat_model.md --ollama-host host.docker.internal
+    ```
+Note: the use of the Ollama host parameter [to connect to the localhost](https://docs.docker.com/desktop/features/networking/#i-want-to-connect-from-a-container-to-a-service-on-the-host).
 
 ## Contributing
 

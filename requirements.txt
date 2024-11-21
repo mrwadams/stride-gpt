@@ -5,3 +5,4 @@ pyGithub
 streamlit
 python-dotenv
 rich
+GitPython

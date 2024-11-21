@@ -237,7 +237,7 @@ def load_env_variables():
         st.session_state['mistral_api_key'] = mistral_api_key
 
 def generate_threat_model(app_type, authentication, internet_facing, sensitive_data, app_input,
-                          provider, model, key, azure_api_endpoint=None, azure_api_version=None, azure_deployment_name=None):
+                          provider, model, key, azure_api_endpoint=None, azure_api_version=None, azure_deployment_name=None, ollama_host='localhost'):
 
     threat_model_prompt = create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
 
@@ -249,17 +249,20 @@ def generate_threat_model(app_type, authentication, internet_facing, sensitive_d
         try:
             # Call the relevant get_threat_model function with the generated prompt
             if provider == PROVIDERS['azure']:
-                return get_threat_model_azure(azure_api_endpoint, key, azure_api_version, azure_deployment_name, threat_model_prompt)
+                model_output =  get_threat_model_azure(azure_api_endpoint, key, azure_api_version, azure_deployment_name, threat_model_prompt)
             elif provider == PROVIDERS['openai']:
-                return get_threat_model(key, model, threat_model_prompt)
+                model_output =  get_threat_model(key, model, threat_model_prompt)
             elif provider == PROVIDERS['google']:
-                return get_threat_model_google(key, model, threat_model_prompt)
+                model_output =  get_threat_model_google(key, model, threat_model_prompt)
             elif provider == PROVIDERS['mistral']:
-                return get_threat_model_mistral(key, model, threat_model_prompt)
+                model_output =  get_threat_model_mistral(key, model, threat_model_prompt)
             elif provider == PROVIDERS['ollama']:
-                return get_threat_model_ollama(model, threat_model_prompt)
+                model_output =  get_threat_model_ollama(model, threat_model_prompt,ollama_host)
 
-            break  # Exit the loop if successful
+            print(f"Model Ouput: \n\n {model_output}")
+            
+            return model_output
+            
         except Exception as e:
             retry_count += 1
             if retry_count == max_retries:
