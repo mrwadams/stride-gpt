@@ -5,6 +5,9 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
 
+# Install Git
+RUN apt-get update && apt-get install -y git
+
 # Create the non-root user and set up environment
 RUN groupadd --gid 1000 appuser && \
     useradd --uid 1000 --gid 1000 -ms /bin/bash appuser && \
