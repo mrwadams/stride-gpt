@@ -56,7 +56,7 @@ arguments = [
     ("azure-api_endpoint", str, {}),
     ("azure-api_version", str, {}),
     ("azure-deployment_name", str, {}),
-    ("ollama-host", str, {"default": 'localhost'}),
+    ("local-host", str, {"default": 'localhost'}),
     ("application-type", str, {"choices": APPLICATION_TYPES, "required": True}),
     ("sensitive-data", str, {"choices": CLASSIFICATION_LEVELS, "required": True}),
     ("internet-facing", bool, {"action": "store_true"}),
@@ -108,7 +108,7 @@ if args.command == 'threat-model':
     app_input = args.application_input
     output_file= args.output_file
     output_format= args.output_format
-    ollama_host = args.ollama_host
+    local_host = args.local_host
     azure_api_endpoint = args.azure_api_endpoint
     azure_api_version = args.azure_api_version
     azure_deployment_name = args.azure_deployment_name
@@ -116,7 +116,7 @@ if args.command == 'threat-model':
     model_output = generate_threat_model(
         app_type=app_type, authentication=authentication, internet_facing=internet_facing, sensitive_data=sensitive_data,
         app_input=app_input, provider=PROVIDERS[provider], model=model, key=key,
-        ollama_host=ollama_host, azure_api_endpoint=azure_api_endpoint, azure_api_version=azure_api_version, azure_deployment_name=azure_deployment_name)
+        host=local_host, azure_api_endpoint=azure_api_endpoint, azure_api_version=azure_api_version, azure_deployment_name=azure_deployment_name)
 
     # Access the threat model and improvement suggestions from the parsed content
     threat_model = model_output.get("threat_model", [])
