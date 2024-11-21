@@ -249,9 +249,9 @@ Note: When you run the application (either locally or via Docker), it will autom
 
 2. Generate a threat model:
     ```
-    docker run -it --rm -v $(pwd):/app -p 11434:11434 --entrypoint python stride-gpt cli.py threat-model --provider ollama --model llama3.2:latest --application-type "Web application" --internet-facing  --sensitive-data Secret --authentication MFA --application-input "$(cat app_description.txt)" --output-file threat_model.md --ollama-host host.docker.internal
+    docker run -it --rm -v $(pwd):/app -p 11434:11434 --entrypoint python stride-gpt cli.py threat-model --provider ollama --model llama3.2:latest --application-type "Web application" --internet-facing  --sensitive-data Secret --authentication MFA --application-input "$(cat app_description.txt)" --output-file threat_model.md --local-host host.docker.internal
     ```
-Note: the use of the Ollama host parameter [to connect to the localhost](https://docs.docker.com/desktop/features/networking/#i-want-to-connect-from-a-container-to-a-service-on-the-host).
+Note: the use of the --local-host [to connect to the localhost](https://docs.docker.com/desktop/features/networking/#i-want-to-connect-from-a-container-to-a-service-on-the-host).
 
 ## Contributing
 

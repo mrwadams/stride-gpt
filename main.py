@@ -237,7 +237,7 @@ def load_env_variables():
         st.session_state['mistral_api_key'] = mistral_api_key
 
 def generate_threat_model(app_type, authentication, internet_facing, sensitive_data, app_input,
-                          provider, model, key, azure_api_endpoint=None, azure_api_version=None, azure_deployment_name=None, ollama_host='localhost'):
+                          provider, model, key, azure_api_endpoint=None, azure_api_version=None, azure_deployment_name=None, host='localhost'):
 
     threat_model_prompt = create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
 
@@ -257,7 +257,7 @@ def generate_threat_model(app_type, authentication, internet_facing, sensitive_d
             elif provider == PROVIDERS['mistral']:
                 model_output =  get_threat_model_mistral(key, model, threat_model_prompt)
             elif provider == PROVIDERS['ollama']:
-                model_output =  get_threat_model_ollama(model, threat_model_prompt,ollama_host)
+                model_output =  get_threat_model_ollama(model, threat_model_prompt,host)
 
             print(f"Model Ouput: \n\n {model_output}")
             
