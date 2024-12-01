@@ -1,4 +1,5 @@
 import requests
+from anthropic import Anthropic
 from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
 
@@ -124,3 +125,20 @@ def get_test_cases_ollama(ollama_model, prompt):
     mitigations = outer_json["message"]["content"]
 
     return mitigations
+
+# Function to get test cases from the Anthropic model's response.
+def get_test_cases_anthropic(anthropic_api_key, anthropic_model, prompt):
+    client = Anthropic(api_key=anthropic_api_key)
+    response = client.messages.create(
+        model=anthropic_model,
+        max_tokens=4096,
+        system="You are a helpful assistant that provides Gherkin test cases in Markdown format.",
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the text content from the first content block
+    test_cases = response.content[0].text
+
+    return test_cases
