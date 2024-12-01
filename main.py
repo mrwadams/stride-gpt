@@ -10,11 +10,11 @@ import re
 import os
 from dotenv import load_dotenv
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, json_to_markdown, get_image_analysis, create_image_analysis_prompt
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama
-from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama
-from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, dread_json_to_markdown
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic
+from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic
+from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, dread_json_to_markdown
 
 # ------------------ Helper Functions ------------------ #
 
@@ -156,6 +156,10 @@ def load_env_variables():
     if openai_api_key:
         st.session_state['openai_api_key'] = openai_api_key
 
+    anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+    if anthropic_api_key:
+        st.session_state['anthropic_api_key'] = anthropic_api_key
+
     azure_api_key = os.getenv('AZURE_API_KEY')
     if azure_api_key:
         st.session_state['azure_api_key'] = azure_api_key
@@ -199,7 +203,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Ollama"],
+        ["OpenAI API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Ollama"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -228,6 +232,31 @@ with st.sidebar:
             ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
             key="selected_model",
             help="GPT-4o and GPT-4o mini are OpenAI's latest models and are recommended."
+        )
+
+    if model_provider == "Anthropic API":
+        st.markdown(
+        """
+    1. Enter your [Anthropic API key](https://console.anthropic.com/settings/keys) and chosen model below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        # Add Anthropic API key input field to the sidebar
+        anthropic_api_key = st.text_input(
+            "Enter your Anthropic API key:",
+            value=st.session_state.get('anthropic_api_key', ''),
+            type="password",
+            help="You can find your Anthropic API key on the [Anthropic console](https://console.anthropic.com/settings/keys).",
+        )
+        if anthropic_api_key:
+            st.session_state['anthropic_api_key'] = anthropic_api_key
+
+        # Add model selection input field to the sidebar
+        anthropic_model = st.selectbox(
+            "Select the model you would like to use:",
+            ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+            key="selected_model",
         )
 
     if model_provider == "Azure OpenAI Service":
@@ -562,6 +591,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
                     elif model_provider == "Ollama":
                         model_output = get_threat_model_ollama(ollama_model, threat_model_prompt)
+                    elif model_provider == "Anthropic API":
+                        model_output = get_threat_model_anthropic(anthropic_api_key, anthropic_model, threat_model_prompt)
 
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
@@ -637,6 +668,9 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
                     elif model_provider == "Ollama":
                         mermaid_code = get_attack_tree_ollama(ollama_model, attack_tree_prompt)
+                    elif model_provider == "Anthropic API":
+                        mermaid_code = get_attack_tree_anthropic(anthropic_api_key, anthropic_model, attack_tree_prompt)
+
 
                     # Display the generated attack tree code
                     st.write("Attack Tree Code:")
@@ -686,3 +720,189 @@ Use this tab to generate potential mitigations for the threats identified in the
 countermeasures that can help reduce the likelihood or impact of a security threat. The generated mitigations can be used to enhance
 the security posture of the application and protect against potential attacks.
 """)
+    st.markdown("""---""")
+    
+    # Create a submit button for Mitigations
+    mitigations_submit_button = st.button(label="Suggest Mitigations")
+
+    # If the Suggest Mitigations button is clicked and the user has identified threats
+    if mitigations_submit_button:
+        # Check if threat_model data exists
+        if 'threat_model' in st.session_state and st.session_state['threat_model']:
+            # Convert the threat_model data into a Markdown list
+            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+            # Generate the prompt using the create_mitigations_prompt function
+            mitigations_prompt = create_mitigations_prompt(threats_markdown)
+
+            # Show a spinner while suggesting mitigations
+            with st.spinner("Suggesting mitigations..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Call the relevant get_mitigations function with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            mitigations_markdown = get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, mitigations_prompt)
+                        elif model_provider == "OpenAI API":
+                            mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
+                        elif model_provider == "Google AI API":
+                            mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
+                        elif model_provider == "Mistral API":
+                            mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
+                        elif model_provider == "Ollama":
+                            mitigations_markdown = get_mitigations_ollama(ollama_model, mitigations_prompt)
+                        elif model_provider == "Anthropic API":
+                            mitigations_markdown = get_mitigations_anthropic(anthropic_api_key, anthropic_model, mitigations_prompt)
+
+                        # Display the suggested mitigations in Markdown
+                        st.markdown(mitigations_markdown)
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error suggesting mitigations after {max_retries} attempts: {e}")
+                            mitigations_markdown = ""
+                        else:
+                            st.warning(f"Error suggesting mitigations. Retrying attempt {retry_count+1}/{max_retries}...")
+            
+            st.markdown("")
+
+            # Add a button to allow the user to download the mitigations as a Markdown file
+            st.download_button(
+                label="Download Mitigations",
+                data=mitigations_markdown,
+                file_name="mitigations.md",
+                mime="text/markdown",
+            )
+        else:
+            st.error("Please generate a threat model first before suggesting mitigations.")
+
+# ------------------ DREAD Risk Assessment Generation ------------------ #
+with tab4:
+    st.markdown("""
+DREAD is a method for evaluating and prioritising risks associated with security threats. It assesses threats based on **D**amage potential, 
+**R**eproducibility, **E**xploitability, **A**ffected users, and **D**iscoverability. This helps in determining the overall risk level and 
+focusing on the most critical threats first. Use this tab to perform a DREAD risk assessment for your application / system.
+""")
+    st.markdown("""---""")
+    
+    # Create a submit button for DREAD Risk Assessment
+    dread_assessment_submit_button = st.button(label="Generate DREAD Risk Assessment")
+    # If the Generate DREAD Risk Assessment button is clicked and the user has identified threats
+    if dread_assessment_submit_button:
+        # Check if threat_model data exists
+        if 'threat_model' in st.session_state and st.session_state['threat_model']:
+            # Convert the threat_model data into a Markdown list
+            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+            # Generate the prompt using the create_dread_assessment_prompt function
+            dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown)
+            # Show a spinner while generating DREAD Risk Assessment
+            with st.spinner("Generating DREAD Risk Assessment..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Call the relevant get_dread_assessment function with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            dread_assessment = get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, dread_assessment_prompt)
+                        elif model_provider == "OpenAI API":
+                            dread_assessment = get_dread_assessment(openai_api_key, selected_model, dread_assessment_prompt)
+                        elif model_provider == "Google AI API":
+                            dread_assessment = get_dread_assessment_google(google_api_key, google_model, dread_assessment_prompt)
+                        elif model_provider == "Mistral API":
+                            dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
+                        elif model_provider == "Ollama":
+                            dread_assessment = get_dread_assessment_ollama(ollama_model, dread_assessment_prompt)
+                        elif model_provider == "Anthropic API":
+                            dread_assessment = get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, dread_assessment_prompt)
+                        
+                        # Save the DREAD assessment to the session state for later use in test cases
+                        st.session_state['dread_assessment'] = dread_assessment
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error generating DREAD risk assessment after {max_retries} attempts: {e}")
+                            dread_assessment = []
+                        else:
+                            st.warning(f"Error generating DREAD risk assessment. Retrying attempt {retry_count+1}/{max_retries}...")
+            # Convert the DREAD assessment JSON to Markdown
+            dread_assessment_markdown = dread_json_to_markdown(dread_assessment)
+            # Display the DREAD assessment in Markdown
+            st.markdown(dread_assessment_markdown)
+            # Add a button to allow the user to download the test cases as a Markdown file
+            st.download_button(
+                label="Download DREAD Risk Assessment",
+                data=dread_assessment_markdown,
+                file_name="dread_assessment.md",
+                mime="text/markdown",
+            )
+        else:
+            st.error("Please generate a threat model first before requesting a DREAD risk assessment.")
+
+
+# ------------------ Test Cases Generation ------------------ #
+
+with tab5:
+    st.markdown("""
+Test cases are used to validate the security of an application and ensure that potential vulnerabilities are identified and 
+addressed. This tab allows you to generate test cases using Gherkin syntax. Gherkin provides a structured way to describe application 
+behaviours in plain text, using a simple syntax of Given-When-Then statements. This helps in creating clear and executable test 
+scenarios.
+""")
+    st.markdown("""---""")
+                
+    # Create a submit button for Test Cases
+    test_cases_submit_button = st.button(label="Generate Test Cases")
+
+    # If the Generate Test Cases button is clicked and the user has identified threats
+    if test_cases_submit_button:
+        # Check if threat_model data exists
+        if 'threat_model' in st.session_state and st.session_state['threat_model']:
+            # Convert the threat_model data into a Markdown list
+            threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
+            # Generate the prompt using the create_test_cases_prompt function
+            test_cases_prompt = create_test_cases_prompt(threats_markdown)
+
+            # Show a spinner while generating test cases
+            with st.spinner("Generating test cases..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Call to the relevant get_test_cases function with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            test_cases_markdown = get_test_cases_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, test_cases_prompt)
+                        elif model_provider == "OpenAI API":
+                            test_cases_markdown = get_test_cases(openai_api_key, selected_model, test_cases_prompt)
+                        elif model_provider == "Google AI API":
+                            test_cases_markdown = get_test_cases_google(google_api_key, google_model, test_cases_prompt)
+                        elif model_provider == "Mistral API":
+                            test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
+                        elif model_provider == "Ollama":
+                            test_cases_markdown = get_test_cases_ollama(ollama_model, test_cases_prompt)
+                        elif model_provider == "Anthropic API":
+                            test_cases_markdown = get_test_cases_anthropic(anthropic_api_key, anthropic_model, test_cases_prompt)
+
+                        # Display the suggested mitigations in Markdown
+                        st.markdown(test_cases_markdown)
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error generating test cases after {max_retries} attempts: {e}")
+                            test_cases_markdown = ""
+                        else:
+                            st.warning(f"Error generating test cases. Retrying attempt {retry_count+1}/{max_retries}...")
+            
+            st.markdown("")
+
+            # Add a button to allow the user to download the test cases as a Markdown file
+            st.download_button(
+                label="Download Test Cases",
+                data=test_cases_markdown,
+                file_name="test_cases.md",
+                mime="text/markdown",
+            )
+        else:
+            st.error("Please generate a threat model first before requesting test cases.")

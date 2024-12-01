@@ -1,5 +1,6 @@
 import json
 import requests
+from anthropic import Anthropic
 from mistralai import Mistral, UserMessage
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
@@ -238,3 +239,22 @@ def get_threat_model_ollama(ollama_model, prompt):
     inner_json = json.loads(outer_json['response'])
 
     return inner_json
+
+# Function to get threat model from the Claude response.
+def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
+    client = Anthropic(api_key=anthropic_api_key)
+    response = client.messages.create(
+        model=anthropic_model,
+        max_tokens=1024,
+        system="You are a helpful assistant designed to output JSON.",
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Combine all text blocks into a single string
+    full_content = ''.join(block.text for block in response.content)
+    
+    # Parse the combined JSON string
+    response_content = json.loads(full_content)
+    return response_content

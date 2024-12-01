@@ -1,6 +1,7 @@
 import json
 import requests
 import time
+from anthropic import Anthropic
 from mistralai import Mistral, UserMessage
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
@@ -230,3 +231,32 @@ def get_dread_assessment_ollama(ollama_model, prompt):
     # This line should never be reached due to the return statements above,
     # but it's here as a fallback
     return {}
+
+# Function to get DREAD risk assessment from the Anthropic model's response.
+def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):
+    client = Anthropic(api_key=anthropic_api_key)
+    response = client.messages.create(
+        model=anthropic_model,
+        max_tokens=4096,
+        system="You are a helpful assistant designed to output JSON.",
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    try:
+        # Extract the text content from the first content block
+        response_text = response.content[0].text
+        
+        # Check if the JSON is complete (should end with a closing brace)
+        if not response_text.strip().endswith('}'):
+            raise json.JSONDecodeError("Incomplete JSON response", response_text, len(response_text))
+            
+        # Parse the JSON string
+        dread_assessment = json.loads(response_text)
+        return dread_assessment
+    except (json.JSONDecodeError, IndexError, AttributeError) as e:
+        print(f"Error processing response: {str(e)}")
+        print("Raw response:")
+        print(response)
+        return {}

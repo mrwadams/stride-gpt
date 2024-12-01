@@ -1,3 +1,4 @@
+anthropic
 google.generativeai
 mistralai<=1.0.0
 openai
@@ -6,3 +7,5 @@ streamlit
 python-dotenv
 requests>=2.32.2 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.2.2 # not directly required, pinned by Snyk to avoid a vulnerability
+anyio>=4.4.0 # not directly required, pinned by Snyk to avoid a vulnerability
+zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability
