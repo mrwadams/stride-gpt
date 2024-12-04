@@ -180,6 +180,10 @@ def load_env_variables():
     if mistral_api_key:
         st.session_state['mistral_api_key'] = mistral_api_key
 
+    # Add Ollama endpoint configuration
+    ollama_endpoint = os.getenv('OLLAMA_ENDPOINT', 'http://localhost:11434')
+    st.session_state['ollama_endpoint'] = ollama_endpoint
+
 # Call this function at the start of your app
 load_env_variables()
 
@@ -352,23 +356,33 @@ with st.sidebar:
         )
 
     if model_provider == "Ollama":
-        # Make a request to the Ollama API to get the list of available models
-        try:
-            response = requests.get("http://localhost:11434/api/tags")
-            response.raise_for_status() # Raise an exception for 4xx/5xx status codes
-        except requests.exceptions.RequestException as e:
-            st.error("Ollama endpoint not found, please select a different model provider.")
-            response = None
-        
-        if response:
-            data = response.json()
-            available_models = [model["name"] for model in data["models"]]
-            # Add model selection input field to the sidebar
-            ollama_model = st.selectbox(
-                "Select the model you would like to use:",
-                available_models,
-                key="selected_model",
-            )
+        st.markdown(
+        """
+    1. Configure your Ollama endpoint below (defaults to http://localhost:11434) 🔧
+    2. Provide details of the application that you would like to threat model 📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+        )
+        # Add Ollama endpoint configuration field
+        ollama_endpoint = st.text_input(
+            "Enter your Ollama endpoint:",
+            value=st.session_state.get('ollama_endpoint', 'http://localhost:11434'),
+            help="The URL of your Ollama instance. Default is http://localhost:11434 for local installations.",
+        )
+        if ollama_endpoint:
+            # Basic URL validation
+            if not ollama_endpoint.startswith(('http://', 'https://')):
+                st.error("Endpoint URL must start with http:// or https://")
+            else:
+                st.session_state['ollama_endpoint'] = ollama_endpoint
+
+        # Add model selection input field
+        selected_model = st.selectbox(
+            "Select the Ollama model you would like to use:",
+            ["llama2", "mistral", "codellama", "llama2-uncensored"],
+            key="selected_model",
+            help="Select the model you have pulled into your Ollama instance."
+        )
 
     # Add GitHub API key input field to the sidebar
     github_api_key = st.sidebar.text_input(
@@ -590,7 +604,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                     elif model_provider == "Mistral API":
                         model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
                     elif model_provider == "Ollama":
-                        model_output = get_threat_model_ollama(ollama_model, threat_model_prompt)
+                        model_output = get_threat_model_ollama(st.session_state['ollama_endpoint'], selected_model, threat_model_prompt)
                     elif model_provider == "Anthropic API":
                         model_output = get_threat_model_anthropic(anthropic_api_key, anthropic_model, threat_model_prompt)
 
@@ -667,7 +681,7 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
                     elif model_provider == "Ollama":
-                        mermaid_code = get_attack_tree_ollama(ollama_model, attack_tree_prompt)
+                        mermaid_code = get_attack_tree_ollama(st.session_state['ollama_endpoint'], selected_model, attack_tree_prompt)
                     elif model_provider == "Anthropic API":
                         mermaid_code = get_attack_tree_anthropic(anthropic_api_key, anthropic_model, attack_tree_prompt)
 
@@ -750,7 +764,7 @@ the security posture of the application and protect against potential attacks.
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
                         elif model_provider == "Ollama":
-                            mitigations_markdown = get_mitigations_ollama(ollama_model, mitigations_prompt)
+                            mitigations_markdown = get_mitigations_ollama(st.session_state['ollama_endpoint'], selected_model, mitigations_prompt)
                         elif model_provider == "Anthropic API":
                             mitigations_markdown = get_mitigations_anthropic(anthropic_api_key, anthropic_model, mitigations_prompt)
 
@@ -812,7 +826,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
                         elif model_provider == "Ollama":
-                            dread_assessment = get_dread_assessment_ollama(ollama_model, dread_assessment_prompt)
+                            dread_assessment = get_dread_assessment_ollama(st.session_state['ollama_endpoint'], selected_model, dread_assessment_prompt)
                         elif model_provider == "Anthropic API":
                             dread_assessment = get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, dread_assessment_prompt)
                         
@@ -880,7 +894,7 @@ scenarios.
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
                         elif model_provider == "Ollama":
-                            test_cases_markdown = get_test_cases_ollama(ollama_model, test_cases_prompt)
+                            test_cases_markdown = get_test_cases_ollama(st.session_state['ollama_endpoint'], selected_model, test_cases_prompt)
                         elif model_provider == "Anthropic API":
                             test_cases_markdown = get_test_cases_anthropic(anthropic_api_key, anthropic_model, test_cases_prompt)
 

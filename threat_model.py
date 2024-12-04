@@ -221,24 +221,54 @@ def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
     return response_content
 
 # Function to get threat model from Ollama hosted LLM.
-def get_threat_model_ollama(ollama_model, prompt):
+def get_threat_model_ollama(ollama_endpoint, ollama_model, prompt):
+    """
+    Get threat model from Ollama hosted LLM.
+    
+    Args:
+        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
+        ollama_model (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        dict: The parsed JSON response from the model
+        
+    Raises:
+        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
+        json.JSONDecodeError: If the response cannot be parsed as JSON
+    """
+    if not ollama_endpoint.endswith('/'):
+        ollama_endpoint = ollama_endpoint + '/'
+    
+    url = ollama_endpoint + "api/generate"
 
-    url = "http://localhost:11434/api/generate"
+    system_prompt = "You are a helpful assistant designed to output JSON."
+    full_prompt = f"{system_prompt}\n\n{prompt}"
 
     data = {
         "model": ollama_model,
-        "prompt": prompt,
-        "format": "json",
-        "stream": False
+        "prompt": full_prompt,
+        "stream": False,
+        "format": "json"
     }
 
-    response = requests.post(url, json=data)
-
-    outer_json = response.json()
-
-    inner_json = json.loads(outer_json['response'])
-
-    return inner_json
+    try:
+        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response.raise_for_status()  # Raise exception for bad status codes
+        outer_json = response.json()
+        
+        try:
+            # Parse the JSON response from the model's response field
+            inner_json = json.loads(outer_json['response'])
+            return inner_json
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Error parsing model response as JSON: {str(e)}")
+            print("Raw response:", outer_json)
+            raise
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error communicating with Ollama endpoint: {str(e)}")
+        raise
 
 # Function to get threat model from the Claude response.
 def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):

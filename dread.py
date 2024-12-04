@@ -185,52 +185,87 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     return dread_assessment
 
 # Function to get DREAD risk assessment from Ollama hosted LLM.
-def get_dread_assessment_ollama(ollama_model, prompt):
-    url = "http://localhost:11434/api/chat"
-    max_retries = 3
-    retry_delay = 2  # seconds
-
-    for attempt in range(1, max_retries + 1):
-        data = {
-            "model": ollama_model,
-            "stream": False,
-            "messages": [
-                {
-                    "role": "system", 
-                    "content": "You are a helpful assistant designed to output JSON. Only provide the DREAD risk assessment in JSON format with no additional text."
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "format": "json"
-                }
-            ]
-        }
+def get_dread_assessment_ollama(ollama_endpoint, ollama_model, prompt):
+    """
+    Get DREAD risk assessment from Ollama hosted LLM.
+    
+    Args:
+        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
+        ollama_model (str): The name of the model to use
+        prompt (str): The prompt to send to the model
         
+    Returns:
+        dict: The parsed JSON response containing the DREAD assessment
+        
+    Raises:
+        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
+        json.JSONDecodeError: If the response cannot be parsed as JSON
+        KeyError: If the response doesn't contain the expected fields
+    """
+    if not ollama_endpoint.endswith('/'):
+        ollama_endpoint = ollama_endpoint + '/'
+    
+    url = ollama_endpoint + "api/chat"
+
+    max_retries = 3
+    retry_delay = 2 # seconds
+
+    data = {
+        "model": ollama_model,
+        "stream": False,
+        "format": "json",
+        "messages": [
+            {
+                "role": "system", 
+                "content": """You are a cyber security expert with more than 20 years experience of using the DREAD risk assessment methodology to evaluate security threats. Your task is to analyze the provided application description and perform a DREAD assessment.
+
+Please provide your response in JSON format with the following structure:
+{
+    "dread_assessment": [
+        {
+            "threat": "Description of the threat",
+            "damage": "Score and explanation",
+            "reproducibility": "Score and explanation",
+            "exploitability": "Score and explanation",
+            "affected_users": "Score and explanation",
+            "discoverability": "Score and explanation",
+            "risk_score": "Calculated total score"
+        }
+    ]
+}"""
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    }
+
+    for attempt in range(max_retries):
         try:
-            response = requests.post(url, json=data)
+            response = requests.post(url, json=data, timeout=60)  # Add timeout
+            response.raise_for_status()  # Raise exception for bad status codes
             outer_json = response.json()
-            response_content = outer_json["message"]["content"]
-
-            # Attempt to parse JSON
-            dread_assessment = json.loads(response_content)
-            return dread_assessment
-
-        except json.JSONDecodeError as e:
-            st.error(f"Attempt {attempt}: Error decoding JSON. Retrying...")
-            print(f"Error decoding JSON: {str(e)}")
-            print("Raw JSON string:")
-            print(response_content)
             
-            if attempt < max_retries:
+            try:
+                # Access the 'content' attribute of the 'message' dictionary and parse as JSON
+                dread_assessment = json.loads(outer_json["message"]["content"])
+                return dread_assessment
+                
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"Error parsing response as JSON: {str(e)}")
+                print("Raw response:", outer_json)
+                if attempt == max_retries - 1:  # Last attempt
+                    raise
                 time.sleep(retry_delay)
-            else:
-                st.error("Max retries reached. Unable to generate valid JSON response.")
-                return {}
-
-    # This line should never be reached due to the return statements above,
-    # but it's here as a fallback
-    return {}
+                continue
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Error communicating with Ollama endpoint: {str(e)}")
+            if attempt == max_retries - 1:  # Last attempt
+                raise
+            time.sleep(retry_delay)
+            continue
 
 # Function to get DREAD risk assessment from the Anthropic model's response.
 def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):

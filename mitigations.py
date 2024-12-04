@@ -101,9 +101,26 @@ def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
     return mitigations
 
 # Function to get mitigations from Ollama hosted LLM.
-def get_mitigations_ollama(ollama_model, prompt):
+def get_mitigations_ollama(ollama_endpoint, ollama_model, prompt):
+    """
+    Get mitigations from Ollama hosted LLM.
     
-    url = "http://localhost:11434/api/chat"
+    Args:
+        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
+        ollama_model (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        str: The generated mitigations in markdown format
+        
+    Raises:
+        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
+        KeyError: If the response doesn't contain the expected fields
+    """
+    if not ollama_endpoint.endswith('/'):
+        ollama_endpoint = ollama_endpoint + '/'
+    
+    url = ollama_endpoint + "api/chat"
 
     data = {
         "model": ollama_model,
@@ -111,21 +128,35 @@ def get_mitigations_ollama(ollama_model, prompt):
         "messages": [
             {
                 "role": "system", 
-                "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+                "content": """You are a cyber security expert with more than 20 years experience of implementing security controls for a wide range of applications. Your task is to analyze the provided application description and suggest appropriate security controls and mitigations.
+
+Please provide your response in markdown format with appropriate headings and bullet points."""
+            },
             {
                 "role": "user",
                 "content": prompt
             }
         ]
     }
-    response = requests.post(url, json=data)
 
-    outer_json = response.json()
-    
-    # Access the 'content' attribute of the 'message' dictionary
-    mitigations = outer_json["message"]["content"]
-
-    return mitigations
+    try:
+        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response.raise_for_status()  # Raise exception for bad status codes
+        outer_json = response.json()
+        
+        try:
+            # Access the 'content' attribute of the 'message' dictionary
+            mitigations = outer_json["message"]["content"]
+            return mitigations
+            
+        except KeyError as e:
+            print(f"Error accessing response fields: {str(e)}")
+            print("Raw response:", outer_json)
+            raise
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error communicating with Ollama endpoint: {str(e)}")
+        raise
 
 # Function to get mitigations from the Anthropic model's response.
 def get_mitigations_anthropic(anthropic_api_key, anthropic_model, prompt):

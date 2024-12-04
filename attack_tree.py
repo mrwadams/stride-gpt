@@ -133,9 +133,26 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
     return attack_tree_code
 
 # Function to get attack tree from Ollama hosted LLM.
-def get_attack_tree_ollama(ollama_model, prompt):
+def get_attack_tree_ollama(ollama_endpoint, ollama_model, prompt):
+    """
+    Get attack tree from Ollama hosted LLM.
     
-    url = "http://localhost:11434/api/chat"
+    Args:
+        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
+        ollama_model (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        str: The generated attack tree code in Mermaid syntax
+        
+    Raises:
+        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
+        KeyError: If the response doesn't contain the expected fields
+    """
+    if not ollama_endpoint.endswith('/'):
+        ollama_endpoint = ollama_endpoint + '/'
+    
+    url = ollama_endpoint + "api/chat"
 
     data = {
         "model": ollama_model,
@@ -167,17 +184,29 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
             }
         ]
     }
-    response = requests.post(url, json=data)
 
-    outer_json = response.json()
-    
-    # Access the 'content' attribute of the 'message' dictionary
-    attack_tree_code = outer_json["message"]["content"]
-
-    # Remove Markdown code block delimiters using regular expression
-    attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
-
-    return attack_tree_code
+    try:
+        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response.raise_for_status()  # Raise exception for bad status codes
+        outer_json = response.json()
+        
+        try:
+            # Access the 'content' attribute of the 'message' dictionary
+            attack_tree_code = outer_json["message"]["content"]
+            
+            # Remove Markdown code block delimiters using regular expression
+            attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
+            
+            return attack_tree_code
+            
+        except KeyError as e:
+            print(f"Error accessing response fields: {str(e)}")
+            print("Raw response:", outer_json)
+            raise
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error communicating with Ollama endpoint: {str(e)}")
+        raise
 
 # Function to get attack tree from Anthropic's Claude model.
 def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
