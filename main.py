@@ -16,6 +16,10 @@ from mitigations import create_mitigations_prompt, get_mitigations, get_mitigati
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic
 from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, dread_json_to_markdown
 
+import streamlit_authenticator as stauth
+import yaml
+from yaml.loader import SafeLoader
+
 # ------------------ Helper Functions ------------------ #
 
 # Function to get user input for the application description and key details
@@ -180,6 +184,7 @@ def load_env_variables():
     if mistral_api_key:
         st.session_state['mistral_api_key'] = mistral_api_key
 
+
 # Call this function at the start of your app
 load_env_variables()
 
@@ -191,6 +196,40 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+
+
+# ------------------ Authentication ------------------ #
+
+# Load configuration from a YAML file
+with open('config.yaml') as file:
+    config = yaml.load(file, Loader=SafeLoader)
+
+# Initialize the authenticator
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
+)
+
+try:
+    authenticator.login()
+except Exception as e:
+    st.error(e)
+
+if st.session_state['authentication_status']:
+    authenticator.logout()
+    st.write(f'Welcome *{st.session_state["name"]}*')
+elif st.session_state['authentication_status'] is False:
+    st.error('Username/password is incorrect')
+    st.stop()
+elif st.session_state['authentication_status'] is None:
+    st.warning('Please enter your username and password')
+    st.stop()
+
+# login success
 
 # ------------------ Sidebar ------------------ #
 

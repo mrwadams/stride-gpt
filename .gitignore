@@ -4,3 +4,8 @@ __pycache__/
 api_key.txt
 test_functions.py
 venv/
+
+config.yaml
+
+.venv
+.idea
