@@ -295,3 +295,58 @@ def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):
         print("Raw response:")
         print(response)
         return {}
+
+# Function to get DREAD risk assessment from LM Studio Server response.
+def get_dread_assessment_lm_studio(lm_studio_endpoint, model_name, prompt):
+    client = OpenAI(
+        base_url=f"{lm_studio_endpoint}/v1",
+        api_key="not-needed"  # LM Studio Server doesn't require an API key
+    )
+
+    # Define the expected response structure
+    dread_schema = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "dread_assessment_response",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "Risk Assessment": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "Threat Type": {"type": "string"},
+                                "Scenario": {"type": "string"},
+                                "Damage Potential": {"type": "integer", "minimum": 1, "maximum": 10},
+                                "Reproducibility": {"type": "integer", "minimum": 1, "maximum": 10},
+                                "Exploitability": {"type": "integer", "minimum": 1, "maximum": 10},
+                                "Affected Users": {"type": "integer", "minimum": 1, "maximum": 10},
+                                "Discoverability": {"type": "integer", "minimum": 1, "maximum": 10}
+                            },
+                            "required": ["Threat Type", "Scenario", "Damage Potential", "Reproducibility", "Exploitability", "Affected Users", "Discoverability"]
+                        }
+                    }
+                },
+                "required": ["Risk Assessment"]
+            }
+        }
+    }
+
+    response = client.chat.completions.create(
+        model=model_name,
+        response_format=dread_schema,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    try:
+        dread_assessment = json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError as e:
+        st.write(f"JSON decoding error: {e}")
+        dread_assessment = {}
+    
+    return dread_assessment

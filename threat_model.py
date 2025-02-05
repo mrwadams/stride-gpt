@@ -288,3 +288,55 @@ def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
     # Parse the combined JSON string
     response_content = json.loads(full_content)
     return response_content
+
+# Function to get threat model from LM Studio Server response.
+def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt):
+    client = OpenAI(
+        base_url=f"{lm_studio_endpoint}/v1",
+        api_key="not-needed"  # LM Studio Server doesn't require an API key
+    )
+
+    # Define the expected response structure
+    threat_model_schema = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "threat_model_response",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "threat_model": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "Threat Type": {"type": "string"},
+                                "Scenario": {"type": "string"},
+                                "Potential Impact": {"type": "string"}
+                            },
+                            "required": ["Threat Type", "Scenario", "Potential Impact"]
+                        }
+                    },
+                    "improvement_suggestions": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "required": ["threat_model", "improvement_suggestions"]
+            }
+        }
+    }
+
+    response = client.chat.completions.create(
+        model=model_name,
+        response_format=threat_model_schema,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=4000,
+    )
+
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    response_content = json.loads(response.choices[0].message.content)
+
+    return response_content

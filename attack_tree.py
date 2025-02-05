@@ -242,3 +242,23 @@ IMPORTANT: Round brackets are special characters in Mermaid syntax. If you want 
     attack_tree_code = re.sub(r'^```mermaid\s*|\s*```$', '', attack_tree_code, flags=re.MULTILINE)
 
     return attack_tree_code
+
+# Function to get attack tree from LM Studio Server response.
+def get_attack_tree_lm_studio(lm_studio_endpoint, model_name, prompt):
+    client = OpenAI(
+        base_url=f"{lm_studio_endpoint}/v1",
+        api_key="not-needed"  # LM Studio Server doesn't require an API key
+    )
+
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that provides attack trees in Mermaid format."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    mermaid_code = response.choices[0].message.content
+
+    return mermaid_code

@@ -174,3 +174,23 @@ def get_mitigations_anthropic(anthropic_api_key, anthropic_model, prompt):
     mitigations = response.content[0].text
 
     return mitigations
+
+# Function to get mitigations from LM Studio Server response.
+def get_mitigations_lm_studio(lm_studio_endpoint, model_name, prompt):
+    client = OpenAI(
+        base_url=f"{lm_studio_endpoint}/v1",
+        api_key="not-needed"  # LM Studio Server doesn't require an API key
+    )
+
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    mitigations = response.choices[0].message.content
+
+    return mitigations
