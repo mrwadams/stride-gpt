@@ -27,9 +27,9 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - Generates Gherkin test cases based on identified threats
 - 🆕 GitHub repository analysis for comprehensive threat modelling
 - No data storage; application details are not saved
-- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API, Mistral API, or 🆕 locally hosted models via Ollama
+- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API, Mistral API, or locally hosted models via Ollama and 🆕 LM Studio Server
 - Available as a Docker container image for easy deployment
-- 🆕 Environment variable support for secure configuration
+- Environment variable support for secure configuration
 
 ## Roadmap
 - [x] Add support for multi-modal threat modelling
@@ -48,7 +48,14 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.10 (latest)
+### Version 0.11 (latest)
+
+- **LM Studio Server Support**: Added support for using LM Studio Server as a model provider, allowing users to run their own local LLMs with OpenAI-compatible API endpoints. This complements the existing Ollama integration for local model hosting.
+- **Structured Output Support**: Enhanced JSON output handling for LM Studio Server to ensure reliable threat model and DREAD assessment generation.
+- **Dynamic Model Selection**: Added automatic model discovery for LM Studio Server, allowing users to select from available models in their local instance.
+- **UI Enhancements**: Updated the user interface to accommodate LM Studio Server configuration and improved warning messages for local LLM limitations.
+
+### Version 0.10
 
 - **GitHub Repository Analysis**: STRIDE GPT now supports automatic analysis of GitHub repositories. Users can provide a GitHub repository URL, and the tool will analyse the README and key files to generate a more comprehensive threat model.
 - **Environment Variable Support**: Added support for loading API keys and other configuration from environment variables, improving security and ease of deployment.
@@ -182,7 +189,14 @@ Release highlights:
    ```
    GITHUB_API_KEY=your_actual_github_api_key
    OPENAI_API_KEY=your_actual_openai_api_key
-   # ... add other API keys as needed
+   ANTHROPIC_API_KEY=your_actual_anthropic_api_key
+   AZURE_API_KEY=your_actual_azure_api_key
+   AZURE_API_ENDPOINT=your_actual_azure_endpoint
+   AZURE_DEPLOYMENT_NAME=your_actual_azure_deployment_name
+   GOOGLE_API_KEY=your_actual_google_api_key
+   MISTRAL_API_KEY=your_actual_mistral_api_key
+   OLLAMA_ENDPOINT=http://localhost:11434
+   LM_STUDIO_ENDPOINT=http://localhost:1234
    ```
 
 ### Option 2: Using Docker Container
