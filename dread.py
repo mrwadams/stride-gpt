@@ -7,6 +7,8 @@ from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
 import google.generativeai as genai
+from groq import Groq
+from utils import process_groq_response
 
 def dread_json_to_markdown(dread_assessment):
     markdown_output = "| Threat Type | Scenario | Damage Potential | Reproducibility | Exploitability | Affected Users | Discoverability | Risk Score |\n"
@@ -349,4 +351,30 @@ def get_dread_assessment_lm_studio(lm_studio_endpoint, model_name, prompt):
         st.write(f"JSON decoding error: {e}")
         dread_assessment = {}
     
+    return dread_assessment
+
+# Function to get DREAD risk assessment from the Groq model's response.
+def get_dread_assessment_groq(groq_api_key, groq_model, prompt):
+    client = Groq(api_key=groq_api_key)
+    response = client.chat.completions.create(
+        model=groq_model,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Process the response using our utility function
+    reasoning, dread_assessment = process_groq_response(
+        response.choices[0].message.content,
+        groq_model,
+        expect_json=True
+    )
+    
+    # If we got reasoning, display it in an expander in the UI
+    if reasoning:
+        with st.expander("View model's reasoning process", expanded=False):
+            st.write(reasoning)
+
     return dread_assessment

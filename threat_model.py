@@ -6,6 +6,8 @@ from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
 import google.generativeai as genai
+from groq import Groq
+from utils import process_groq_response
 
 # Function to convert JSON to Markdown for display.    
 def json_to_markdown(threat_model, improvement_suggestions):
@@ -338,5 +340,32 @@ def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt):
 
     # Convert the JSON string in the 'content' field to a Python dictionary
     response_content = json.loads(response.choices[0].message.content)
+
+    return response_content
+
+# Function to get threat model from the Groq response.
+def get_threat_model_groq(groq_api_key, groq_model, prompt):
+    client = Groq(api_key=groq_api_key)
+
+    response = client.chat.completions.create(
+        model=groq_model,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Process the response using our utility function
+    reasoning, response_content = process_groq_response(
+        response.choices[0].message.content,
+        groq_model,
+        expect_json=True
+    )
+    
+    # If we got reasoning, display it in an expander in the UI
+    if reasoning:
+        with st.expander("View model's reasoning process", expanded=False):
+            st.write(reasoning)
 
     return response_content

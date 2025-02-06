@@ -1,7 +1,6 @@
 #main.py
 
 import base64
-import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from github import Github
@@ -11,11 +10,11 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, json_to_markdown, get_image_analysis, create_image_analysis_prompt
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio
-from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio
-from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, dread_json_to_markdown
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq
+from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
+from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, get_dread_assessment_groq, dread_json_to_markdown
 
 # ------------------ Helper Functions ------------------ #
 
@@ -194,6 +193,10 @@ def load_env_variables():
     if mistral_api_key:
         st.session_state['mistral_api_key'] = mistral_api_key
 
+    groq_api_key = os.getenv('GROQ_API_KEY')
+    if groq_api_key:
+        st.session_state['groq_api_key'] = groq_api_key
+
     # Add Ollama endpoint configuration
     ollama_endpoint = os.getenv('OLLAMA_ENDPOINT', 'http://localhost:11434')
     st.session_state['ollama_endpoint'] = ollama_endpoint
@@ -225,7 +228,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Ollama", "LM Studio Server"],
+        ["OpenAI API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Groq API", "Ollama", "LM Studio Server"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -431,6 +434,38 @@ with st.sidebar:
             available_models if lm_studio_endpoint and lm_studio_endpoint.startswith(('http://', 'https://')) else ["local-model"],
             key="selected_model",
             help="Select the model you have loaded in your LM Studio Server instance."
+        )
+
+    if model_provider == "Groq API":
+        st.markdown(
+        """
+    1. Enter your [Groq API key](https://console.groq.com/keys) and chosen model below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        # Add Groq API key input field to the sidebar
+        groq_api_key = st.text_input(
+            "Enter your Groq API key:",
+            value=st.session_state.get('groq_api_key', ''),
+            type="password",
+            help="You can find your Groq API key in the [Groq console](https://console.groq.com/keys).",
+        )
+        if groq_api_key:
+            st.session_state['groq_api_key'] = groq_api_key
+
+        # Add model selection input field to the sidebar
+        groq_model = st.selectbox(
+            "Select the model you would like to use:",
+            [
+                "deepseek-r1-distill-llama-70b",
+                "llama-3.3-70b-versatile",
+                "llama-3.1-8b-instant",
+                "mixtral-8x7b-32768",
+                "gemma2-9b-it"
+            ],
+            key="selected_model",
+            help="Select from Groq's supported models. The Llama 3.3 70B Versatile model is recommended for best results."
         )
 
     # Add GitHub API key input field to the sidebar
@@ -658,6 +693,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_anthropic(anthropic_api_key, anthropic_model, threat_model_prompt)
                     elif model_provider == "LM Studio Server":
                         model_output = get_threat_model_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, threat_model_prompt)
+                    elif model_provider == "Groq API":
+                        model_output = get_threat_model_groq(groq_api_key, groq_model, threat_model_prompt)
 
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
@@ -737,6 +774,8 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree_anthropic(anthropic_api_key, anthropic_model, attack_tree_prompt)
                     elif model_provider == "LM Studio Server":
                         mermaid_code = get_attack_tree_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, attack_tree_prompt)
+                    elif model_provider == "Groq API":
+                        mermaid_code = get_attack_tree_groq(groq_api_key, groq_model, attack_tree_prompt)
 
 
                     # Display the generated attack tree code
@@ -822,6 +861,8 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_anthropic(anthropic_api_key, anthropic_model, mitigations_prompt)
                         elif model_provider == "LM Studio Server":
                             mitigations_markdown = get_mitigations_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, mitigations_prompt)
+                        elif model_provider == "Groq API":
+                            mitigations_markdown = get_mitigations_groq(groq_api_key, groq_model, mitigations_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(mitigations_markdown)
@@ -886,6 +927,8 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                             dread_assessment = get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, dread_assessment_prompt)
                         elif model_provider == "LM Studio Server":
                             dread_assessment = get_dread_assessment_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, dread_assessment_prompt)
+                        elif model_provider == "Groq API":
+                            dread_assessment = get_dread_assessment_groq(groq_api_key, groq_model, dread_assessment_prompt)
                         
                         # Save the DREAD assessment to the session state for later use in test cases
                         st.session_state['dread_assessment'] = dread_assessment
@@ -956,6 +999,8 @@ scenarios.
                             test_cases_markdown = get_test_cases_anthropic(anthropic_api_key, anthropic_model, test_cases_prompt)
                         elif model_provider == "LM Studio Server":
                             test_cases_markdown = get_test_cases_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, test_cases_prompt)
+                        elif model_provider == "Groq API":
+                            test_cases_markdown = get_test_cases_groq(groq_api_key, groq_model, test_cases_prompt)
 
                         # Display the suggested mitigations in Markdown
                         st.markdown(test_cases_markdown)

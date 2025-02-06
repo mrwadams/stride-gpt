@@ -2,8 +2,11 @@ import requests
 from anthropic import Anthropic
 from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
+import streamlit as st
 
 import google.generativeai as genai
+from groq import Groq
+from utils import process_groq_response
 
 # Function to create a prompt to generate mitigating controls
 def create_test_cases_prompt(threats):
@@ -196,5 +199,30 @@ def get_test_cases_lm_studio(lm_studio_endpoint, model_name, prompt):
 
     # Access the content directly as the response will be in text format
     test_cases = response.choices[0].message.content
+
+    return test_cases
+
+# Function to get test cases from the Groq model's response.
+def get_test_cases_groq(groq_api_key, groq_model, prompt):
+    client = Groq(api_key=groq_api_key)
+    response = client.chat.completions.create(
+        model=groq_model,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that provides Gherkin test cases in Markdown format."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Process the response using our utility function
+    reasoning, test_cases = process_groq_response(
+        response.choices[0].message.content,
+        groq_model,
+        expect_json=False
+    )
+    
+    # If we got reasoning, display it in an expander in the UI
+    if reasoning:
+        with st.expander("View model's reasoning process", expanded=False):
+            st.write(reasoning)
 
     return test_cases
