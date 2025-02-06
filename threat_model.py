@@ -7,7 +7,7 @@ import streamlit as st
 
 import google.generativeai as genai
 from groq import Groq
-from utils import process_groq_response
+from utils import process_groq_response, create_reasoning_system_prompt
 
 # Function to convert JSON to Markdown for display.    
 def json_to_markdown(threat_model, improvement_suggestions):
@@ -144,15 +144,46 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
 def get_threat_model(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    response = client.chat.completions.create(
-        model=model_name,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=4000,
-    )
+    # For reasoning models (o1, o3-mini), use a structured system prompt
+    if model_name in ["o1", "o3-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Analyze the provided application description and generate a comprehensive threat model using the STRIDE methodology.",
+            approach_description="""1. Carefully read and understand the application description
+2. For each component and data flow:
+   - Identify potential Spoofing threats
+   - Identify potential Tampering threats
+   - Identify potential Repudiation threats
+   - Identify potential Information Disclosure threats
+   - Identify potential Denial of Service threats
+   - Identify potential Elevation of Privilege threats
+3. For each identified threat:
+   - Describe the specific scenario
+   - Analyze the potential impact
+4. Generate improvement suggestions based on identified threats
+5. Format the output as a JSON object with 'threat_model' and 'improvement_suggestions' arrays"""
+        )
+        # Create completion with max_completion_tokens for o1/o3-mini
+        response = client.chat.completions.create(
+            model=model_name,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_completion_tokens=4000
+        )
+    else:
+        system_prompt = "You are a helpful assistant designed to output JSON."
+        # Create completion with max_tokens for other models
+        response = client.chat.completions.create(
+            model=model_name,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
     response_content = json.loads(response.choices[0].message.content)

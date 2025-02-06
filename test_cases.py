@@ -6,7 +6,7 @@ import streamlit as st
 
 import google.generativeai as genai
 from groq import Groq
-from utils import process_groq_response
+from utils import process_groq_response, create_reasoning_system_prompt
 
 # Function to create a prompt to generate mitigating controls
 def create_test_cases_prompt(threats):
@@ -37,13 +37,49 @@ YOUR RESPONSE (do not add introductory text, just provide the Gherkin test cases
 def get_test_cases(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    response = client.chat.completions.create(
-        model = model_name,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides Gherkin test cases in Markdown format."},
-            {"role": "user", "content": prompt}
-        ]
-    )
+    # For reasoning models (o1, o3-mini), use a structured system prompt
+    if model_name in ["o1", "o3-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Generate comprehensive security test cases in Gherkin format for the identified threats.",
+            approach_description="""1. Analyze each threat in the provided threat model:
+   - Understand the threat type and scenario
+   - Identify critical security aspects to test
+   - Consider both positive and negative test cases
+2. For each test case:
+   - Write clear preconditions in 'Given' steps
+   - Define specific actions in 'When' steps
+   - Specify expected outcomes in 'Then' steps
+   - Include relevant security validation checks
+3. Structure the test cases:
+   - Add descriptive titles for each scenario
+   - Use proper Gherkin syntax and formatting
+   - Group related test cases together
+   - Include edge cases and boundary conditions
+4. Format output as Markdown with Gherkin code blocks:
+   - Use proper code block syntax
+   - Ensure consistent indentation
+   - Add clear scenario descriptions"""
+        )
+        # Create completion with max_completion_tokens for o1/o3-mini
+        response = client.chat.completions.create(
+            model = model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_completion_tokens=4000
+        )
+    else:
+        system_prompt = "You are a helpful assistant that provides Gherkin test cases in Markdown format."
+        # Create completion with max_tokens for other models
+        response = client.chat.completions.create(
+            model = model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
 
     # Access the content directly as the response will be in text format
     test_cases = response.choices[0].message.content

@@ -8,7 +8,7 @@ import streamlit as st
 
 import google.generativeai as genai
 from groq import Groq
-from utils import process_groq_response
+from utils import process_groq_response, create_reasoning_system_prompt
 
 def dread_json_to_markdown(dread_assessment):
     markdown_output = "| Threat Type | Scenario | Damage Potential | Reproducibility | Exploitability | Affected Users | Discoverability | Risk Score |\n"
@@ -86,11 +86,41 @@ Ensure the JSON response is correctly formatted and does not contain any additio
 # Function to get DREAD risk assessment from the GPT response.
 def get_dread_assessment(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
+
+    # For reasoning models (o1, o3-mini), use a structured system prompt
+    if model_name in ["o1", "o3-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Perform a DREAD risk assessment for the identified security threats.",
+            approach_description="""1. For each threat in the provided threat model:
+   - Analyze the threat type and scenario in detail
+   - Evaluate Damage Potential (1-10):
+     * Consider direct and indirect damage
+     * Assess financial, reputational, and operational impact
+   - Evaluate Reproducibility (1-10):
+     * Assess how reliably the attack can be reproduced
+     * Consider required conditions and resources
+   - Evaluate Exploitability (1-10):
+     * Analyze technical complexity
+     * Consider required skills and tools
+   - Evaluate Affected Users (1-10):
+     * Determine scope of impact
+     * Consider both direct and indirect users
+   - Evaluate Discoverability (1-10):
+     * Assess how easily the vulnerability can be found
+     * Consider visibility and detection methods
+2. Format output as JSON with 'Risk Assessment' array containing:
+   - Threat Type
+   - Scenario
+   - Numerical scores (1-10) for each DREAD category"""
+        )
+    else:
+        system_prompt = "You are a helpful assistant designed to output JSON."
+
     response = client.chat.completions.create(
         model=model_name,
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ]
     )

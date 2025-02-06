@@ -254,7 +254,7 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+            ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
             key="selected_model",
             help="GPT-4o and GPT-4o mini are OpenAI's latest models and are recommended."
         )
@@ -572,9 +572,9 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     if 'app_input' not in st.session_state:
         st.session_state['app_input'] = ''
 
-    # If model provider is OpenAI API and the model is gpt-4-turbo or gpt-4o
+    # If model provider is OpenAI API and the model is gpt-4o or gpt-4o-mini
     with col1:
-        if model_provider == "OpenAI API" and selected_model in ["gpt-4-turbo", "gpt-4o", "gpt-4o-mini"]:
+        if model_provider == "OpenAI API" and selected_model in ["gpt-4o", "gpt-4o-mini"]:
             uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
 
             if uploaded_file is not None:

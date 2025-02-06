@@ -31,6 +31,7 @@ def extract_mermaid_code(text):
     """
     Extract the Mermaid diagram code from text that may contain additional content.
     Looks for code between ```mermaid, ``` or just ``` tags, and extracts the graph content.
+    Also cleans and validates the Mermaid syntax.
     
     Args:
         text (str): The text containing the Mermaid code
@@ -49,13 +50,65 @@ def extract_mermaid_code(text):
     
     if match:
         # Extract just the graph content
-        return match.group(1).strip()
+        code = match.group(1).strip()
+    else:
+        # If no code block found but text contains graph definition, use as is
+        code = text.strip()
     
-    # If no code block found but text contains graph definition, return as is
-    if text.strip().startswith('graph '):
-        return text.strip()
+    # Only proceed if we have a graph definition
+    if not code.startswith('graph '):
+        if 'graph ' in code:
+            # Find the start of the graph definition
+            code = code[code.find('graph '):]
+        else:
+            return text
+
+    # Clean up common issues in Mermaid syntax
+    code = clean_mermaid_syntax(code)
+    
+    return code
+
+def clean_mermaid_syntax(code):
+    """
+    Clean up common issues in Mermaid syntax.
+    
+    Args:
+        code (str): The Mermaid code to clean
         
-    return text
+    Returns:
+        str: The cleaned Mermaid code
+    """
+    # Ensure proper spacing around arrows
+    code = re.sub(r'(\w+|\]|\)|\})(-->|==>|-.->)(\w+|\[|\(|\{)', r'\1 \2 \3', code)
+    
+    # Fix missing brackets around node labels
+    def fix_node_brackets(match):
+        node_id = match.group(1)
+        if not any(c in node_id for c in '[](){}'):
+            return f'{node_id}[{node_id}]'
+        return node_id
+    code = re.sub(r'(?:^|\s)(\w+)(?:\s|$)', fix_node_brackets, code)
+    
+    # Ensure node IDs with spaces are properly quoted
+    def quote_node_labels(match):
+        label = match.group(1)
+        if ' ' in label and not label.startswith('"'):
+            return f'["{label}"]'
+        return f'[{label}]'
+    code = re.sub(r'\[(.*?)\]', quote_node_labels, code)
+    
+    # Fix parentheses in node labels
+    def fix_parentheses(match):
+        label = match.group(1)
+        if '(' in label or ')' in label:
+            return f'["{label}"]'
+        return f'[{label}]'
+    code = re.sub(r'\[(.*?)\]', fix_parentheses, code)
+    
+    # Ensure proper line endings
+    code = code.replace('\r\n', '\n').strip()
+    
+    return code
 
 def process_groq_response(response_text, model_name, expect_json=True):
     """
@@ -92,4 +145,20 @@ def process_groq_response(response_text, model_name, expect_json=True):
         else:
             processed_output = final_output
     
-    return reasoning, processed_output 
+    return reasoning, processed_output
+
+def create_reasoning_system_prompt(task_description, approach_description):
+    """
+    Creates a system prompt formatted for OpenAI's reasoning models (o1, o3-mini).
+    
+    Args:
+        task_description (str): Description of what the model needs to do
+        approach_description (str): Step-by-step approach the model should follow
+        
+    Returns:
+        str: Formatted system prompt
+    """
+    return f"""Task: {task_description}
+
+Approach:
+{approach_description}""" 

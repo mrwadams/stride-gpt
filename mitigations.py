@@ -6,7 +6,7 @@ import streamlit as st
 
 import google.generativeai as genai
 from groq import Groq
-from utils import process_groq_response
+from utils import process_groq_response, create_reasoning_system_prompt
 
 # Function to create a prompt to generate mitigating controls
 def create_mitigations_prompt(threats):
@@ -30,10 +30,29 @@ YOUR RESPONSE (do not wrap in a code block):
 def get_mitigations(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
+    # For reasoning models (o1, o3-mini), use a structured system prompt
+    if model_name in ["o1", "o3-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Generate effective security mitigations for the identified threats using the STRIDE methodology.",
+            approach_description="""1. Analyze each threat in the provided threat model
+2. For each threat:
+   - Understand the threat type and scenario
+   - Consider the potential impact
+   - Identify appropriate security controls and mitigations
+   - Ensure mitigations are specific and actionable
+3. Format the output as a markdown table with columns for:
+   - Threat Type
+   - Scenario
+   - Suggested Mitigation(s)
+4. Ensure mitigations follow security best practices and industry standards"""
+        )
+    else:
+        system_prompt = "You are a helpful assistant that provides threat mitigation strategies in Markdown format."
+
     response = client.chat.completions.create(
         model = model_name,
         messages=[
-            {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
         ]
     )
