@@ -9,6 +9,8 @@ import re
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
+import requests
+import json
 
 from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
@@ -30,6 +32,38 @@ def get_lm_studio_models(endpoint):
     except Exception as e:
         st.error(f"Error fetching models from LM Studio Server: {e}")
         return ["local-model"]  # Fallback to default model name
+
+def get_ollama_models(ollama_endpoint):
+    """
+    Get list of available models from Ollama.
+    
+    Args:
+        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
+        
+    Returns:
+        list: List of available model names
+        
+    Raises:
+        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
+    """
+    if not ollama_endpoint.endswith('/'):
+        ollama_endpoint = ollama_endpoint + '/'
+    
+    url = ollama_endpoint + "api/tags"
+    
+    try:
+        response = requests.get(url, timeout=10)  # Add timeout
+        response.raise_for_status()  # Raise exception for bad status codes
+        models_data = response.json()
+        
+        # Extract model names from the response
+        model_names = [model['name'] for model in models_data['models']]
+        return model_names if model_names else ["llama2", "mistral", "codellama", "llama2-uncensored"]  # Fallback to default list
+            
+    except (requests.exceptions.RequestException, KeyError, json.JSONDecodeError) as e:
+        print(f"Error fetching Ollama models: {str(e)}")
+        # Return default list if we can't fetch models
+        return ["llama2", "mistral", "codellama", "llama2-uncensored"]
 
 # Function to get user input for the application description and key details
 def get_input():
@@ -396,11 +430,13 @@ with st.sidebar:
                 st.error("Endpoint URL must start with http:// or https://")
             else:
                 st.session_state['ollama_endpoint'] = ollama_endpoint
+                # Fetch available models from Ollama
+                available_models = get_ollama_models(ollama_endpoint)
 
         # Add model selection input field
         selected_model = st.selectbox(
             "Select the Ollama model you would like to use:",
-            ["llama2", "mistral", "codellama", "llama2-uncensored"],
+            available_models if ollama_endpoint and ollama_endpoint.startswith(('http://', 'https://')) else ["llama2", "mistral", "codellama", "llama2-uncensored"],
             key="selected_model",
             help="Select the model you have pulled into your Ollama instance."
         )
