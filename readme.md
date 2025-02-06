@@ -51,9 +51,13 @@ This video is an excellent resource for anyone interested in understanding how S
 ### Version 0.11 (latest)
 
 - **LM Studio Server Support**: Added support for using LM Studio Server as a model provider, allowing users to run their own local LLMs with OpenAI-compatible API endpoints. This complements the existing Ollama integration for local model hosting.
-- **Structured Output Support**: Enhanced JSON output handling for LM Studio Server to ensure reliable threat model and DREAD assessment generation.
-- **Dynamic Model Selection**: Added automatic model discovery for LM Studio Server, allowing users to select from available models in their local instance.
-- **UI Enhancements**: Updated the user interface to accommodate LM Studio Server configuration and improved warning messages for local LLM limitations.
+- **Google Gemini Attack Tree Support**: Added support for generating attack trees using Google Gemini models, expanding the available options for users.
+- **New Model Support**: Added support for reasoning models (OpenAI's o1 and o3-mini, DeepSeek R1 via Groq API) and Google's newly released Gemini 2.0 Flash for faster inference.
+- **Enhanced Attack Tree Generation**: Improved attack tree generation with robust JSON parsing and Mermaid diagram conversion, making the output more reliable and visually appealing.
+- **Dynamic Model Discovery**: Added automatic model discovery for both Ollama and LM Studio Server, allowing users to select from available models in their local instances.
+- **Improved Threat Model Generation**: Enhanced the guidance and prompts for threat model generation to produce more comprehensive and actionable results.
+- **Structured Output Support**: Enhanced JSON output handling across all model providers to ensure reliable threat model and DREAD assessment generation.
+- **UI Enhancements**: Updated the user interface to accommodate new model configurations and improved warning messages for local LLM limitations.
 
 ### Version 0.10
 
