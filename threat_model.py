@@ -38,7 +38,15 @@ For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information
 
 When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact". 
 
-Under "improvement_suggestions", include an array of strings with suggestions on how the developers can improve their code or application description to enhance security.
+Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis. For example:
+- Missing architectural details that would help identify more specific threats
+- Unclear authentication flows that need more detail
+- Incomplete data flow descriptions
+- Missing technical stack information
+- Unclear system boundaries or trust zones
+- Incomplete description of sensitive data handling
+
+Do not provide general security recommendations - focus only on what additional information would help create a better threat model.
 
 APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
@@ -64,9 +72,9 @@ Example of expected JSON response format:
         // ... more threats
       ],
       "improvement_suggestions": [
-        "Example improvement suggestion 1.",
-        "Example improvement suggestion 2.",
-        // ... more suggestions
+        "Please provide more details about the authentication flow between components to better analyze potential authentication bypass scenarios.",
+        "Consider adding information about how sensitive data is stored and transmitted to enable more precise data exposure threat analysis.",
+        // ... more suggestions for improving the threat model input
       ]
     }}
 """
