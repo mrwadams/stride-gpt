@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
 from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, get_dread_assessment_groq, dread_json_to_markdown
@@ -347,7 +347,7 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-1.5-pro-latest", "gemini-1.5-pro"],
+            ["gemini-2.0-flash", "gemini-1.5-pro"],
             key="selected_model",
         )
 
@@ -741,10 +741,8 @@ with the ultimate goal of an attacker at the root and various paths to achieve t
 vulnerabilities and prioritising mitigation efforts.
 """)
     st.markdown("""---""")
-    if model_provider == "Google AI API":
-        st.warning("⚠️ Google's safety filters prevent the reliable generation of attack trees. Please use a different model provider.")
-    elif model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
-            st.warning("⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use the Mistral Large model for generating attack trees, or select a different model provider.")
+    if model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
+        st.warning("⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use the Mistral Large model for generating attack trees, or select a different model provider.")
     else:
         if model_provider in ["Ollama", "LM Studio Server"]:
             st.warning("⚠️ Users may encounter syntax errors when generating attack trees using local LLMs. Experiment with different local LLMs to assess their output quality, or consider using a hosted model provider to generate attack trees.")
@@ -766,6 +764,8 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, attack_tree_prompt)
                     elif model_provider == "OpenAI API":
                         mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
+                    elif model_provider == "Google AI API":
+                        mermaid_code = get_attack_tree_google(google_api_key, google_model, attack_tree_prompt)
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
                     elif model_provider == "Ollama":

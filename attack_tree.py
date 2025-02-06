@@ -7,6 +7,7 @@ from openai import OpenAI, AzureOpenAI
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt, extract_mermaid_code
 import json
+import google.generativeai as genai
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
@@ -519,3 +520,38 @@ def create_attack_tree_schema_lm_studio():
             "strict": True
         }
     }
+
+# Function to get attack tree from the Google model's response.
+def get_attack_tree_google(google_api_key, google_model, prompt):
+    genai.configure(api_key=google_api_key)
+    
+    model = genai.GenerativeModel(google_model)
+    
+    # Create the system message
+    system_message = create_json_structure_prompt()
+    
+    # Start a chat session with the system message in the history
+    chat = model.start_chat(history=[
+        {"role": "user", "parts": [system_message]},
+        {"role": "model", "parts": ["Understood. I will provide attack tree data in JSON format only."]}
+    ])
+    
+    # Configure safety settings to allow generation of attack trees
+    safety_settings = {
+        'HARASSMENT': 'BLOCK_NONE',
+        'HATE_SPEECH': 'BLOCK_NONE',
+        'SEXUALLY_EXPLICIT': 'BLOCK_NONE',
+        'DANGEROUS': 'BLOCK_NONE'
+    }
+    
+    # Send the actual prompt with safety settings
+    response = chat.send_message(prompt, safety_settings=safety_settings)
+    
+    try:
+        # Clean the response text and try to parse as JSON
+        cleaned_response = clean_json_response(response.text)
+        tree_data = json.loads(cleaned_response)
+        return convert_tree_to_mermaid(tree_data)
+    except (json.JSONDecodeError, AttributeError):
+        # Fallback: try to extract Mermaid code if JSON parsing fails
+        return extract_mermaid_code(response.text)
