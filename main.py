@@ -29,9 +29,20 @@ def get_lm_studio_models(endpoint):
         )
         models = client.models.list()
         return [model.id for model in models.data]
+    except requests.exceptions.ConnectionError:
+        st.error("""Unable to connect to LM Studio Server. Please ensure:
+1. LM Studio is running and the local server is started
+2. The endpoint URL is correct (default: http://localhost:1234)
+3. No firewall is blocking the connection""")
+        return ["local-model"]
     except Exception as e:
-        st.error(f"Error fetching models from LM Studio Server: {e}")
-        return ["local-model"]  # Fallback to default model name
+        st.error(f"""Error fetching models from LM Studio Server: {e}
+        
+Please check:
+1. LM Studio is properly configured and running
+2. You have loaded a model in LM Studio
+3. The server is running in local inference mode""")
+        return ["local-model"]
 
 def get_ollama_models(ollama_endpoint):
     """
@@ -58,12 +69,38 @@ def get_ollama_models(ollama_endpoint):
         
         # Extract model names from the response
         model_names = [model['name'] for model in models_data['models']]
-        return model_names if model_names else ["llama2", "mistral", "codellama", "llama2-uncensored"]  # Fallback to default list
+        if not model_names:
+            st.warning("""No models found in Ollama. Please ensure you have:
+1. Pulled at least one model using 'ollama pull <model_name>'
+2. The model download completed successfully""")
+            return ["local-model"]
+        return model_names
             
-    except (requests.exceptions.RequestException, KeyError, json.JSONDecodeError) as e:
-        print(f"Error fetching Ollama models: {str(e)}")
-        # Return default list if we can't fetch models
-        return ["llama2", "mistral", "codellama", "llama2-uncensored"]
+    except requests.exceptions.ConnectionError:
+        st.error("""Unable to connect to Ollama. Please ensure:
+1. Ollama is installed and running
+2. The endpoint URL is correct (default: http://localhost:11434)
+3. No firewall is blocking the connection""")
+        return ["local-model"]
+    except requests.exceptions.Timeout:
+        st.error("""Request to Ollama timed out. Please check:
+1. Ollama is responding and not overloaded
+2. Your network connection is stable
+3. The endpoint URL is accessible""")
+        return ["local-model"]
+    except (KeyError, json.JSONDecodeError):
+        st.error("""Received invalid response from Ollama. Please verify:
+1. You're running a compatible version of Ollama
+2. The endpoint URL is pointing to Ollama and not another service""")
+        return ["local-model"]
+    except Exception as e:
+        st.error(f"""Unexpected error fetching Ollama models: {str(e)}
+        
+Please check:
+1. Ollama is properly installed and running
+2. You have pulled at least one model
+3. You have sufficient system resources""")
+        return ["local-model"]
 
 # Function to get user input for the application description and key details
 def get_input():
@@ -436,7 +473,7 @@ with st.sidebar:
         # Add model selection input field
         selected_model = st.selectbox(
             "Select the Ollama model you would like to use:",
-            available_models if ollama_endpoint and ollama_endpoint.startswith(('http://', 'https://')) else ["llama2", "mistral", "codellama", "llama2-uncensored"],
+            available_models if ollama_endpoint and ollama_endpoint.startswith(('http://', 'https://')) else ["local-model"],
             key="selected_model",
             help="Select the model you have pulled into your Ollama instance."
         )
