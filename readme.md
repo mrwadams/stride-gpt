@@ -189,7 +189,7 @@ Release highlights:
    cp .env.example .env
    ```
    
-   b. Edit the `.env` file and add your API keys:
+   b. Edit the `.env` file to add your API keys and model URLs:
    ```
    GITHUB_API_KEY=your_actual_github_api_key
    OPENAI_API_KEY=your_actual_openai_api_key
@@ -201,6 +201,7 @@ Release highlights:
    MISTRAL_API_KEY=your_actual_mistral_api_key
    OLLAMA_ENDPOINT=http://localhost:11434
    LM_STUDIO_ENDPOINT=http://localhost:1234
+   ANTHROPIC_BASE_URL=https://localhost:1234q
    ```
 
 ### Option 2: Using Docker Container
