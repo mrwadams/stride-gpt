@@ -189,7 +189,7 @@ Release highlights:
    cp .env.example .env
    ```
    
-   b. Edit the `.env` file and add your API keys:
+   b. Edit the `.env` file to add your API keys and model URLs:
    ```
    GITHUB_API_KEY=your_actual_github_api_key
    OPENAI_API_KEY=your_actual_openai_api_key
@@ -241,6 +241,21 @@ Release highlights:
 3. Follow the steps in the Streamlit interface to use STRIDE GPT.
 
 Note: When you run the application (either locally or via Docker), it will automatically load the environment variables you've set in the `.env` file. This will pre-fill the API keys in the application interface.
+
+## Configuration
+
+Configuration options may be specified in the `.env` file.
+
+| Config Field               | Type | Description                                                                                                                                                                    | Default |
+|----------------------------|------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| GITHUB_ANALYSIS_CHAR_LIMIT | int  | The GITHUB_ANALYSIS_CHAR_LIMIT controls the maximum number of characters allowed in the GitHub repository analysis output, limiting how much code is processed and summarized. | 100000  |
+| GITHUB_README_CHAR_LIMIT   | int  | The GITHUB_README_CHAR_LIMIT controls the maximum number of characters from a repository's README file that will be included in the analysis output.                           | 5000    |
+| FILE_IMPORT_LIMIT          | int  | The FILE_IMPORT_LIMIT controls the maximum number of import statements shown per file in the GitHub repository summary.                                                        | 5       |
+| FILE_FUNCTION_LIMIT        | int  | The FILE_FUNCTION_LIMIT controls the maximum number of function definitions shown per file in the GitHub repository summary.                                                   | 5       |
+| FILE_CLASS_LIMIT           | int  | The FILE_CLASS_LIMIT controls the maximum number of class definitions shown per file in the GitHub repository summary.                                                         | 5       |
+
+Additional environment variables, such as those used by underlying Python modules, may be specified in the `.env` file.
+For example, `ANTHROPIC_BASE_URL` sets the base URL for requests (optional, defaults to https://api.anthropic.com).
 
 ## Contributing
 
