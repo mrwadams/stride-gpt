@@ -155,7 +155,7 @@ def analyze_github_repo(repo_url):
     # Analyze files
     file_summaries = defaultdict(list)
     total_chars = 0
-    char_limit = 100000  # Adjust this based on your model's token limit
+    char_limit = st.session_state.get('github_char_limit')
     readme_content = ""
 
     for file in tree.tree:
@@ -180,8 +180,9 @@ def analyze_github_repo(repo_url):
     if readme_content:
         system_description += "README.md Content:\n"
         # Truncate README if it's too long
-        if len(readme_content) > 5000:
-            system_description += readme_content[:5000] + "...\n(README truncated due to length)\n\n"
+        github_readme_limit = st.session_state.get('github_readme_limit')
+        if len(readme_content) > github_readme_limit:
+            system_description += readme_content[:github_readme_limit] + "...\n(README truncated due to length)\n\n"
         else:
             system_description += readme_content + "\n\n"
 
@@ -199,11 +200,15 @@ def summarize_file(file_path, content):
     functions = re.findall(r'def .*\(.*\):', content)
     classes = re.findall(r'class .*:', content)
 
+    file_import_limit = st.session_state.get('file_import_limit')
+    file_func_limit = st.session_state.get('file_func_limit')
+    file_class_limit = st.session_state.get('file_class_limit')
+
     summary = f"File: {file_path}\n"
     if imports:
-        summary += "Imports:\n" + "\n".join(imports[:5]) + "\n"  # Limit to first 5 imports
+        summary += "Imports:\n" + "\n".join(imports[:file_import_limit]) + "\n"
     if functions:
-        summary += "Functions:\n" + "\n".join(functions[:5]) + "\n"  # Limit to first 5 functions
+        summary += "Functions:\n" + "\n".join(functions[:file_func_limit]) + "\n"
     if classes:
         summary += "Classes:\n" + "\n".join(classes[:5]) + "\n"  # Limit to first 5 classes
 
@@ -275,6 +280,24 @@ def load_env_variables():
     # Add LM Studio Server endpoint configuration
     lm_studio_endpoint = os.getenv('LM_STUDIO_ENDPOINT', 'http://localhost:1234')
     st.session_state['lm_studio_endpoint'] = lm_studio_endpoint
+
+    # Accept github analysis character limit from env
+    # Adjust this based on your model's token limit
+    github_char_limit_config = os.getenv('GITHUB_ANALYSIS_CHAR_LIMIT', 100000)
+    st.session_state['github_char_limit'] = github_char_limit_config
+
+    # Accept github analysis readme character limit from env
+    github_readme_char_limit_config = os.getenv('GITHUB_README_CHAR_LIMIT', 5000)
+    st.session_state['github_readme_limit'] = github_readme_char_limit_config
+
+    file_import_limit_config = os.getenv('FILE_IMPORT_LIMIT', 5)
+    st.session_state['file_import_limit'] = file_import_limit_config
+
+    file_func_limit_config = os.getenv('FILE_FUNCTION_LIMIT', 5)
+    st.session_state['file_func_limit'] = file_func_limit_config
+
+    file_class_limit_config = os.getenv('FILE_CLASS_LIMIT', 5)
+    st.session_state['file_class_limit'] = file_class_limit_config
 
 # Call this function at the start of your app
 load_env_variables()
