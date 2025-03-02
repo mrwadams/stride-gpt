@@ -325,9 +325,9 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
+            ["gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
             key="selected_model",
-            help="GPT-4o and GPT-4o mini are OpenAI's latest models and are recommended."
+            help="GPT-4.5 is a preview of OpenAI's latest model. o1 and o3-mini are reasoning models that perform complex reasoning before they provide a response."
         )
 
     if model_provider == "Anthropic API":
