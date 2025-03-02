@@ -256,76 +256,125 @@ def get_attack_tree_ollama(ollama_endpoint, ollama_model, prompt):
         prompt (str): The prompt to send to the model
         
     Returns:
-        str: The generated attack tree code in Mermaid syntax
+        dict: The parsed JSON response from the model
         
     Raises:
         requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
-        KeyError: If the response doesn't contain the expected fields
+        json.JSONDecodeError: If the response cannot be parsed as JSON
     """
     if not ollama_endpoint.endswith('/'):
         ollama_endpoint = ollama_endpoint + '/'
     
-    url = ollama_endpoint + "api/chat"
+    url = ollama_endpoint + "api/generate"
 
-    # Try to get JSON output
-    system_prompt = create_json_structure_prompt()
+    system_prompt = "You are a helpful assistant designed to output JSON."
+    full_prompt = f"{system_prompt}\n\n{prompt}"
+
     data = {
         "model": ollama_model,
+        "prompt": full_prompt,
         "stream": False,
-        "format": "json",  # Request JSON format if supported
-        "messages": [
-            {
-                "role": "system", 
-                "content": system_prompt
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
+        "format": "json"
     }
 
     try:
-        response = requests.post(url, json=data, timeout=60)
-        response.raise_for_status()
+        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response.raise_for_status()  # Raise exception for bad status codes
         outer_json = response.json()
         
         try:
-            # Try to parse the response content as JSON
-            cleaned_response = clean_json_response(outer_json["message"]["content"])
-            tree_data = json.loads(cleaned_response)
-            return convert_tree_to_mermaid(tree_data)
+            # Parse the JSON response from the model's response field
+            inner_json = json.loads(outer_json['response'])
+            return inner_json
         except (json.JSONDecodeError, KeyError):
-            # Fallback: try to extract Mermaid code if JSON parsing fails
-            return extract_mermaid_code(outer_json["message"]["content"])
+            # Handle error without printing debug info
+            raise
             
-    except requests.exceptions.RequestException as e:
-        print(f"Error communicating with Ollama endpoint: {str(e)}")
+    except requests.exceptions.RequestException:
+        # Handle error without printing debug info
         raise
 
 # Function to get attack tree from Anthropic's Claude model.
 def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
+    
+    # Check if we're using extended thinking mode
+    is_thinking_mode = "thinking" in anthropic_model.lower()
+    
+    # If using thinking mode, use the actual model name without the "thinking" suffix
+    actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
 
     # Try to get JSON output
     system_prompt = create_json_structure_prompt()
-    response = client.messages.create(
-        model=anthropic_model,
-        max_tokens=4096,
-        system=system_prompt,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Try to parse JSON response
+    
     try:
-        cleaned_response = clean_json_response(response.content[0].text)
-        tree_data = json.loads(cleaned_response)
-        return convert_tree_to_mermaid(tree_data)
-    except (json.JSONDecodeError, IndexError, AttributeError):
-        # Fallback: try to extract Mermaid code if JSON parsing fails
-        return extract_mermaid_code(response.content[0].text)
+        # Configure the request based on whether thinking mode is enabled
+        if is_thinking_mode:
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=24000,
+                thinking={
+                    "type": "enabled",
+                    "budget_tokens": 16000
+                },
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=600  # 10-minute timeout
+            )
+        else:
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=300  # 5-minute timeout
+            )
+
+        # Try to parse JSON response
+        try:
+            if is_thinking_mode:
+                # For thinking mode, we need to extract only the text content blocks
+                text_content = ''.join(block.text for block in response.content if block.type == "text")
+                
+                # Store thinking content in session state for debugging/transparency (optional)
+                thinking_content = ''.join(block.thinking for block in response.content if block.type == "thinking")
+                if thinking_content:
+                    st.session_state['last_thinking_content'] = thinking_content
+                    
+                cleaned_response = clean_json_response(text_content)
+            else:
+                cleaned_response = clean_json_response(response.content[0].text)
+                
+            tree_data = json.loads(cleaned_response)
+            return convert_tree_to_mermaid(tree_data)
+        except (json.JSONDecodeError, IndexError, AttributeError):
+            # Fallback: try to extract Mermaid code if JSON parsing fails
+            if is_thinking_mode:
+                text_content = ''.join(block.text for block in response.content if block.type == "text")
+                return extract_mermaid_code(text_content)
+            else:
+                return extract_mermaid_code(response.content[0].text)
+    except Exception as e:
+        # Handle timeout and other errors
+        error_message = str(e)
+        st.error(f"Error with Anthropic API: {error_message}")
+        
+        # Create a fallback response for timeout or other errors
+        fallback_mermaid = """
+graph TD
+    A[Error Generating Attack Tree] --> B[API Error]
+    B --> C["{error_message}"]
+    A --> D[Suggestions]
+    D --> E[Try simplifying the input]
+    D --> F[Try standard model instead of thinking mode]
+    D --> G[Break down complex applications]
+        """.replace("{error_message}", error_message.replace('"', "'"))
+        
+        return fallback_mermaid
 
 # Function to get attack tree from LM Studio Server response.
 def get_attack_tree_lm_studio(lm_studio_endpoint, model_name, prompt):

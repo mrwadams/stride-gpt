@@ -98,9 +98,7 @@ def get_mitigations_google(google_api_key, google_model, prompt):
         # Replace '\n' with actual newline characters
         mitigations = mitigations.replace('\\n', '\n')
     except (IndexError, AttributeError) as e:
-        print(f"Error accessing response content: {str(e)}")
-        print("Raw response:")
-        print(response)
+
         return None
 
     return mitigations
@@ -172,30 +170,81 @@ Please provide your response in markdown format with appropriate headings and bu
             return mitigations
             
         except KeyError as e:
-            print(f"Error accessing response fields: {str(e)}")
-            print("Raw response:", outer_json)
+
             raise
             
     except requests.exceptions.RequestException as e:
-        print(f"Error communicating with Ollama endpoint: {str(e)}")
+
         raise
 
 # Function to get mitigations from the Anthropic model's response.
 def get_mitigations_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
-    response = client.messages.create(
-        model=anthropic_model,
-        max_tokens=4096,
-        system="You are a helpful assistant that provides threat mitigation strategies in Markdown format.",
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
+    
+    # Check if we're using extended thinking mode
+    is_thinking_mode = "thinking" in anthropic_model.lower()
+    
+    # If using thinking mode, use the actual model name without the "thinking" suffix
+    actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
+    
+    try:
+        # Configure the request based on whether thinking mode is enabled
+        if is_thinking_mode:
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=24000,
+                thinking={
+                    "type": "enabled",
+                    "budget_tokens": 16000
+                },
+                system="You are a helpful assistant that provides threat mitigation strategies in Markdown format.",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=600  # 10-minute timeout
+            )
+        else:
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=4096,
+                system="You are a helpful assistant that provides threat mitigation strategies in Markdown format.",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=300  # 5-minute timeout
+            )
 
-    # Access the text content from the first content block
-    mitigations = response.content[0].text
+        # Access the text content
+        if is_thinking_mode:
+            # For thinking mode, we need to extract only the text content blocks
+            mitigations = ''.join(block.text for block in response.content if block.type == "text")
+            
+            # Store thinking content in session state for debugging/transparency (optional)
+            thinking_content = ''.join(block.thinking for block in response.content if block.type == "thinking")
+            if thinking_content:
+                st.session_state['last_thinking_content'] = thinking_content
+        else:
+            # Standard handling for regular responses
+            mitigations = response.content[0].text
 
-    return mitigations
+        return mitigations
+    except Exception as e:
+        # Handle timeout and other errors
+        error_message = str(e)
+        st.error(f"Error with Anthropic API: {error_message}")
+        
+        # Create a fallback response for timeout or other errors
+        fallback_mitigations = f"""
+## Error Generating Mitigations
+
+**API Error:** {error_message}
+
+### Suggestions:
+- For complex applications, try simplifying the input or breaking it into smaller components
+- If you're using extended thinking mode and encountering timeouts, try the standard model instead
+- Consider reducing the complexity of the application description
+"""
+        return fallback_mitigations
 
 # Function to get mitigations from LM Studio Server response.
 def get_mitigations_lm_studio(lm_studio_endpoint, model_name, prompt):

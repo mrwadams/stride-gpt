@@ -351,8 +351,9 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         anthropic_model = st.selectbox(
             "Select the model you would like to use:",
-            ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+            ["claude-3-7-sonnet-latest", "claude-3-7-sonnet-thinking", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
             key="selected_model",
+            help="Select 'claude-3-7-sonnet-thinking' to use Claude's extended thinking mode for enhanced reasoning capabilities."
         )
 
     if model_provider == "Azure OpenAI Service":
@@ -675,10 +676,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                                     st.error("Failed to analyze the image. Please check the API key and try again.")
                             except KeyError as e:
                                 st.error("Failed to analyze the image. Please check the API key and try again.")
-                                print(f"Error: {e}")
                             except Exception as e:
                                 st.error("An unexpected error occurred while analyzing the image.")
-                                print(f"Error: {e}")
 
         # Use the get_input() function to get the application description and GitHub URL
         app_input = get_input()
@@ -745,6 +744,10 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         # Generate the prompt using the create_prompt function
         threat_model_prompt = create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
 
+        # Clear thinking content when switching models or starting a new operation
+        if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            st.session_state.pop('last_thinking_content', None)
+
         # Show a spinner while generating the threat model
         with st.spinner("Analysing potential threats..."):
             max_retries = 3
@@ -764,6 +767,12 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_ollama(st.session_state['ollama_endpoint'], selected_model, threat_model_prompt)
                     elif model_provider == "Anthropic API":
                         model_output = get_threat_model_anthropic(anthropic_api_key, anthropic_model, threat_model_prompt)
+                        # Check if we got a fallback response
+                        if model_output.get("threat_model") and len(model_output["threat_model"]) == 1 and model_output["threat_model"][0].get("Threat Type") == "Error":
+                            st.warning("⚠️ There was an issue generating the threat model. The model may have returned a response in an unexpected format. You can try:")
+                            st.markdown("1. Running the generation again")
+                            st.markdown("2. Checking the application logs for more details")
+                            st.markdown("3. Using a different model if the issue persists")
                     elif model_provider == "LM Studio Server":
                         model_output = get_threat_model_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, threat_model_prompt)
                     elif model_provider == "Groq API":
@@ -788,17 +797,25 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         # Convert the threat model JSON to Markdown
         markdown_output = json_to_markdown(threat_model, improvement_suggestions)
 
+        # Display thinking content in an expander if available and using Claude thinking mode
+        if ('last_thinking_content' in st.session_state and 
+            st.session_state['last_thinking_content'] and 
+            model_provider == "Anthropic API" and 
+            "thinking" in anthropic_model.lower()):
+            with st.expander("View Claude's thinking process"):
+                st.markdown(st.session_state['last_thinking_content'])
+
         # Display the threat model in Markdown
         st.markdown(markdown_output)
-
+        
         # Add a button to allow the user to download the output as a Markdown file
         st.download_button(
             label="Download Threat Model",
-            data=markdown_output,  # Use the Markdown output
-            file_name="stride_gpt_threat_model.md",
+            data=markdown_output,
+            file_name="threat_model.md",
             mime="text/markdown",
-       )
-
+        )
+        
 # If the submit button is clicked and the user has not provided an application description
 if threat_model_submit_button and not st.session_state.get('app_input'):
     st.error("Please enter your application details before submitting.")
@@ -829,6 +846,10 @@ vulnerabilities and prioritising mitigation efforts.
             # Generate the prompt using the create_attack_tree_prompt function
             attack_tree_prompt = create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
 
+            # Clear thinking content when switching models or starting a new operation
+            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+                st.session_state.pop('last_thinking_content', None)
+
             # Show a spinner while generating the attack tree
             with st.spinner("Generating attack tree..."):
                 try:
@@ -850,6 +871,13 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Groq API":
                         mermaid_code = get_attack_tree_groq(groq_api_key, groq_model, attack_tree_prompt)
 
+                    # Display thinking content in an expander if available and using Claude thinking mode
+                    if ('last_thinking_content' in st.session_state and 
+                        st.session_state['last_thinking_content'] and 
+                        model_provider == "Anthropic API" and 
+                        "thinking" in anthropic_model.lower()):
+                        with st.expander("View Claude's thinking process"):
+                            st.markdown(st.session_state['last_thinking_content'])
 
                     # Display the generated attack tree code
                     st.write("Attack Tree Code:")
@@ -886,7 +914,7 @@ vulnerabilities and prioritising mitigation efforts.
                     with col5:
                         # Blank placeholder
                         st.write("")
-
+                    
                 except Exception as e:
                     st.error(f"Error generating attack tree: {e}")
 
@@ -913,6 +941,10 @@ the security posture of the application and protect against potential attacks.
             # Generate the prompt using the create_mitigations_prompt function
             mitigations_prompt = create_mitigations_prompt(threats_markdown)
 
+            # Clear thinking content when switching models or starting a new operation
+            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+                st.session_state.pop('last_thinking_content', None)
+
             # Show a spinner while suggesting mitigations
             with st.spinner("Suggesting mitigations..."):
                 max_retries = 3
@@ -937,8 +969,27 @@ the security posture of the application and protect against potential attacks.
                         elif model_provider == "Groq API":
                             mitigations_markdown = get_mitigations_groq(groq_api_key, groq_model, mitigations_prompt)
 
+                        # Display thinking content in an expander if available and using Claude thinking mode
+                        if ('last_thinking_content' in st.session_state and 
+                            st.session_state['last_thinking_content'] and 
+                            model_provider == "Anthropic API" and 
+                            "thinking" in anthropic_model.lower()):
+                            with st.expander("View Claude's thinking process"):
+                                st.markdown(st.session_state['last_thinking_content'])
+
                         # Display the suggested mitigations in Markdown
                         st.markdown(mitigations_markdown)
+                        
+                        st.markdown("")
+                        
+                        # Add a button to allow the user to download the mitigations as a Markdown file
+                        st.download_button(
+                            label="Download Mitigations",
+                            data=mitigations_markdown,
+                            file_name="mitigations.md",
+                            mime="text/markdown",
+                        )
+                        
                         break  # Exit the loop if successful
                     except Exception as e:
                         retry_count += 1
@@ -949,14 +1000,6 @@ the security posture of the application and protect against potential attacks.
                             st.warning(f"Error suggesting mitigations. Retrying attempt {retry_count+1}/{max_retries}...")
             
             st.markdown("")
-
-            # Add a button to allow the user to download the mitigations as a Markdown file
-            st.download_button(
-                label="Download Mitigations",
-                data=mitigations_markdown,
-                file_name="mitigations.md",
-                mime="text/markdown",
-            )
         else:
             st.error("Please generate a threat model first before suggesting mitigations.")
 
@@ -979,6 +1022,10 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
             threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
             # Generate the prompt using the create_dread_assessment_prompt function
             dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown)
+            # Clear thinking content when switching models or starting a new operation
+            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+                st.session_state.pop('last_thinking_content', None)
+
             # Show a spinner while generating DREAD Risk Assessment
             with st.spinner("Generating DREAD Risk Assessment..."):
                 max_retries = 3
@@ -1010,14 +1057,34 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         retry_count += 1
                         if retry_count == max_retries:
                             st.error(f"Error generating DREAD risk assessment after {max_retries} attempts: {e}")
-                            dread_assessment = []
+                            dread_assessment = {"Risk Assessment": []}
+                            # Add debug information
+                            st.error("Debug: No threats were found in the response. Please try generating the threat model again.")
                         else:
                             st.warning(f"Error generating DREAD risk assessment. Retrying attempt {retry_count+1}/{max_retries}...")
             # Convert the DREAD assessment JSON to Markdown
             dread_assessment_markdown = dread_json_to_markdown(dread_assessment)
-            # Display the DREAD assessment in Markdown
-            st.markdown(dread_assessment_markdown)
-            # Add a button to allow the user to download the test cases as a Markdown file
+            
+            # Add debug information about the assessment
+            if not dread_assessment.get("Risk Assessment"):
+                st.warning("Debug: The DREAD assessment response is empty. Please ensure you have generated a threat model first.")
+            
+            # Display thinking content in an expander if available and using Claude thinking mode
+            if ('last_thinking_content' in st.session_state and 
+                st.session_state['last_thinking_content'] and 
+                model_provider == "Anthropic API" and 
+                "thinking" in anthropic_model.lower()):
+                with st.expander("View Claude's thinking process"):
+                    st.markdown(st.session_state['last_thinking_content'])
+                    
+            # Display the DREAD assessment with a header
+            st.markdown("## DREAD Risk Assessment")
+            st.markdown("The table below shows the DREAD risk assessment for each identified threat. The Risk Score is calculated as the average of the five DREAD categories.")
+            
+            # Display the DREAD assessment in Markdown format
+            st.markdown(dread_assessment_markdown, unsafe_allow_html=False)
+            
+            # Add a button to allow the user to download the DREAD assessment as a Markdown file
             st.download_button(
                 label="Download DREAD Risk Assessment",
                 data=dread_assessment_markdown,
@@ -1051,6 +1118,10 @@ scenarios.
             # Generate the prompt using the create_test_cases_prompt function
             test_cases_prompt = create_test_cases_prompt(threats_markdown)
 
+            # Clear thinking content when switching models or starting a new operation
+            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+                st.session_state.pop('last_thinking_content', None)
+
             # Show a spinner while generating test cases
             with st.spinner("Generating test cases..."):
                 max_retries = 3
@@ -1075,8 +1146,27 @@ scenarios.
                         elif model_provider == "Groq API":
                             test_cases_markdown = get_test_cases_groq(groq_api_key, groq_model, test_cases_prompt)
 
+                        # Display thinking content in an expander if available and using Claude thinking mode
+                        if ('last_thinking_content' in st.session_state and 
+                            st.session_state['last_thinking_content'] and 
+                            model_provider == "Anthropic API" and 
+                            "thinking" in anthropic_model.lower()):
+                            with st.expander("View Claude's thinking process"):
+                                st.markdown(st.session_state['last_thinking_content'])
+
                         # Display the suggested mitigations in Markdown
                         st.markdown(test_cases_markdown)
+                        
+                        st.markdown("")
+
+                        # Add a button to allow the user to download the test cases as a Markdown file
+                        st.download_button(
+                            label="Download Test Cases",
+                            data=test_cases_markdown,
+                            file_name="test_cases.md",
+                            mime="text/markdown",
+                        )
+                        
                         break  # Exit the loop if successful
                     except Exception as e:
                         retry_count += 1
@@ -1088,12 +1178,5 @@ scenarios.
             
             st.markdown("")
 
-            # Add a button to allow the user to download the test cases as a Markdown file
-            st.download_button(
-                label="Download Test Cases",
-                data=test_cases_markdown,
-                file_name="test_cases.md",
-                mime="text/markdown",
-            )
         else:
             st.error("Please generate a threat model first before requesting test cases.")

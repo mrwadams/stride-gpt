@@ -4,6 +4,7 @@ from anthropic import Anthropic
 from mistralai import Mistral, UserMessage
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
+import re
 
 import google.generativeai as genai
 from groq import Groq
@@ -139,12 +140,10 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
         response.raise_for_status()  # Raise an HTTPError for bad responses
         response_content = response.json()
         return response_content
-    except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP error occurred: {http_err}")  # HTTP error
-    except Exception as err:
-        print(f"Other error occurred: {err}")  # Other errors
-
-    print(f"Response content: {response.content}")  # Log the response content for further inspection
+    except requests.exceptions.HTTPError:
+        pass
+    except Exception:
+        pass
     return None
 
 
@@ -236,10 +235,8 @@ def get_threat_model_google(google_api_key, google_model, prompt):
     try:
         # Access the JSON content from the 'parts' attribute of the 'content' object
         response_content = json.loads(response.candidates[0].content.parts[0].text)
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {str(e)}")
-        print("Raw JSON string:")
-        print(response.candidates[0].content.parts[0].text)
+    except json.JSONDecodeError:
+
         return None
 
     return response_content
@@ -302,33 +299,133 @@ def get_threat_model_ollama(ollama_endpoint, ollama_model, prompt):
             # Parse the JSON response from the model's response field
             inner_json = json.loads(outer_json['response'])
             return inner_json
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"Error parsing model response as JSON: {str(e)}")
-            print("Raw response:", outer_json)
+        except (json.JSONDecodeError, KeyError):
+
             raise
             
-    except requests.exceptions.RequestException as e:
-        print(f"Error communicating with Ollama endpoint: {str(e)}")
+    except requests.exceptions.RequestException:
+
         raise
 
 # Function to get threat model from the Claude response.
 def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
-    response = client.messages.create(
-        model=anthropic_model,
-        max_tokens=1024,
-        system="You are a helpful assistant designed to output JSON.",
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    # Combine all text blocks into a single string
-    full_content = ''.join(block.text for block in response.content)
     
-    # Parse the combined JSON string
-    response_content = json.loads(full_content)
-    return response_content
+    # Check if we're using Claude 3.7
+    is_claude_3_7 = "claude-3-7" in anthropic_model.lower()
+    
+    # Check if we're using extended thinking mode
+    is_thinking_mode = "thinking" in anthropic_model.lower()
+    
+    # If using thinking mode, use the actual model name without the "thinking" suffix
+    actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
+    
+    try:
+        # For Claude 3.7, use a more explicit prompt structure
+        if is_claude_3_7:
+            # Add explicit JSON formatting instructions to the prompt
+            json_prompt = prompt + "\n\nIMPORTANT: Your response MUST be a valid JSON object with the exact structure shown in the example above. Do not include any explanatory text, markdown formatting, or code blocks. Return only the raw JSON object."
+            
+            # Configure the request based on whether thinking mode is enabled
+            if is_thinking_mode:
+                response = client.messages.create(
+                    model=actual_model,
+                    max_tokens=24000,
+                    thinking={
+                        "type": "enabled",
+                        "budget_tokens": 16000
+                    },
+                    system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
+                    messages=[
+                        {"role": "user", "content": json_prompt}
+                    ],
+                    timeout=600  # 10-minute timeout
+                )
+            else:
+                response = client.messages.create(
+                    model=actual_model,
+                    max_tokens=4096,
+                    system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
+                    messages=[
+                        {"role": "user", "content": json_prompt}
+                    ],
+                    timeout=300  # 5-minute timeout
+                )
+        else:
+            # Standard handling for other Claude models
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=4096,
+                system="You are a helpful assistant designed to output JSON. Your response must be a valid, parseable JSON object with no additional text, markdown formatting, or explanation. Do not include ```json code blocks or any other formatting - just return the raw JSON object.",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=300  # 5-minute timeout
+            )
+        
+        # Combine all text blocks into a single string
+        if is_thinking_mode:
+            # For thinking mode, we need to extract only the text content blocks
+            full_content = ''.join(block.text for block in response.content if block.type == "text")
+            
+            # Store thinking content in session state for debugging/transparency (optional)
+            thinking_content = ''.join(block.thinking for block in response.content if block.type == "thinking")
+            if thinking_content:
+                st.session_state['last_thinking_content'] = thinking_content
+        else:
+            # Standard handling for regular responses
+            full_content = ''.join(block.text for block in response.content)
+        
+        # Parse the JSON response
+        try:
+            # Check for and fix common JSON formatting issues
+            if is_claude_3_7:
+                # Sometimes Claude 3.7 adds trailing commas which are invalid in JSON
+                full_content = full_content.replace(",\n  ]", "\n  ]").replace(",\n]", "\n]")
+                
+                # Sometimes it adds comments which are invalid in JSON
+                full_content = re.sub(r'//.*?\n', '\n', full_content)
+            
+            response_content = json.loads(full_content)
+            return response_content
+        except json.JSONDecodeError as e:
+            # Create a fallback response
+            fallback_response = {
+                "threat_model": [
+                    {
+                        "Threat Type": "Error",
+                        "Scenario": "Failed to parse Claude response",
+                        "Potential Impact": "Unable to generate threat model"
+                    }
+                ],
+                "improvement_suggestions": [
+                    "Try again - sometimes the model returns a properly formatted response on subsequent attempts",
+                    "Check the logs for detailed error information"
+                ]
+            }
+            return fallback_response
+            
+    except Exception as e:
+        # Handle timeout and other errors
+        error_message = str(e)
+        st.error(f"Error with Anthropic API: {error_message}")
+        
+        # Create a fallback response for timeout or other errors
+        fallback_response = {
+            "threat_model": [
+                {
+                    "Threat Type": "Error",
+                    "Scenario": f"API Error: {error_message}",
+                    "Potential Impact": "Unable to generate threat model"
+                }
+            ],
+            "improvement_suggestions": [
+                "For complex applications, try simplifying the input or breaking it into smaller components",
+                "If you're using extended thinking mode and encountering timeouts, try the standard model instead",
+                "Consider reducing the complexity of the application description"
+            ]
+        }
+        return fallback_response
 
 # Function to get threat model from LM Studio Server response.
 def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt):

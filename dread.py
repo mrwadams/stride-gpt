@@ -1,6 +1,7 @@
 import json
 import requests
 import time
+import re
 from anthropic import Anthropic
 from mistralai import Mistral, UserMessage
 from openai import OpenAI, AzureOpenAI
@@ -11,14 +12,25 @@ from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
 
 def dread_json_to_markdown(dread_assessment):
+    # Create a clean Markdown table with proper spacing
     markdown_output = "| Threat Type | Scenario | Damage Potential | Reproducibility | Exploitability | Affected Users | Discoverability | Risk Score |\n"
-    markdown_output += "|-------------|----------|------------------|-----------------|----------------|----------------|-----------------|-------------|\n"
+    markdown_output += "|------------|----------|------------------|-----------------|----------------|----------------|-----------------|------------|\n"
+    
     try:
         # Access the list of threats under the "Risk Assessment" key
         threats = dread_assessment.get("Risk Assessment", [])
+        
+        # If there are no threats, add a message row
+        if not threats:
+            markdown_output += "| No threats found | Please generate a threat model first | - | - | - | - | - | - |\n"
+            return markdown_output
+            
         for threat in threats:
             # Check if threat is a dictionary
             if isinstance(threat, dict):
+                # Get values with defaults
+                threat_type = threat.get('Threat Type', 'N/A')
+                scenario = threat.get('Scenario', 'N/A')
                 damage_potential = threat.get('Damage Potential', 0)
                 reproducibility = threat.get('Reproducibility', 0)
                 exploitability = threat.get('Exploitability', 0)
@@ -28,13 +40,26 @@ def dread_json_to_markdown(dread_assessment):
                 # Calculate the Risk Score
                 risk_score = (damage_potential + reproducibility + exploitability + affected_users + discoverability) / 5
                 
-                markdown_output += f"| {threat.get('Threat Type', 'N/A')} | {threat.get('Scenario', 'N/A')} | {damage_potential} | {reproducibility} | {exploitability} | {affected_users} | {discoverability} | {risk_score:.2f} |\n"
+                # Escape any pipe characters in text fields to prevent table formatting issues
+                threat_type = str(threat_type).replace('|', '\\|')
+                scenario = str(scenario).replace('|', '\\|')
+                
+                # Ensure scenario text doesn't break table formatting by limiting length and removing newlines
+                if len(scenario) > 100:
+                    scenario = scenario[:97] + "..."
+                scenario = scenario.replace('\n', ' ').replace('\r', '')
+                
+                # Add the row to the table with proper formatting
+                markdown_output += f"| {threat_type} | {scenario} | {damage_potential} | {reproducibility} | {exploitability} | {affected_users} | {discoverability} | {risk_score:.2f} |\n"
             else:
-                raise TypeError(f"Expected a dictionary, got {type(threat)}: {threat}")
+                # Skip non-dictionary entries and log a warning
+                markdown_output += "| Invalid threat | Threat data is not in the correct format | - | - | - | - | - | - |\n"
     except Exception as e:
-        # Print the error message and type for debugging
-        st.write(f"Error: {e}")
-        raise
+        # Add a note about the error and a placeholder row
+        markdown_output += "| Error | An error occurred while processing the DREAD assessment | - | - | - | - | - | - |\n"
+    
+    # Add a blank line after the table for better rendering
+    markdown_output += "\n"
     return markdown_output
 
 
@@ -128,8 +153,8 @@ def get_dread_assessment(api_key, model_name, prompt):
     # Convert the JSON string in the 'content' field to a Python dictionary
     try:
         dread_assessment = json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError as e:
-        st.write(f"JSON decoding error: {e}")
+    except json.JSONDecodeError:
+        # Handle error silently
         dread_assessment = {}
     
     return dread_assessment
@@ -154,8 +179,8 @@ def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_vers
     # Convert the JSON string in the 'content' field to a Python dictionary
     try:
         dread_assessment = json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError as e:
-        st.write(f"JSON decoding error: {e}")
+    except json.JSONDecodeError:
+        # Handle error silently
         dread_assessment = {}
     
     return dread_assessment
@@ -181,16 +206,12 @@ def get_dread_assessment_google(google_api_key, google_model, prompt):
         safety_settings={
             'DANGEROUS': 'block_only_high' # Set safety filter to allow generation of DREAD risk assessments
         })
-    print(response)
     
     try:
         # Access the JSON content from the response
         dread_assessment = json.loads(response.text)
         return dread_assessment
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {str(e)}")
-        print("Raw JSON string:")
-        print(response.text)
+    except json.JSONDecodeError:
         return {}
 
 # Function to get DREAD risk assessment from the Mistral model's response.
@@ -208,10 +229,7 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     try:
         # Convert the JSON string in the 'content' field to a Python dictionary
         dread_assessment = json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {str(e)}")
-        print("Raw JSON string:")
-        print(response.choices[0].message.content)
+    except json.JSONDecodeError:
         dread_assessment = {}
 
     return dread_assessment
@@ -284,16 +302,13 @@ Please provide your response in JSON format with the following structure:
                 dread_assessment = json.loads(outer_json["message"]["content"])
                 return dread_assessment
                 
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"Error parsing response as JSON: {str(e)}")
-                print("Raw response:", outer_json)
+            except (json.JSONDecodeError, KeyError):
                 if attempt == max_retries - 1:  # Last attempt
                     raise
                 time.sleep(retry_delay)
                 continue
                 
-        except requests.exceptions.RequestException as e:
-            print(f"Error communicating with Ollama endpoint: {str(e)}")
+        except requests.exceptions.RequestException:
             if attempt == max_retries - 1:  # Last attempt
                 raise
             time.sleep(retry_delay)
@@ -302,31 +317,108 @@ Please provide your response in JSON format with the following structure:
 # Function to get DREAD risk assessment from the Anthropic model's response.
 def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
-    response = client.messages.create(
-        model=anthropic_model,
-        max_tokens=4096,
-        system="You are a helpful assistant designed to output JSON.",
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
+    
+    # Check if we're using extended thinking mode
+    is_thinking_mode = "thinking" in anthropic_model.lower()
+    
+    # Check if we're using Claude 3.7
+    is_claude_3_7 = "claude-3-7" in anthropic_model.lower()
+    
+    # If using thinking mode, use the actual model name without the "thinking" suffix
+    actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
     
     try:
-        # Extract the text content from the first content block
-        response_text = response.content[0].text
+        # Configure the request based on whether thinking mode is enabled
+        if is_thinking_mode:
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=24000,
+                thinking={
+                    "type": "enabled",
+                    "budget_tokens": 16000
+                },
+                system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
+                messages=[
+                    {"role": "user", "content": prompt + "\n\nIMPORTANT: Your response MUST be a valid JSON object with the exact structure shown in the example above. Do not include any explanatory text, markdown formatting, or code blocks. Return only the raw JSON object."}
+                ],
+                timeout=600  # 10-minute timeout
+            )
+        else:
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=4096,
+                system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=300  # 5-minute timeout
+            )
         
-        # Check if the JSON is complete (should end with a closing brace)
-        if not response_text.strip().endswith('}'):
-            raise json.JSONDecodeError("Incomplete JSON response", response_text, len(response_text))
+        try:
+            # Extract the text content
+            if is_thinking_mode:
+                # For thinking mode, we need to extract only the text content blocks
+                response_text = ''.join(block.text for block in response.content if block.type == "text")
+                
+                # Store thinking content in session state for debugging/transparency (optional)
+                thinking_content = ''.join(block.thinking for block in response.content if block.type == "thinking")
+                if thinking_content:
+                    st.session_state['last_thinking_content'] = thinking_content
+            else:
+                # Standard handling for regular responses
+                response_text = response.content[0].text
             
-        # Parse the JSON string
-        dread_assessment = json.loads(response_text)
-        return dread_assessment
-    except (json.JSONDecodeError, IndexError, AttributeError) as e:
-        print(f"Error processing response: {str(e)}")
-        print("Raw response:")
-        print(response)
-        return {}
+            # Check for and fix common JSON formatting issues
+            if is_claude_3_7:
+                # Sometimes Claude 3.7 adds trailing commas which are invalid in JSON
+                response_text = response_text.replace(",\n  ]", "\n  ]").replace(",\n]", "\n]")
+                
+                # Sometimes it adds comments which are invalid in JSON
+                response_text = re.sub(r'//.*?\n', '\n', response_text)
+            
+            # Check if the JSON is complete (should end with a closing brace)
+            if not response_text.strip().endswith('}'):
+                raise json.JSONDecodeError("Incomplete JSON response", response_text, len(response_text))
+                
+            # Parse the JSON string
+            dread_assessment = json.loads(response_text)
+            return dread_assessment
+        except (json.JSONDecodeError, IndexError, AttributeError) as e:
+            # Create a fallback response with a proper DREAD structure
+            fallback_assessment = {
+                "Risk Assessment": [
+                    {
+                        "Threat Type": "Error",
+                        "Scenario": f"Failed to parse Claude response: {str(e)}",
+                        "Damage Potential": 0,
+                        "Reproducibility": 0,
+                        "Exploitability": 0,
+                        "Affected Users": 0,
+                        "Discoverability": 0
+                    }
+                ]
+            }
+            return fallback_assessment
+    except Exception as e:
+        # Handle timeout and other errors
+        error_message = str(e)
+        st.error(f"Error with Anthropic API: {error_message}")
+        
+        # Create a fallback response for timeout or other errors
+        fallback_assessment = {
+            "Risk Assessment": [
+                {
+                    "Threat Type": "Error",
+                    "Scenario": f"API Error: {error_message}",
+                    "Damage Potential": 0,
+                    "Reproducibility": 0,
+                    "Exploitability": 0,
+                    "Affected Users": 0,
+                    "Discoverability": 0
+                }
+            ]
+        }
+        return fallback_assessment
 
 # Function to get DREAD risk assessment from LM Studio Server response.
 def get_dread_assessment_lm_studio(lm_studio_endpoint, model_name, prompt):
@@ -377,8 +469,8 @@ def get_dread_assessment_lm_studio(lm_studio_endpoint, model_name, prompt):
     # Convert the JSON string in the 'content' field to a Python dictionary
     try:
         dread_assessment = json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError as e:
-        st.write(f"JSON decoding error: {e}")
+    except json.JSONDecodeError:
+        # Handle error silently
         dread_assessment = {}
     
     return dread_assessment
