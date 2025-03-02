@@ -189,7 +189,7 @@ Release highlights:
    cp .env.example .env
    ```
    
-   b. Edit the `.env` file and add your API keys:
+   b. Edit the `.env` file to add your API keys and/or endpoint URLs:
    ```
    GITHUB_API_KEY=your_actual_github_api_key
    OPENAI_API_KEY=your_actual_openai_api_key
