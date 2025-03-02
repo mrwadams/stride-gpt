@@ -12,7 +12,7 @@ from openai import OpenAI
 import requests
 import json
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, get_threat_model_bedrock, json_to_markdown, get_image_analysis, create_image_analysis_prompt
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
@@ -43,6 +43,73 @@ Please check:
 2. You have loaded a model in LM Studio
 3. The server is running in local inference mode""")
         return ["local-model"]
+
+# Function to get available models from Amazon Bedrock
+def get_bedrock_models(access_key, secret_key, region):
+    try:
+        import boto3
+        from botocore.exceptions import ClientError
+        
+        # Set up boto3 session with provided credentials
+        session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region
+        )
+        
+        # Create Bedrock client
+        bedrock_client = session.client('bedrock')
+        
+        # Get list of available foundation models
+        response = bedrock_client.list_foundation_models()
+        
+        # Extract model IDs from response
+        models = []
+        if 'modelSummaries' in response:
+            for model in response['modelSummaries']:
+                if model.get('modelLifecycle', {}).get('status') == 'ACTIVE':
+                    models.append(model['modelId'])
+        
+        if not models:
+            st.warning("""No active models found in Amazon Bedrock. Please ensure:
+1. Your AWS account has access to Amazon Bedrock
+2. You have requested and been granted access to foundation models
+3. Your region has Amazon Bedrock available""")
+            return ["anthropic.claude-3-sonnet-20240229-v1:0"]  # Default model as fallback
+            
+        return sorted(models)
+        
+    except ImportError:
+        st.error("""Unable to import boto3. Please install it with:
+pip install boto3""")
+        return ["anthropic.claude-3-sonnet-20240229-v1:0"]
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', '')
+        error_msg = e.response.get('Error', {}).get('Message', str(e))
+        
+        if error_code == 'AccessDeniedException':
+            st.error(f"""Access denied to Amazon Bedrock. Please ensure:
+1. Your AWS credentials have permission to access Amazon Bedrock
+2. You have requested model access in the AWS console
+3. Your account has been approved for model usage""")
+        elif error_code == 'ValidationException':
+            st.error(f"""Validation error: {error_msg}
+            
+Please check your AWS credentials and region settings.""")
+        else:
+            st.error(f"""Error accessing Amazon Bedrock: {error_msg}
+            
+Please check your AWS credentials, region, and ensure Bedrock is available in your region.""")
+        
+        return ["anthropic.claude-3-sonnet-20240229-v1:0"]  # Default model as fallback
+    except Exception as e:
+        st.error(f"""Unexpected error accessing Amazon Bedrock: {str(e)}
+        
+Please check:
+1. Your AWS credentials are correct
+2. The specified region supports Amazon Bedrock
+3. Your account has been granted access to Amazon Bedrock models""")
+        return ["anthropic.claude-3-sonnet-20240229-v1:0"]  # Default model as fallback
 
 def get_ollama_models(ollama_endpoint):
     """
@@ -268,6 +335,19 @@ def load_env_variables():
     if groq_api_key:
         st.session_state['groq_api_key'] = groq_api_key
 
+    # Add AWS Bedrock API keys and region
+    aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+    if aws_access_key:
+        st.session_state['aws_access_key'] = aws_access_key
+        
+    aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+    if aws_secret_key:
+        st.session_state['aws_secret_key'] = aws_secret_key
+        
+    aws_region = os.getenv('AWS_REGION', 'us-east-1')
+    if aws_region:
+        st.session_state['aws_region'] = aws_region
+
     # Add Ollama endpoint configuration
     ollama_endpoint = os.getenv('OLLAMA_ENDPOINT', 'http://localhost:11434')
     st.session_state['ollama_endpoint'] = ollama_endpoint
@@ -299,7 +379,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Groq API", "Ollama", "LM Studio Server"],
+        ["OpenAI API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Groq API", "Ollama", "LM Studio Server", "Amazon Bedrock"],
         key="model_provider",
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
@@ -540,6 +620,62 @@ with st.sidebar:
             key="selected_model",
             help="Select from Groq's supported models. The Llama 3.3 70B Versatile model is recommended for best results."
         )
+        
+    if model_provider == "Amazon Bedrock":
+        st.markdown(
+        """
+    1. Enter your AWS credentials and select a model below 🔑
+    2. Provide details of the application that you would like to threat model 📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+        )
+        # Add AWS credentials input fields
+        aws_access_key = st.text_input(
+            "Enter your AWS Access Key ID:",
+            value=st.session_state.get('aws_access_key', ''),
+            type="password",
+            help="Your AWS Access Key ID for Amazon Bedrock access",
+        )
+        if aws_access_key:
+            st.session_state['aws_access_key'] = aws_access_key
+            
+        aws_secret_key = st.text_input(
+            "Enter your AWS Secret Access Key:",
+            value=st.session_state.get('aws_secret_key', ''),
+            type="password",
+            help="Your AWS Secret Access Key for Amazon Bedrock access",
+        )
+        if aws_secret_key:
+            st.session_state['aws_secret_key'] = aws_secret_key
+            
+        aws_region = st.text_input(
+            "AWS Region:",
+            value=st.session_state.get('aws_region', 'us-east-1'),
+            help="The AWS region where Amazon Bedrock is available (e.g., us-east-1, us-west-2)",
+        )
+        if aws_region:
+            st.session_state['aws_region'] = aws_region
+
+        # Fetch available models from Amazon Bedrock when credentials are provided
+        available_models = ["anthropic.claude-3-sonnet-20240229-v1:0"]  # Default fallback
+        if aws_access_key and aws_secret_key and aws_region:
+            available_models = get_bedrock_models(aws_access_key, aws_secret_key, aws_region)
+
+        # Add model selection input field
+        bedrock_model = st.selectbox(
+            "Select the Amazon Bedrock model you would like to use:",
+            available_models,
+            key="selected_model",
+            help="Select a model from Amazon Bedrock. Claude models provide the best results for security analysis."
+        )
+        
+        st.info("""
+        Note: To use Amazon Bedrock, you must:
+        1. Have an AWS account with Amazon Bedrock enabled
+        2. Request and be granted access to models in the AWS Console
+        3. Create an IAM user/role with appropriate Bedrock permissions
+        """)
+        
 
     # Add GitHub API key input field to the sidebar
     github_api_key = st.sidebar.text_input(
@@ -766,6 +902,14 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_anthropic(anthropic_api_key, anthropic_model, threat_model_prompt)
                     elif model_provider == "LM Studio Server":
                         model_output = get_threat_model_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, threat_model_prompt)
+                    elif model_provider == "Amazon Bedrock":
+                        model_output = get_threat_model_bedrock(
+                            st.session_state['aws_access_key'], 
+                            st.session_state['aws_secret_key'], 
+                            st.session_state['aws_region'], 
+                            bedrock_model, 
+                            threat_model_prompt
+                        )
                     elif model_provider == "Groq API":
                         model_output = get_threat_model_groq(groq_api_key, groq_model, threat_model_prompt)
 

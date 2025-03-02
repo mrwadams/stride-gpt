@@ -408,3 +408,147 @@ def get_threat_model_groq(groq_api_key, groq_model, prompt):
             st.write(reasoning)
 
     return response_content
+
+# Function to get threat model from Amazon Bedrock
+def get_threat_model_bedrock(aws_access_key, aws_secret_key, aws_region, model_id, prompt):
+    """
+    Get threat model from Amazon Bedrock model.
+    
+    Args:
+        aws_access_key (str): AWS Access Key ID
+        aws_secret_key (str): AWS Secret Access Key
+        aws_region (str): AWS Region (e.g., 'us-east-1')
+        model_id (str): Amazon Bedrock model ID (e.g., 'anthropic.claude-3-sonnet-20240229-v1:0')
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        dict: The parsed JSON response from the model
+    """
+    try:
+        import boto3
+        from botocore.exceptions import ClientError, BotoCoreError
+        
+        # Set up boto3 session with provided credentials
+        session = boto3.Session(
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            region_name=aws_region
+        )
+        
+        # Create Bedrock Runtime client
+        bedrock_runtime = session.client('bedrock-runtime')
+        
+        # Determine the model provider from the model_id to use the appropriate request format
+        if model_id.startswith('anthropic.'):
+            # Claude models (Anthropic)
+            request_body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 4096,
+                "system": "You are a helpful assistant designed to output JSON.",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "response_format": {"type": "json_object"}
+            }
+        elif model_id.startswith('meta.'):
+            # Llama models (Meta)
+            request_body = {
+                "prompt": f"<system>You are a helpful assistant designed to output JSON.</system>\n<user>{prompt}</user>\n<assistant>",
+                "max_gen_len": 4096,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        elif model_id.startswith('amazon.'):
+            # Titan models (Amazon)
+            # Note: Only Titan Text Express supports responseFormatOptions, not Premier models
+            if "premier" in model_id.lower():
+                # Premier models don't support responseFormatOptions and have a lower token limit
+                request_body = {
+                    "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                    "textGenerationConfig": {
+                        "maxTokenCount": 3072,  # Premier models have a 3072 token limit
+                        "temperature": 0.7,
+                        "topP": 0.9
+                    }
+                }
+            else:
+                # Express models support responseFormatOptions
+                request_body = {
+                    "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                    "textGenerationConfig": {
+                        "maxTokenCount": 4096,
+                        "temperature": 0.7,
+                        "topP": 0.9,
+                        "responseFormatOptions": {
+                            "type": "JSON"
+                        }
+                    }
+                }
+        elif model_id.startswith('mistral.'):
+            # Mistral models
+            request_body = {
+                "prompt": f"<s>[INST]You are a helpful assistant designed to output JSON.\n\n{prompt}[/INST]",
+                "max_tokens": 4096,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        else:
+            # Generic format for other models
+            request_body = {
+                "prompt": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                "max_tokens": 4096,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        
+        # Invoke the model
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body)
+        )
+        
+        # Parse the response body
+        response_body = json.loads(response['body'].read().decode('utf-8'))
+        
+        # Extract the content based on model provider
+        if model_id.startswith('anthropic.'):
+            # Claude models
+            content = response_body.get('content', [{}])[0].get('text', '{}')
+        elif model_id.startswith('meta.'):
+            # Llama models
+            content = response_body.get('generation', '{}')
+        elif model_id.startswith('amazon.'):
+            # Titan models
+            content = response_body.get('results', [{}])[0].get('outputText', '{}')
+        elif model_id.startswith('mistral.'):
+            # Mistral models
+            content = response_body.get('outputs', [{}])[0].get('text', '{}')
+        else:
+            # Generic fallback
+            content = response_body.get('output', '{}')
+        
+        # Try to extract JSON from the content - handle potential text before/after JSON
+        try:
+            # Try direct JSON parsing first
+            response_content = json.loads(content)
+        except json.JSONDecodeError:
+            # If that fails, try to extract JSON using regex
+            import re
+            json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if json_match:
+                response_content = json.loads(json_match.group(1))
+            else:
+                raise ValueError("Could not extract valid JSON from model response")
+        
+        return response_content
+        
+    except (ImportError, ClientError, BotoCoreError, json.JSONDecodeError, ValueError) as e:
+        st.error(f"Error getting threat model from Amazon Bedrock: {str(e)}")
+        # Return a minimal valid response structure to avoid breaking the UI
+        return {
+            "threat_model": [],
+            "improvement_suggestions": [
+                f"Error processing model response: {str(e)}",
+                "Please check your AWS credentials and try again."
+            ]
+        }
