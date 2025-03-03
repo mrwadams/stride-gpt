@@ -27,7 +27,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 - Generates Gherkin test cases based on identified threats
 - 🆕 GitHub repository analysis for comprehensive threat modelling
 - No data storage; application details are not saved
-- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API, Mistral API, or locally hosted models via Ollama and 🆕 LM Studio Server
+- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API, Mistral API, Amazon Bedrock, or locally hosted models via Ollama and LM Studio Server
 - Available as a Docker container image for easy deployment
 - Environment variable support for secure configuration
 
@@ -199,6 +199,10 @@ Release highlights:
    AZURE_DEPLOYMENT_NAME=your_actual_azure_deployment_name
    GOOGLE_API_KEY=your_actual_google_api_key
    MISTRAL_API_KEY=your_actual_mistral_api_key
+   GROQ_API_KEY=your_actual_groq_api_key
+   AWS_ACCESS_KEY_ID=your_aws_access_key_id
+   AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+   AWS_REGION=us-east-1
    OLLAMA_ENDPOINT=http://localhost:11434
    LM_STUDIO_ENDPOINT=http://localhost:1234
    ```
