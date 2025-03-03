@@ -6,6 +6,7 @@ pyGithub
 streamlit>=1.40
 python-dotenv
 groq
+tiktoken
 tornado>=6.4.2 # not directly required, pinned by Snyk to avoid a vulnerability
 requests>=2.32.2 # not directly required, pinned by Snyk to avoid a vulnerability
 urllib3>=2.2.2 # not directly required, pinned by Snyk to avoid a vulnerability

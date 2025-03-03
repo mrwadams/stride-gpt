@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import requests
 import json
+import tiktoken
 
 from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
@@ -134,6 +135,28 @@ def get_input():
 
     return input_text
 
+def estimate_tokens(text, model="gpt-4o"):
+    """
+    Estimate the number of tokens in a text string.
+    Uses tiktoken for OpenAI models, or falls back to a character-based approximation.
+    
+    Args:
+        text: The text to estimate tokens for
+        model: The model to use for estimation (default: gpt-4o)
+        
+    Returns:
+        Estimated token count
+    """
+    try:
+        # Try to use tiktoken for accurate estimation
+        enc = tiktoken.encoding_for_model(model)
+        return len(enc.encode(text))
+    except (ImportError, KeyError, ValueError):
+        # Fall back to character-based approximation
+        # Different languages have different token densities
+        # English: ~4 chars per token, Chinese: ~1-2 chars per token
+        return len(text) // 4  # Conservative estimate for English text
+
 def analyze_github_repo(repo_url):
     # Extract owner and repo name from URL
     parts = repo_url.split('/')
@@ -154,59 +177,231 @@ def analyze_github_repo(repo_url):
 
     # Analyze files
     file_summaries = defaultdict(list)
-    total_chars = 0
-    char_limit = 100000  # Adjust this based on your model's token limit
+    total_tokens = 0
+    
+    # Get the configured token limit from session state, or use a default
+    token_limit = st.session_state.get('token_limit', 64000)
+    
+    # Get the selected model for token estimation
+    model_provider = st.session_state.get('model_provider', 'OpenAI API')
+    selected_model = st.session_state.get('selected_model', 'gpt-4o')
+    
+    # Determine which model to use for token estimation
+    token_estimation_model = "gpt-4o"  # Default fallback
+    if model_provider == "OpenAI API":
+        token_estimation_model = selected_model
+    
+    # Reserve some tokens for the model's response (typically 20-30% of the context window)
+    # This ensures the model has enough space to generate a response
+    analysis_token_limit = int(token_limit * 0.7)
+    
+    # Progress bar for GitHub analysis
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text("Analyzing repository structure...")
+    
+    # First, get the README to prioritize it
     readme_content = ""
-
-    for file in tree.tree:
-        if file.path.lower() == 'readme.md':
-            content = repo.get_contents(file.path, ref=default_branch)
-            readme_content = base64.b64decode(content.content).decode()
-        elif file.type == "blob" and file.path.endswith(('.py', '.js', '.ts', '.html', '.css', '.java', '.go', '.rb')):
+    readme_tokens = 0
+    try:
+        readme_file = repo.get_contents("README.md", ref=default_branch)
+        readme_content = base64.b64decode(readme_file.content).decode()
+        readme_tokens = estimate_tokens(readme_content, token_estimation_model)
+    except:
+        try:
+            # Try lowercase readme.md as fallback
+            readme_file = repo.get_contents("readme.md", ref=default_branch)
+            readme_content = base64.b64decode(readme_file.content).decode()
+            readme_tokens = estimate_tokens(readme_content, token_estimation_model)
+        except:
+            st.warning("No README.md found in the repository.")
+    
+    # Calculate how many tokens we can use for code analysis
+    # Reserve at least 30% of the token limit for code analysis
+    code_token_limit = max(int(analysis_token_limit * 0.3), analysis_token_limit - readme_tokens)
+    
+    # If README is too large, truncate it
+    if readme_tokens > analysis_token_limit * 0.7:
+        # Truncate README to 70% of the analysis token limit
+        truncation_ratio = (analysis_token_limit * 0.7) / readme_tokens
+        max_readme_chars = int(len(readme_content) * truncation_ratio)
+        readme_content = readme_content[:max_readme_chars] + "...\n(README truncated due to length)\n\n"
+        readme_tokens = estimate_tokens(readme_content, token_estimation_model)
+    
+    # Update progress
+    progress_bar.progress(0.2)
+    status_text.text("Analyzing code files...")
+    
+    # Get all code files
+    code_files = [file for file in tree.tree if file.type == "blob" and file.path.endswith(
+        ('.py', '.js', '.ts', '.html', '.css', '.java', '.go', '.rb', '.c', '.cpp', '.h', '.cs', '.php')
+    )]
+    
+    # Sort files by importance (you can customize this logic)
+    # For example, prioritize main files, configuration files, etc.
+    def file_importance(file):
+        # Lower score means higher importance
+        if file.path.lower() in ['main.py', 'app.py', 'index.js', 'package.json', 'config.json']:
+            return 0
+        if 'test' in file.path.lower() or 'spec' in file.path.lower():
+            return 3
+        if file.path.endswith(('.py', '.js', '.ts', '.java', '.go')):
+            return 1
+        return 2
+    
+    code_files.sort(key=file_importance)
+    
+    # Process files until we reach the token limit
+    total_tokens = readme_tokens
+    file_count = len(code_files)
+    processed_files = 0
+    
+    for i, file in enumerate(code_files):
+        # Update progress
+        progress_percent = 0.2 + (0.8 * (i / file_count))
+        progress_bar.progress(min(progress_percent, 1.0))
+        status_text.text(f"Analyzing file {i+1}/{file_count}: {file.path}")
+        
+        try:
             content = repo.get_contents(file.path, ref=default_branch)
             decoded_content = base64.b64decode(content.content).decode()
             
             # Summarize the file content
             summary = summarize_file(file.path, decoded_content)
-            file_summaries[file.path.split('.')[-1]].append(summary)
+            summary_tokens = estimate_tokens(summary, token_estimation_model)
             
-            total_chars += len(summary)
-            if total_chars > char_limit:
+            # Check if adding this summary would exceed our token limit
+            if total_tokens + summary_tokens > analysis_token_limit:
+                # If we're about to exceed the limit, add a note and stop processing
+                file_summaries["info"].append(f"Analysis truncated: {file_count - i} more files not analyzed due to token limit.")
                 break
-
+            
+            file_summaries[file.path.split('.')[-1]].append(summary)
+            total_tokens += summary_tokens
+            processed_files += 1
+        except Exception as e:
+            # Skip files that can't be decoded
+            continue
+    
+    # Clear progress indicators
+    progress_bar.empty()
+    status_text.empty()
+    
     # Compile the analysis into a system description
     system_description = f"Repository: {repo_url}\n\n"
     
     if readme_content:
         system_description += "README.md Content:\n"
-        # Truncate README if it's too long
-        if len(readme_content) > 5000:
-            system_description += readme_content[:5000] + "...\n(README truncated due to length)\n\n"
-        else:
-            system_description += readme_content + "\n\n"
+        system_description += readme_content + "\n\n"
 
     for file_type, summaries in file_summaries.items():
         system_description += f"{file_type.upper()} Files:\n"
         for summary in summaries:
             system_description += summary + "\n"
         system_description += "\n"
-
+    
+    # Add token usage information
+    estimated_total_tokens = estimate_tokens(system_description, token_estimation_model)
+    system_description += f"\nRepository Analysis Summary:\n"
+    system_description += f"- Files analyzed: {processed_files} of {file_count} total files\n"
+    system_description += f"- Token usage estimate: ~{estimated_total_tokens} tokens\n"
+    system_description += f"- Token limit configured: {token_limit} tokens\n"
+    
+    # Show a warning if we're close to the token limit
+    if estimated_total_tokens > token_limit * 0.9:
+        st.warning(f"⚠️ The GitHub analysis is using approximately {estimated_total_tokens} tokens, which is close to your configured limit of {token_limit}. Consider increasing the token limit in the sidebar settings if you need more comprehensive analysis.")
+    
     return system_description
 
 def summarize_file(file_path, content):
-    # Extract important parts of the file
-    imports = re.findall(r'^import .*|^from .* import .*', content, re.MULTILINE)
-    functions = re.findall(r'def .*\(.*\):', content)
-    classes = re.findall(r'class .*:', content)
-
+    """
+    Summarize a file's content by extracting key components.
+    Adapts the level of detail based on file size and importance.
+    
+    Args:
+        file_path: Path to the file
+        content: Content of the file
+        
+    Returns:
+        A string summary of the file
+    """
+    # Determine file type
+    file_ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
+    
+    # Initialize summary
     summary = f"File: {file_path}\n"
+    
+    # For very large files, be more selective
+    is_large_file = len(content) > 10000
+    
+    # Extract imports based on file type
+    imports = []
+    if file_ext in ['py']:
+        imports = re.findall(r'^import .*|^from .* import .*', content, re.MULTILINE)
+    elif file_ext in ['js', 'ts']:
+        imports = re.findall(r'^import .*|^const .* = require\(.*\)|^import .* from .*', content, re.MULTILINE)
+    elif file_ext in ['java']:
+        imports = re.findall(r'^import .*;', content, re.MULTILINE)
+    elif file_ext in ['go']:
+        imports = re.findall(r'^import \(.*?\)|^import ".*"', content, re.MULTILINE | re.DOTALL)
+    
+    # Extract functions based on file type
+    functions = []
+    if file_ext in ['py']:
+        functions = re.findall(r'def .*\(.*\):', content, re.MULTILINE)
+    elif file_ext in ['js', 'ts']:
+        functions = re.findall(r'function .*\(.*\) {|const .* = \(.*\) =>|.*: function\(.*\)', content, re.MULTILINE)
+    elif file_ext in ['java', 'c', 'cpp', 'cs']:
+        functions = re.findall(r'(public|private|protected|static|\s) +[\w\<\>\[\]]+\s+(\w+) *\([^\)]*\) *(\{?|[^;])', content, re.MULTILINE)
+        functions = [' '.join(f).strip() for f in functions]
+    elif file_ext in ['go']:
+        functions = re.findall(r'func .*\(.*\).*{', content, re.MULTILINE)
+    
+    # Extract classes based on file type
+    classes = []
+    if file_ext in ['py']:
+        classes = re.findall(r'class .*:', content, re.MULTILINE)
+    elif file_ext in ['js', 'ts']:
+        classes = re.findall(r'class .* {', content, re.MULTILINE)
+    elif file_ext in ['java', 'c', 'cpp', 'cs']:
+        classes = re.findall(r'(public|private|protected|static|\s) +(class|interface) +(\w+)', content, re.MULTILINE)
+        classes = [' '.join(c).strip() for c in classes]
+    
+    # Add imports to summary (limit based on file size)
+    import_limit = 5 if not is_large_file else 3
     if imports:
-        summary += "Imports:\n" + "\n".join(imports[:5]) + "\n"  # Limit to first 5 imports
-    if functions:
-        summary += "Functions:\n" + "\n".join(functions[:5]) + "\n"  # Limit to first 5 functions
+        summary += "Imports:\n" + "\n".join(imports[:import_limit])
+        if len(imports) > import_limit:
+            summary += f"\n... ({len(imports) - import_limit} more imports)"
+        summary += "\n"
+    
+    # Add classes to summary (limit based on file size)
+    class_limit = 5 if not is_large_file else 3
     if classes:
-        summary += "Classes:\n" + "\n".join(classes[:5]) + "\n"  # Limit to first 5 classes
-
+        summary += "Classes:\n" + "\n".join(classes[:class_limit])
+        if len(classes) > class_limit:
+            summary += f"\n... ({len(classes) - class_limit} more classes)"
+        summary += "\n"
+    
+    # Add functions to summary (limit based on file size)
+    function_limit = 10 if not is_large_file else 5
+    if functions:
+        summary += "Functions:\n" + "\n".join(functions[:function_limit])
+        if len(functions) > function_limit:
+            summary += f"\n... ({len(functions) - function_limit} more functions)"
+        summary += "\n"
+    
+    # For configuration files (JSON, YAML, etc.), try to extract key information
+    if file_ext in ['json', 'yaml', 'yml', 'toml', 'ini']:
+        # Just include a snippet of the beginning for config files
+        config_preview = content[:500] + ("..." if len(content) > 500 else "")
+        summary += "Configuration Content Preview:\n" + config_preview + "\n"
+    
+    # For README or documentation files, include a brief excerpt
+    if 'readme' in file_path.lower() or file_ext in ['md', 'rst', 'txt']:
+        doc_preview = content[:300] + ("..." if len(content) > 300 else "")
+        summary += "Content Preview:\n" + doc_preview + "\n"
+    
     return summary
 
 # Function to render Mermaid diagram
@@ -279,7 +474,47 @@ def load_env_variables():
 # Call this function at the start of your app
 load_env_variables()
 
-# ------------------ Streamlit UI Configuration ------------------ #
+# ------------------ Model Token Limits ------------------ #
+
+# Define token limits for specific model+provider combinations
+# Format: {"provider:model": {"default": default_value, "max": max_value}}
+model_token_limits = {
+    # OpenAI models
+    "OpenAI API:gpt-4.5-preview": {"default": 64000, "max": 128000},
+    "OpenAI API:gpt-4o": {"default": 64000, "max": 128000},
+    "OpenAI API:gpt-4o-mini": {"default": 64000, "max": 128000},
+    "OpenAI API:o1": {"default": 64000, "max": 200000},
+    "OpenAI API:o3-mini": {"default": 64000, "max": 200000},
+    
+    # Claude models
+    "Anthropic API:claude-3-7-sonnet-latest": {"default": 64000, "max": 200000},
+    "Anthropic API:claude-3-7-sonnet-thinking": {"default": 64000, "max": 200000},
+    "Anthropic API:claude-3-5-sonnet-latest": {"default": 64000, "max": 200000},
+    "Anthropic API:claude-3-5-haiku-latest": {"default": 64000, "max": 200000},
+    
+    # Mistral models
+    "Mistral API:mistral-large-latest": {"default": 64000, "max": 131000},
+    "Mistral API:mistral-small-latest": {"default": 16000, "max": 32000},
+    
+    # Google models
+    "Google AI API:gemini-2.0-flash": {"default": 120000, "max": 1000000},
+    "Google AI API:gemini-2.0-flash-lite": {"default": 120000, "max": 1000000},
+    "Google AI API:gemini-1.5-pro": {"default": 240000, "max": 2000000},
+    
+    # Groq models
+    "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
+    "Groq API:llama-3.3-70b-versatile": {"default": 64000, "max": 128000},
+    "Groq API:llama-3.1-8b-instant": {"default": 64000, "max": 128000},
+    "Groq API:mixtral-8x7b-32768": {"default": 16000, "max": 32000},
+    "Groq API:gemma-9b-it": {"default": 4000, "max": 8192},
+    
+    # Azure models - conservative defaults
+    "Azure OpenAI Service:default": {"default": 64000, "max": 128000},
+    
+    # Ollama and LM Studio - conservative defaults
+    "Ollama:default": {"default": 8000, "max": 32000},
+    "LM Studio Server:default": {"default": 8000, "max": 32000}
+}
 
 st.set_page_config(
     page_title="STRIDE GPT",
@@ -287,6 +522,42 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Define callback for model provider change
+def on_model_provider_change():
+    """Update token limit when model provider changes"""
+    # Get the new model provider
+    new_provider = st.session_state.model_provider
+    
+    # Set the token limit to the default for the new provider
+    provider_key = f"{new_provider}:default"
+    if provider_key in model_token_limits:
+        st.session_state.token_limit = model_token_limits[provider_key]["default"]
+    else:
+        # Fallback to a conservative default
+        st.session_state.token_limit = 8000
+
+# Define callback for model selection change
+def on_model_selection_change():
+    """Update token limit when specific model is selected"""
+    # Only proceed if we have both a model provider and a selected model
+    if 'model_provider' not in st.session_state or 'selected_model' not in st.session_state:
+        return
+    
+    model_provider = st.session_state.model_provider
+    selected_model = st.session_state.selected_model
+    
+    # Create the key for lookup
+    model_key = f"{model_provider}:{selected_model}"
+    
+    # If we have a specific limit for this model, use it
+    if model_key in model_token_limits:
+        st.session_state.token_limit = model_token_limits[model_key]["default"]
+    else:
+        # Otherwise use a provider default
+        provider_key = f"{model_provider}:default"
+        if provider_key in model_token_limits:
+            st.session_state.token_limit = model_token_limits[provider_key]["default"]
 
 # ------------------ Sidebar ------------------ #
 
@@ -301,6 +572,7 @@ with st.sidebar:
         "Select your preferred model provider:",
         ["OpenAI API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Groq API", "Ollama", "LM Studio Server"],
         key="model_provider",
+        on_change=on_model_provider_change,
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
 
@@ -327,6 +599,7 @@ with st.sidebar:
             "Select the model you would like to use:",
             ["gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
             key="selected_model",
+            on_change=on_model_selection_change,
             help="GPT-4.5 is a preview of OpenAI's latest model. o1 and o3-mini are reasoning models that perform complex reasoning before they provide a response."
         )
 
@@ -353,6 +626,7 @@ with st.sidebar:
             "Select the model you would like to use:",
             ["claude-3-7-sonnet-latest", "claude-3-7-sonnet-thinking", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
             key="selected_model",
+            on_change=on_model_selection_change,
             help="Select 'claude-3-7-sonnet-thinking' to use Claude's extended thinking mode for enhanced reasoning capabilities."
         )
 
@@ -406,7 +680,7 @@ with st.sidebar:
     3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """
     )
-        # Add OpenAI API key input field to the sidebar
+        # Add Google API key input field to the sidebar
         google_api_key = st.text_input(
             "Enter your Google AI API key:",
             value=st.session_state.get('google_api_key', ''),
@@ -419,8 +693,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-2.0-flash", "gemini-1.5-pro"],
+            ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
             key="selected_model",
+            on_change=on_model_selection_change,
+            help="Gemini 2.0 Flash is the most capable model, while Gemini 2.0 Flash Lite is more cost-effective."
         )
 
     if model_provider == "Mistral API":
@@ -431,7 +707,7 @@ with st.sidebar:
     3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """
     )
-        # Add OpenAI API key input field to the sidebar
+        # Add Mistral API key input field to the sidebar
         mistral_api_key = st.text_input(
             "Enter your Mistral API key:",
             value=st.session_state.get('mistral_api_key', ''),
@@ -446,6 +722,8 @@ with st.sidebar:
             "Select the model you would like to use:",
             ["mistral-large-latest", "mistral-small-latest"],
             key="selected_model",
+            on_change=on_model_selection_change,
+            help="Mistral Large is the most capable model, while Mistral Small is more cost-effective."
         )
 
     if model_provider == "Ollama":
@@ -455,7 +733,7 @@ with st.sidebar:
     2. Provide details of the application that you would like to threat model 📝
     3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """
-        )
+    )
         # Add Ollama endpoint configuration field
         ollama_endpoint = st.text_input(
             "Enter your Ollama endpoint:",
@@ -473,10 +751,11 @@ with st.sidebar:
 
         # Add model selection input field
         selected_model = st.selectbox(
-            "Select the Ollama model you would like to use:",
+            "Select the model you would like to use:",
             available_models if ollama_endpoint and ollama_endpoint.startswith(('http://', 'https://')) else ["local-model"],
             key="selected_model",
-            help="Select the model you have pulled into your Ollama instance."
+            on_change=on_model_selection_change,
+            help="Select a model from your local Ollama instance. If you don't see any models, make sure Ollama is running and has models installed."
         )
 
     if model_provider == "LM Studio Server":
@@ -486,7 +765,7 @@ with st.sidebar:
     2. Provide details of the application that you would like to threat model 📝
     3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """
-        )
+    )
         # Add LM Studio Server endpoint configuration field
         lm_studio_endpoint = st.text_input(
             "Enter your LM Studio Server endpoint:",
@@ -504,10 +783,11 @@ with st.sidebar:
 
         # Add model selection input field
         selected_model = st.selectbox(
-            "Select the LM Studio Server model you would like to use:",
+            "Select the model you would like to use:",
             available_models if lm_studio_endpoint and lm_studio_endpoint.startswith(('http://', 'https://')) else ["local-model"],
             key="selected_model",
-            help="Select the model you have loaded in your LM Studio Server instance."
+            on_change=on_model_selection_change,
+            help="Select a model from your local LM Studio Server. If you don't see any models, make sure LM Studio Server is running with models loaded."
         )
 
     if model_provider == "Groq API":
@@ -536,14 +816,15 @@ with st.sidebar:
                 "llama-3.3-70b-versatile",
                 "llama-3.1-8b-instant",
                 "mixtral-8x7b-32768",
-                "gemma2-9b-it"
+                "gemma-9b-it"
             ],
             key="selected_model",
+            on_change=on_model_selection_change,
             help="Select from Groq's supported models. The Llama 3.3 70B Versatile model is recommended for best results."
         )
 
     # Add GitHub API key input field to the sidebar
-    github_api_key = st.sidebar.text_input(
+    github_api_key = st.text_input(
         "Enter your GitHub API key (optional):",
         value=st.session_state.get('github_api_key', ''),
         type="password",
@@ -554,12 +835,44 @@ with st.sidebar:
     if github_api_key:
         st.session_state['github_api_key'] = github_api_key
 
-    st.markdown("""---""")
+    # Add Advanced Settings section with token limit configuration
+    with st.expander("Advanced Settings"):
+    
+        # Get the current model provider and selected model
+        current_provider = st.session_state.get('model_provider', 'OpenAI API')
+        current_model = st.session_state.get('selected_model', '')
+        
+        # Create the key for lookup
+        model_key = f"{current_provider}:{current_model}"
+        
+        # Get the max token limit for the current model
+        max_token_limit = 128000  # Default max
+        if model_key in model_token_limits:
+            max_token_limit = model_token_limits[model_key]["max"]
+        else:
+            # Try provider default
+            provider_key = f"{current_provider}:default"
+            if provider_key in model_token_limits:
+                max_token_limit = model_token_limits[provider_key]["max"]
+        
+        # Add token limit slider with fixed minimum and dynamic maximum
+        token_limit = st.slider(
+            "Maximum token limit for GitHub analysis:",
+            min_value=4000,  # Fixed minimum as requested
+            max_value=max_token_limit,
+            value=st.session_state.get('token_limit', 64000), # Set default to match first model in OpenAI model list
+            step=1000,
+            help="Set the maximum number of tokens to use for GitHub repository analysis. This helps prevent exceeding your model's context window."
+        )
+        
+        # Store the token limit in session state
+        st.session_state['token_limit'] = token_limit
 
-# Add "About" section to the sidebar
-st.sidebar.header("About")
+    st.markdown("---")
 
-with st.sidebar:
+    # Add "About" section to the sidebar
+    st.header("About")
+    
     st.markdown(
         "Welcome to STRIDE GPT, an AI-powered tool designed to help teams produce better threat models for their applications."
     )
@@ -568,7 +881,7 @@ with st.sidebar:
     )
     st.markdown("Created by [Matt Adams](https://www.linkedin.com/in/matthewrwadams/).")
     # Add "Star on GitHub" link to the sidebar
-    st.sidebar.markdown(
+    st.markdown(
         "⭐ Star on GitHub: [![Star on GitHub](https://img.shields.io/github/stars/mrwadams/stride-gpt?style=social)](https://github.com/mrwadams/stride-gpt)"
     )
     st.markdown("""---""")
