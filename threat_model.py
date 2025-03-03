@@ -469,7 +469,7 @@ def get_threat_model_bedrock(aws_access_key, aws_secret_key, aws_region, model_i
                         "topP": 0.9
                     }
                 }
-            if "lite" in model_id.lower():
+            elif "lite" in model_id.lower():
                 request_body = {
                     "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
                     "textGenerationConfig": {
@@ -478,7 +478,7 @@ def get_threat_model_bedrock(aws_access_key, aws_secret_key, aws_region, model_i
                         "topP": 0.9
                     }
                 }
-            if "express" in model_id.lower():
+            elif "express" in model_id.lower():
                 request_body = {
                     "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
                     "textGenerationConfig": {
@@ -556,6 +556,20 @@ def get_threat_model_bedrock(aws_access_key, aws_secret_key, aws_region, model_i
         
     except (ImportError, ClientError, BotoCoreError, json.JSONDecodeError, ValueError) as e:
         st.error(f"Error getting threat model from Amazon Bedrock: {str(e)}")
+
+        # Create a detailed error message with debugging information
+        if isinstance(e, json.JSONDecodeError):
+            # For JSON decode errors, show position and context
+            st.error(f"JSON parsing error at position {e.pos}: {e.msg}")
+            if hasattr(e, 'doc') and e.doc:
+                # Show the problematic part of the JSON
+                start = max(0, e.pos - 20)
+                end = min(len(e.doc), e.pos + 20)
+                context = e.doc[start:end]
+                marker_position = e.pos - start if e.pos > start else e.pos
+
+                st.code(f"{context}\n{' ' * marker_position}^ Error around here")
+
         # Return a minimal valid response structure to avoid breaking the UI
         return {
             "threat_model": [],
