@@ -525,7 +525,7 @@ st.set_page_config(
 
 # Define callback for model provider change
 def on_model_provider_change():
-    """Update token limit when model provider changes"""
+    """Update token limit and selected model when model provider changes"""
     # Get the new model provider
     new_provider = st.session_state.model_provider
     
@@ -536,6 +536,28 @@ def on_model_provider_change():
     else:
         # Fallback to a conservative default
         st.session_state.token_limit = 8000
+    
+    # Reset the current_model_key to force token limit update in Advanced Settings
+    if 'current_model_key' in st.session_state:
+        del st.session_state.current_model_key
+    
+    # Update the selected model based on the new provider
+    # This ensures that when provider changes, we reset the model selection
+    # which will trigger the on_model_selection_change callback
+    if new_provider == "OpenAI API":
+        st.session_state.selected_model = "gpt-4o"
+    elif new_provider == "Anthropic API":
+        st.session_state.selected_model = "claude-3-7-sonnet-latest"
+    elif new_provider == "Azure OpenAI Service":
+        # Use whatever the first Azure model is in your UI
+        pass  # Will use the default selected in the UI
+    elif new_provider == "Google AI API":
+        st.session_state.selected_model = "gemini-2.0-flash"
+    elif new_provider == "Mistral API":
+        st.session_state.selected_model = "mistral-large-latest"
+    elif new_provider == "Groq API":
+        st.session_state.selected_model = "llama-3.3-70b-versatile"
+    # For Ollama and LM Studio, we don't set a default as they depend on locally available models
 
 # Define callback for model selection change
 def on_model_selection_change():
@@ -558,6 +580,10 @@ def on_model_selection_change():
         provider_key = f"{model_provider}:default"
         if provider_key in model_token_limits:
             st.session_state.token_limit = model_token_limits[provider_key]["default"]
+    
+    # Reset the current_model_key to force token limit update in Advanced Settings
+    if 'current_model_key' in st.session_state:
+        del st.session_state.current_model_key
 
 # ------------------ Sidebar ------------------ #
 
@@ -847,20 +873,32 @@ with st.sidebar:
         
         # Get the max token limit for the current model
         max_token_limit = 128000  # Default max
+        default_token_limit = 64000  # Default value
+        
         if model_key in model_token_limits:
             max_token_limit = model_token_limits[model_key]["max"]
+            default_token_limit = model_token_limits[model_key]["default"]
         else:
             # Try provider default
             provider_key = f"{current_provider}:default"
             if provider_key in model_token_limits:
                 max_token_limit = model_token_limits[provider_key]["max"]
+                default_token_limit = model_token_limits[provider_key]["default"]
+        
+        # Store the current model and provider to detect changes
+        current_model_key = st.session_state.get('current_model_key', '')
+        
+        # If token_limit is not set or the model/provider has changed, update the token limit
+        if 'token_limit' not in st.session_state or current_model_key != model_key:
+            st.session_state.token_limit = default_token_limit
+            st.session_state.current_model_key = model_key
         
         # Add token limit slider with fixed minimum and dynamic maximum
         token_limit = st.slider(
             "Maximum token limit for GitHub analysis:",
             min_value=4000,  # Fixed minimum as requested
             max_value=max_token_limit,
-            value=st.session_state.get('token_limit', 64000), # Set default to match first model in OpenAI model list
+            value=st.session_state.token_limit,  # Use the current value from session state
             step=1000,
             help="Set the maximum number of tokens to use for GitHub repository analysis. This helps prevent exceeding your model's context window."
         )
