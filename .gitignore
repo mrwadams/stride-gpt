@@ -1,6 +1,7 @@
 __pycache__/
 .env
 .streamlit/secrets.toml
+.vscode
 api_key.txt
 test_functions.py
 venv/
