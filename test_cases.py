@@ -1,4 +1,9 @@
 import requests
+import json
+import unittest
+from unittest.mock import patch, MagicMock
+import boto3
+from botocore.exceptions import ClientError, BotoCoreError
 from anthropic import Anthropic
 from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
@@ -7,6 +12,9 @@ import streamlit as st
 import google.generativeai as genai
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
+
+# Import the module with Bedrock implementation
+from threat_model import get_threat_model_bedrock
 
 # Function to create a prompt to generate mitigating controls
 def create_test_cases_prompt(threats):
@@ -262,3 +270,269 @@ def get_test_cases_groq(groq_api_key, groq_model, prompt):
             st.write(reasoning)
 
     return test_cases
+
+# Function to get test cases from OpenAI Compatible API
+def get_test_cases_openai_compatible(base_url, api_key, model_name, prompt):
+    """
+    Get test cases from an OpenAI-compatible API.
+    
+    Args:
+        base_url (str): The base URL for the OpenAI-compatible API
+        api_key (str): The API key for the OpenAI-compatible service
+        model_name (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        str: The generated test cases in markdown format
+    """
+    try:
+        client = OpenAI(
+            base_url=base_url,
+            api_key=api_key
+        )
+
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that provides Gherkin test cases in Markdown format."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
+
+        # Access the content directly as the response will be in text format
+        test_cases = response.choices[0].message.content
+
+        return test_cases
+    except Exception as e:
+        st.error(f"Error generating test cases from OpenAI Compatible API: {str(e)}")
+        return f"""
+## Error Generating Test Cases
+
+An error occurred while generating test cases:
+
+```
+{str(e)}
+```
+
+Please check your API key, base URL, and model name, then try again.
+"""
+
+class TestBedrockIntegration(unittest.TestCase):
+    """Test suite for Amazon Bedrock integration."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        # Common test data
+        self.aws_access_key = "test_access_key"
+        self.aws_secret_key = "test_secret_key"
+        self.aws_region = "us-east-1"
+        self.prompt = "Test prompt for threat model generation"
+        
+        # Mock streamlit session state
+        if not hasattr(st, "session_state"):
+            st.session_state = {}
+
+    @patch('boto3.Session')
+    def test_bedrock_client_creation(self, mock_session):
+        """Test that the Bedrock client is created with the correct parameters."""
+        # Create mock objects
+        mock_bedrock_client = MagicMock()
+        mock_session_instance = MagicMock()
+        mock_session.return_value = mock_session_instance
+        mock_session_instance.client.return_value = mock_bedrock_client
+        
+        # Configure mock to return a valid response structure to avoid processing errors
+        mock_response = {
+            'body': MagicMock(),
+        }
+        mock_response['body'].read.return_value = json.dumps({'content': [{'text': '{}'}]}).encode('utf-8')
+        mock_bedrock_client.invoke_model.return_value = mock_response
+        
+        # Call the function (it will fail with an error, but we're just testing the client creation)
+        try:
+            get_threat_model_bedrock(
+                self.aws_access_key, 
+                self.aws_secret_key, 
+                self.aws_region, 
+                'anthropic.claude-3-sonnet-20240229-v1:0',
+                self.prompt
+            )
+        except Exception:
+            pass
+        
+        # Assert that session was created with correct parameters
+        mock_session.assert_called_once_with(
+            aws_access_key_id=self.aws_access_key,
+            aws_secret_access_key=self.aws_secret_key,
+            aws_session_token=None,
+            region_name=self.aws_region
+        )
+        
+        # Assert that client was created with correct service name
+        mock_session_instance.client.assert_called_once_with('bedrock-runtime')
+
+    @patch('boto3.Session')
+    def test_anthropic_request_format(self, mock_session):
+        """Test that requests for Anthropic models are formatted correctly."""
+        # Create mock objects
+        mock_bedrock_client = MagicMock()
+        mock_session_instance = MagicMock()
+        mock_session.return_value = mock_session_instance
+        mock_session_instance.client.return_value = mock_bedrock_client
+        
+        # Configure mock to return a valid response
+        mock_response = {
+            'body': MagicMock(),
+        }
+        mock_response['body'].read.return_value = json.dumps({'content': [{'text': '{}'}]}).encode('utf-8')
+        mock_bedrock_client.invoke_model.return_value = mock_response
+        
+        # Call the function with an Anthropic model
+        model_id = 'anthropic.claude-3-sonnet-20240229-v1:0'
+        get_threat_model_bedrock(
+            self.aws_access_key, 
+            self.aws_secret_key, 
+            self.aws_region, 
+            model_id,
+            self.prompt
+        )
+        
+        # Assert that invoke_model was called with the correct parameters
+        args, kwargs = mock_bedrock_client.invoke_model.call_args
+        
+        # Check model ID
+        self.assertEqual(kwargs['modelId'], model_id)
+        
+        # Check request body format for Anthropic
+        request_body = json.loads(kwargs['body'])
+        self.assertEqual(request_body['anthropic_version'], 'bedrock-2023-05-31')
+        self.assertEqual(request_body['max_tokens'], 4096)
+        self.assertEqual(request_body['system'], 'You are a helpful assistant designed to output JSON.')
+        self.assertEqual(request_body['messages'][0]['role'], 'user')
+        self.assertEqual(request_body['messages'][0]['content'], self.prompt)
+        # response_format is not present in the current Bedrock implementation
+
+    @patch('boto3.Session')
+    def test_amazon_request_format(self, mock_session):
+        """Test that requests for Amazon Titan models are formatted correctly."""
+        # Create mock objects
+        mock_bedrock_client = MagicMock()
+        mock_session_instance = MagicMock()
+        mock_session.return_value = mock_session_instance
+        mock_session_instance.client.return_value = mock_bedrock_client
+        
+        # Configure mock to return a valid response
+        mock_response = {
+            'body': MagicMock(),
+        }
+        mock_response['body'].read.return_value = json.dumps({'results': [{'outputText': '{}'}]}).encode('utf-8')
+        mock_bedrock_client.invoke_model.return_value = mock_response
+        
+        # Call the function with an Amazon Titan model
+        model_id = 'amazon.titan-text-express-v1'
+        get_threat_model_bedrock(
+            self.aws_access_key, 
+            self.aws_secret_key, 
+            self.aws_region, 
+            model_id,
+            self.prompt
+        )
+        
+        # Assert that invoke_model was called with the correct parameters
+        args, kwargs = mock_bedrock_client.invoke_model.call_args
+        
+        # Check model ID
+        self.assertEqual(kwargs['modelId'], model_id)
+        
+        # Check request body format for Amazon Titan
+        request_body = json.loads(kwargs['body'])
+        self.assertEqual(request_body['inputText'], f'You are a helpful assistant designed to output JSON.\n\n{self.prompt}')
+        
+        # Check max token count based on model type
+        self.assertEqual(request_body['textGenerationConfig']['maxTokenCount'], 8192)
+
+    @patch('boto3.Session')
+    def test_error_handling(self, mock_session):
+        """Test that errors are handled properly."""
+        # Create mock objects
+        mock_bedrock_client = MagicMock()
+        mock_session_instance = MagicMock()
+        mock_session.return_value = mock_session_instance
+        mock_session_instance.client.return_value = mock_bedrock_client
+        
+        # Configure mock to raise an error
+        error_response = {
+            'Error': {
+                'Code': 'AccessDeniedException',
+                'Message': 'Access denied'
+            }
+        }
+        mock_bedrock_client.invoke_model.side_effect = ClientError(error_response, 'InvokeModel')
+        
+        # Patch st.error to catch the error message
+        with patch('streamlit.error') as mock_st_error:
+            # Call the function
+            result = get_threat_model_bedrock(
+                self.aws_access_key, 
+                self.aws_secret_key, 
+                self.aws_region, 
+                'anthropic.claude-3-sonnet-20240229-v1:0',
+                self.prompt
+            )
+            
+            # Assert that st.error was called with the error message
+            mock_st_error.assert_called_once()
+            
+            # Assert that the function returns a valid fallback structure
+            self.assertIn('threat_model', result)
+            self.assertIn('improvement_suggestions', result)
+            self.assertEqual(len(result['threat_model']), 0)
+            self.assertEqual(len(result['improvement_suggestions']), 2)
+
+    @patch('boto3.Session')
+    def test_json_response_parsing(self, mock_session):
+        """Test that JSON responses are parsed correctly."""
+        # Create mock objects
+        mock_bedrock_client = MagicMock()
+        mock_session_instance = MagicMock()
+        mock_session.return_value = mock_session_instance
+        mock_session_instance.client.return_value = mock_bedrock_client
+        
+        # Example threat model response
+        threat_model_response = {
+            'threat_model': [
+                {
+                    'Threat Type': 'Spoofing',
+                    'Scenario': 'Test scenario',
+                    'Potential Impact': 'Test impact'
+                }
+            ],
+            'improvement_suggestions': [
+                'Test suggestion'
+            ]
+        }
+        
+        # Configure mock to return a valid response for Claude
+        mock_response = {
+            'body': MagicMock(),
+        }
+        mock_response['body'].read.return_value = json.dumps({
+            'content': [{'text': json.dumps(threat_model_response)}]
+        }).encode('utf-8')
+        mock_bedrock_client.invoke_model.return_value = mock_response
+        
+        # Call the function with a Claude model
+        result = get_threat_model_bedrock(
+            self.aws_access_key, 
+            self.aws_secret_key, 
+            self.aws_region, 
+            'anthropic.claude-3-sonnet-20240229-v1:0',
+            self.prompt
+        )
+        
+        # Assert that the function returns the expected result
+        self.assertEqual(result, threat_model_response)
+        self.assertEqual(len(result['threat_model']), 1)
+        self.assertEqual(result['threat_model'][0]['Threat Type'], 'Spoofing')
+        self.assertEqual(len(result['improvement_suggestions']), 1)

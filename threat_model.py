@@ -408,3 +408,236 @@ def get_threat_model_groq(groq_api_key, groq_model, prompt):
             st.write(reasoning)
 
     return response_content
+
+# Function to get threat model from OpenAI Compatible API
+def get_threat_model_openai_compatible(base_url, api_key, model_name, prompt):
+    """
+    Get threat model from an OpenAI-compatible API.
+    
+    Args:
+        base_url (str): The base URL for the OpenAI-compatible API
+        api_key (str): The API key for the OpenAI-compatible service
+        model_name (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        dict: The parsed JSON response from the model
+    """
+    try:
+        client = OpenAI(
+            base_url=base_url,
+            api_key=api_key
+        )
+
+        response = client.chat.completions.create(
+            model=model_name,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
+
+        # Convert the JSON string in the 'content' field to a Python dictionary
+        response_content = json.loads(response.choices[0].message.content)
+
+        # In testing the 'threat model' and 'improvement suggestions' keys seem
+        # to get a random parent key. Look through the keys of response_content
+        # and extract the dict that has 'threat model' and
+        # 'improvement suggestions'.
+        flag = False
+        for key in response_content:
+            if ("threat_model" in response_content[key]
+                    or "improvement_suggestions" in response_content):
+                flag = True
+                response_content = response_content[key]
+
+        if not flag:
+            st.warning(f"Couldn't find 'threat model' or 'improvement suggestions' keys in the response from {model_name}.")
+            print(f"Couldn't find 'threat model' or 'improvement suggestions' keys in the response from {model_name}.")
+            print(f"\n\n{response_content}")
+
+        return response_content
+    except Exception as e:
+        st.error(f"Error getting threat model from OpenAI Compatible API: {str(e)}")
+        
+        # Return a minimal valid response structure to avoid breaking the UI
+        return {
+            "threat_model": [],
+            "improvement_suggestions": [
+                f"Error processing model response: {str(e)}",
+                "Please check your API key, base URL, and model name, then try again."
+            ]
+        }
+
+# Function to get threat model from Amazon Bedrock
+def get_threat_model_bedrock(aws_access_key, aws_secret_key, aws_region, model_id, prompt, aws_session_token=None):
+    """
+    Get threat model from Amazon Bedrock model.
+    
+    Args:
+        aws_access_key (str): AWS Access Key ID
+        aws_secret_key (str): AWS Secret Access Key
+        aws_region (str): AWS Region (e.g., 'us-east-1')
+        model_id (str): Amazon Bedrock model ID (e.g., 'anthropic.claude-3-sonnet-20240229-v1:0')
+        prompt (str): The prompt to send to the model
+        aws_session_token (str, optional): AWS Session Token for temporary credentials
+        
+    Returns:
+        dict: The parsed JSON response from the model
+    """
+    try:
+        import boto3
+        from botocore.exceptions import ClientError, BotoCoreError
+        
+        # Set up boto3 session with provided credentials
+        session = boto3.Session(
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            aws_session_token=aws_session_token,
+            region_name=aws_region
+        )
+        
+        # Create Bedrock Runtime client
+        bedrock_runtime = session.client('bedrock-runtime')
+        
+        # Determine the model provider from the model_id to use the appropriate request format
+        if model_id.startswith('anthropic.'):
+            # Claude models (Anthropic)
+            request_body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 4096,
+                "system": "You are a helpful assistant designed to output JSON.",
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+            }
+        elif model_id.startswith('meta.'):
+            # Llama models (Meta)
+            request_body = {
+                "prompt": f"<system>You are a helpful assistant designed to output JSON.</system>\n<user>{prompt}</user>\n<assistant>",
+                "max_gen_len": 4096,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        elif model_id.startswith('amazon.'):
+            # Titan models (Amazon)
+            if "premier" in model_id.lower():
+                request_body = {
+                    "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                    "textGenerationConfig": {
+                        "maxTokenCount": 3072,
+                        "temperature": 0.7,
+                        "topP": 0.9
+                    }
+                }
+            elif "lite" in model_id.lower():
+                request_body = {
+                    "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                    "textGenerationConfig": {
+                        "maxTokenCount": 4096,
+                        "temperature": 0.7,
+                        "topP": 0.9
+                    }
+                }
+            elif "express" in model_id.lower():
+                request_body = {
+                    "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                    "textGenerationConfig": {
+                        "maxTokenCount": 8192,
+                        "temperature": 0.7,
+                        "topP": 0.9
+                    }
+                }
+            else:
+                request_body = {
+                    "inputText": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                    "textGenerationConfig": {
+                        "maxTokenCount": 512,
+                        "temperature": 0.7,
+                        "topP": 0.9,
+                    }
+                }
+        elif model_id.startswith('mistral.'):
+            # Mistral models
+            request_body = {
+                "prompt": f"<s>[INST]You are a helpful assistant designed to output JSON.\n\n{prompt}[/INST]",
+                "max_tokens": 4096,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        else:
+            # Generic format for other models
+            request_body = {
+                "prompt": f"You are a helpful assistant designed to output JSON.\n\n{prompt}",
+                "max_tokens": 4096,
+                "temperature": 0.7,
+                "top_p": 0.9
+            }
+        
+        # Invoke the model
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body)
+        )
+        
+        # Parse the response body
+        response_body = json.loads(response['body'].read().decode('utf-8'))
+        
+        # Extract the content based on model provider
+        if model_id.startswith('anthropic.'):
+            # Claude models
+            content = response_body.get('content', [{}])[0].get('text', '{}')
+        elif model_id.startswith('meta.'):
+            # Llama models
+            content = response_body.get('generation', '{}')
+        elif model_id.startswith('amazon.'):
+            # Titan models
+            content = response_body.get('results', [{}])[0].get('outputText', '{}')
+        elif model_id.startswith('mistral.'):
+            # Mistral models
+            content = response_body.get('outputs', [{}])[0].get('text', '{}')
+        else:
+            # Generic fallback
+            content = response_body.get('output', '{}')
+        
+        # Try to extract JSON from the content - handle potential text before/after JSON
+        try:
+            # Try direct JSON parsing first
+            response_content = json.loads(content)
+        except json.JSONDecodeError:
+            # If that fails, try to extract JSON using regex
+            import re
+            json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if json_match:
+                response_content = json.loads(json_match.group(1))
+            else:
+                raise ValueError("Could not extract valid JSON from model response")
+        
+        return response_content
+        
+    except (ImportError, ClientError, BotoCoreError, json.JSONDecodeError, ValueError) as e:
+        st.error(f"Error getting threat model from Amazon Bedrock: {str(e)}")
+
+        # Create a detailed error message with debugging information
+        if isinstance(e, json.JSONDecodeError):
+            # For JSON decode errors, show position and context
+            st.error(f"JSON parsing error at position {e.pos}: {e.msg}")
+            if hasattr(e, 'doc') and e.doc:
+                # Show the problematic part of the JSON
+                start = max(0, e.pos - 20)
+                end = min(len(e.doc), e.pos + 20)
+                context = e.doc[start:end]
+                marker_position = e.pos - start if e.pos > start else e.pos
+
+                st.code(f"{context}\n{' ' * marker_position}^ Error around here")
+
+        # Return a minimal valid response structure to avoid breaking the UI
+        return {
+            "threat_model": [],
+            "improvement_suggestions": [
+                f"Error processing model response: {str(e)}",
+                "Please check your AWS credentials and try again."
+            ]
+        }

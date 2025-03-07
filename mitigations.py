@@ -241,3 +241,50 @@ def get_mitigations_groq(groq_api_key, groq_model, prompt):
             st.write(reasoning)
 
     return mitigations
+
+# Function to get mitigations from OpenAI Compatible API
+def get_mitigations_openai_compatible(base_url, api_key, model_name, prompt):
+    """
+    Get mitigations from an OpenAI-compatible API.
+    
+    Args:
+        base_url (str): The base URL for the OpenAI-compatible API
+        api_key (str): The API key for the OpenAI-compatible service
+        model_name (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        str: The generated mitigations in markdown format
+    """
+    try:
+        client = OpenAI(
+            base_url=base_url,
+            api_key=api_key
+        )
+
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
+
+        # Access the content directly as the response will be in text format
+        mitigations = response.choices[0].message.content
+
+        return mitigations
+    except Exception as e:
+        st.error(f"Error generating mitigations from OpenAI Compatible API: {str(e)}")
+        return f"""
+## Error Generating Mitigations
+
+An error occurred while generating mitigations:
+
+```
+{str(e)}
+```
+
+Please check your API key, base URL, and model name, then try again.
+"""

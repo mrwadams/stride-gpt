@@ -392,6 +392,56 @@ def get_attack_tree_groq(groq_api_key, groq_model, prompt):
         # Fallback: try to extract Mermaid code if JSON parsing fails
         return extract_mermaid_code(content)
 
+# Function to get attack tree from OpenAI Compatible API
+def get_attack_tree_openai_compatible(base_url, api_key, model_name, prompt):
+    """
+    Get attack tree from an OpenAI-compatible API.
+    
+    Args:
+        base_url (str): The base URL for the OpenAI-compatible API
+        api_key (str): The API key for the OpenAI-compatible service
+        model_name (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        str: The generated attack tree code in Mermaid syntax
+    """
+    try:
+        client = OpenAI(
+            base_url=base_url,
+            api_key=api_key
+        )
+
+        # Try to get JSON output
+        system_prompt = create_json_structure_prompt()
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
+
+        # Try to parse JSON response
+        try:
+            cleaned_response = clean_json_response(response.choices[0].message.content)
+            tree_data = json.loads(cleaned_response)
+            return convert_tree_to_mermaid(tree_data)
+        except json.JSONDecodeError:
+            # Fallback: try to extract Mermaid code if JSON parsing fails
+            return extract_mermaid_code(response.choices[0].message.content)
+    except Exception as e:
+        st.error(f"Error generating attack tree from OpenAI Compatible API: {str(e)}")
+        return f"""
+graph TD
+    root[Error: Could not generate attack tree]
+    error["{str(e)}"]
+    root --> error
+    fix[Please check your API key, base URL, and model name]
+    root --> fix
+"""
+
 def create_attack_tree_schema():
     """
     Creates a JSON schema for attack tree structure.

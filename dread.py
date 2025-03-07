@@ -408,3 +408,46 @@ def get_dread_assessment_groq(groq_api_key, groq_model, prompt):
             st.write(reasoning)
 
     return dread_assessment
+
+# Function to get DREAD risk assessment from OpenAI Compatible API
+def get_dread_assessment_openai_compatible(base_url, api_key, model_name, prompt):
+    """
+    Get DREAD risk assessment from an OpenAI-compatible API.
+    
+    Args:
+        base_url (str): The base URL for the OpenAI-compatible API
+        api_key (str): The API key for the OpenAI-compatible service
+        model_name (str): The name of the model to use
+        prompt (str): The prompt to send to the model
+        
+    Returns:
+        dict: The parsed JSON response from the model with the DREAD assessment
+    """
+    try:
+        client = OpenAI(
+            base_url=base_url,
+            api_key=api_key
+        )
+
+        response = client.chat.completions.create(
+            model=model_name,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=4000
+        )
+
+        # Convert the JSON string in the 'content' field to a Python dictionary
+        dread_assessment = json.loads(response.choices[0].message.content)
+
+        return dread_assessment
+    except Exception as e:
+        st.error(f"Error generating DREAD assessment from OpenAI Compatible API: {str(e)}")
+        
+        # Return a minimal valid response structure to avoid breaking the UI
+        return {
+            "Risk Assessment": [],
+            "Error": f"Error generating DREAD assessment: {str(e)}. Please check your API key, base URL, and model name, then try again."
+        }
