@@ -5,6 +5,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from github import Github
 from collections import defaultdict
+from urllib.parse import urlparse
 import re
 import os
 from dotenv import load_dotenv
@@ -159,12 +160,19 @@ def estimate_tokens(text, model="gpt-4o"):
 
 def analyze_github_repo(repo_url):
     # Extract owner and repo name from URL
-    parts = repo_url.split('/')
+    parsed_url = urlparse(repo_url)
+    parts = parsed_url.path.split('/')
     owner = parts[-2]
     repo_name = parts[-1]
 
     # Initialize PyGithub
-    g = Github(st.session_state.get('github_api_key', ''))
+    g = Github(
+        st.session_state.get('github_api_key', ''),
+        base_url='{scheme}://{hostname}/api/v3'.format(
+            scheme=parsed_url.scheme,
+            hostname=parsed_url.hostname,
+        )
+    )
 
     # Get the repository
     repo = g.get_repo(f"{owner}/{repo_name}")
