@@ -111,7 +111,7 @@ def get_mitigations_google(google_api_key, google_model, prompt):
                 thinking_config=types.ThinkingConfig(thinking_budget=16000),
                 safety_settings=[
                     types.SafetySetting(
-                        category=types.HarmCategory.DANGEROUS,
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                         threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
                     )
                 ]
@@ -121,7 +121,7 @@ def get_mitigations_google(google_api_key, google_model, prompt):
             generation_params["config"] = types.GenerateContentConfig(
                 safety_settings=[
                     types.SafetySetting(
-                        category=types.HarmCategory.DANGEROUS,
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                         threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
                     )
                 ]

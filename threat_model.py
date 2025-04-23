@@ -243,14 +243,11 @@ def get_threat_model_google(google_api_key, google_model, prompt):
         # Add thinking configuration if using thinking mode
         if is_thinking_mode:
             from google.genai import types
-            generation_params["generation_config"] = types.GenerationConfig(
-                response_mime_type="application/json"
-            )
             generation_params["config"] = types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(thinking_budget=16000),
                 safety_settings=[
                     types.SafetySetting(
-                        category=types.HarmCategory.DANGEROUS,
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                         threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
                     )
                 ]
@@ -260,7 +257,7 @@ def get_threat_model_google(google_api_key, google_model, prompt):
             generation_params["config"] = types.GenerateContentConfig(
                 safety_settings=[
                     types.SafetySetting(
-                        category=types.HarmCategory.DANGEROUS,
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                         threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
                     )
                 ]

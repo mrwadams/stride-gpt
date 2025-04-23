@@ -611,19 +611,19 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
                 thinking_config=types.ThinkingConfig(thinking_budget=16000),
                 safety_settings=[
                     types.SafetySetting(
-                        category=types.HarmCategory.HARASSMENT,
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     ),
                     types.SafetySetting(
-                        category=types.HarmCategory.HATE_SPEECH,
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     ),
                     types.SafetySetting(
-                        category=types.HarmCategory.SEXUALLY_EXPLICIT,
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     ),
                     types.SafetySetting(
-                        category=types.HarmCategory.DANGEROUS,
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     )
                 ]
@@ -633,19 +633,19 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
             message_params["config"] = types.GenerateContentConfig(
                 safety_settings=[
                     types.SafetySetting(
-                        category=types.HarmCategory.HARASSMENT,
+                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     ),
                     types.SafetySetting(
-                        category=types.HarmCategory.HATE_SPEECH,
+                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     ),
                     types.SafetySetting(
-                        category=types.HarmCategory.SEXUALLY_EXPLICIT,
+                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     ),
                     types.SafetySetting(
-                        category=types.HarmCategory.DANGEROUS,
+                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
                         threshold=types.HarmBlockThreshold.BLOCK_NONE
                     )
                 ]
