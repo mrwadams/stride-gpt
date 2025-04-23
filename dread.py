@@ -108,7 +108,21 @@ Ensure the JSON response is correctly formatted and does not contain any additio
 """
     return prompt
 
-# Function to get DREAD risk assessment from the GPT response.
+def clean_json_response(response_text):
+    import re
+    # Remove markdown JSON code block if present
+    json_pattern = r'```json\s*(.*?)\s*```'
+    match = re.search(json_pattern, response_text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    # If no JSON code block, try to find content between any code blocks
+    code_pattern = r'```\s*(.*?)\s*```'
+    match = re.search(code_pattern, response_text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    # If no code blocks, return the original text
+    return response_text.strip()
+
 def get_dread_assessment(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
@@ -159,7 +173,6 @@ def get_dread_assessment(api_key, model_name, prompt):
     
     return dread_assessment
 
-# Function to get DREAD risk assessment from the Azure OpenAI response.
 def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(
         azure_endpoint = azure_api_endpoint,
@@ -187,41 +200,45 @@ def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_vers
 
 # Function to get DREAD risk assessment from the Google model's response.
 def get_dread_assessment_google(google_api_key, google_model, prompt):
-    # Create a client with the Google API key
+    """
+    Generate a DREAD risk assessment using the Gemini API (Google AI) as per official documentation:
+    https://ai.google.dev/gemini-api/docs/text-generation
+    """
     client = google_genai.Client(api_key=google_api_key)
-    
-    # Set up safety settings to allow security content
-    safety_settings = [
-        google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_HATE_SPEECH',
-            threshold='BLOCK_ONLY_HIGH'
-        ),
-        google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_DANGEROUS_CONTENT',
-            threshold='BLOCK_ONLY_HIGH'
-        ),
-    ]
-    
-    # Create a chat with system instructions
-    chat = client.chats.create(model=google_model)
-    
-    # Send a first message to set context
-    system_message = "You are a helpful assistant designed to output JSON. Only provide the DREAD risk assessment in JSON format with no additional text. Do not wrap the output in a code block."
-    chat.send_message(message=system_message)
-    
-    # Send the actual prompt with safety settings
-    response = chat.send_message(
-        message=prompt,
-        config=google_genai.types.ChatConfig(
-            safety_settings=safety_settings
-        )
+    system_instruction = (
+        "You are a helpful assistant designed to output JSON. "
+        "Only provide the DREAD risk assessment in JSON format with no additional text. "
+        "Do not wrap the output in a code block."
     )
-    
+
     try:
-        # Parse the response text as JSON
-        dread_assessment = json.loads(response.text)
+        try:
+            from google.genai import types as google_types
+            response = client.models.generate_content(
+                model=google_model,
+                contents=[prompt],
+                config=google_types.GenerateContentConfig(system_instruction=system_instruction)
+            )
+        except Exception:
+            # Fallback: just prepend system instruction to prompt
+            response = client.models.generate_content(
+                model=google_model,
+                contents=[f"{system_instruction}\n\n{prompt}"]
+            )
+    except Exception as e:
+        st.error(f"Error generating DREAD assessment with Google AI: {str(e)}")
+        return {"Risk Assessment": []}
+
+    print("DEBUG: Gemini raw response:", response.text)
+    cleaned = clean_json_response(response.text)
+    print("DEBUG: Cleaned Gemini response:", cleaned)
+
+    try:
+        dread_assessment = json.loads(cleaned)
+        print("DEBUG: Parsed DREAD assessment:", dread_assessment)
         return dread_assessment
     except json.JSONDecodeError:
+        print("DEBUG: Failed to parse Gemini response as JSON.")
         return {}
 
 # Function to get DREAD risk assessment from the Mistral model's response.

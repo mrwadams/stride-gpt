@@ -92,24 +92,59 @@ def get_mitigations_google(google_api_key, google_model, prompt):
     # Set up safety settings to allow security content
     safety_settings = [
         google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_HATE_SPEECH',
-            threshold='BLOCK_ONLY_HIGH'
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
         ),
         google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_DANGEROUS_CONTENT',
-            threshold='BLOCK_ONLY_HIGH'
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
         ),
+        google_genai.types.SafetySetting(
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
+        ),
+        google_genai.types.SafetySetting(
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
+        )
     ]
     
-    # Generate content using the new SDK
-    response = client.models.generate_content(
-        model=google_model,
-        contents=prompt,
-        config=google_genai.types.GenerateContentConfig(
-            system_instruction="You are a helpful assistant that provides threat mitigation strategies in Markdown format.",
+    # Configure system instruction
+    system_instruction = "You are a helpful assistant that provides threat mitigation strategies in Markdown format."
+    
+    # Check if we're using a Gemini 2.5 model (which supports thinking capabilities)
+    is_gemini_2_5 = "gemini-2.5" in google_model.lower()
+    
+    try:
+        # Create config with safety settings and system instruction
+        config = google_genai.types.GenerateContentConfig(
+            system_instruction=system_instruction,
             safety_settings=safety_settings
         )
-    )
+        
+        # Note: For Gemini 2.5 models, thinking is enabled by default
+        # We won't set custom thinking_config to avoid validation errors
+        
+        # Generate content using the properly configured settings
+        response = client.models.generate_content(
+            model=google_model,
+            contents=prompt,
+            config=config
+        )
+        
+        # Store thinking content in session state if available
+        if hasattr(response, 'thinking') and response.thinking:
+            st.session_state['last_thinking_content'] = response.thinking
+            
+    except Exception as e:
+        st.error(f"Error generating mitigations with Google AI: {str(e)}")
+        return f"""
+## Error Generating Mitigations
+
+**API Error:** {str(e)}
+
+Please try again or select a different model provider.
+"""
     
     # Extract the text content from the response
     mitigations = response.text

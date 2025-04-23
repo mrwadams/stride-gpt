@@ -229,24 +229,50 @@ def get_threat_model_google(google_api_key, google_model, prompt):
     # Set up safety settings to allow security content
     safety_settings = [
         google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_HATE_SPEECH',
-            threshold='BLOCK_ONLY_HIGH'
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
         ),
         google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_DANGEROUS_CONTENT',
-            threshold='BLOCK_ONLY_HIGH'
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
         ),
+        google_genai.types.SafetySetting(
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
+        ),
+        google_genai.types.SafetySetting(
+            category=google_genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
+        )
     ]
     
-    # Generate content using the new SDK
-    response = client.models.generate_content(
-        model=google_model,
-        contents=prompt,
-        config=google_genai.types.GenerateContentConfig(
+    # Check if we're using a Gemini 2.5 model (which supports thinking capabilities)
+    is_gemini_2_5 = "gemini-2.5" in google_model.lower()
+    
+    try:
+        # Create config with safety settings and JSON response format
+        config = google_genai.types.GenerateContentConfig(
             response_mime_type='application/json',
             safety_settings=safety_settings
         )
-    )
+        
+        # Note: For Gemini 2.5 models, thinking is enabled by default
+        # We won't set custom thinking_config to avoid validation errors
+        
+        # Generate content using the configured settings
+        response = client.models.generate_content(
+            model=google_model,
+            contents=prompt,
+            config=config
+        )
+        
+        # Store thinking content in session state if available
+        if hasattr(response, 'thinking') and response.thinking:
+            st.session_state['last_thinking_content'] = response.thinking
+            
+    except Exception as e:
+        st.error(f"Error generating content with Google AI: {str(e)}")
+        return None
     
     try:
         # Parse the response text as JSON

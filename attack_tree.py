@@ -572,51 +572,38 @@ def create_attack_tree_schema_lm_studio():
 
 # Function to get attack tree from the Google model's response.
 def get_attack_tree_google(google_api_key, google_model, prompt):
-    # Create a client with the Google API key
+    """
+    Generate an attack tree using the Gemini API (Google AI) as per official documentation:
+    https://ai.google.dev/gemini-api/docs/text-generation
+    """
+    from google import genai as google_genai
+    import json
+    import streamlit as st
+
     client = google_genai.Client(api_key=google_api_key)
-    
-    # Set up safety settings to allow security content
-    safety_settings = [
-        google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_HATE_SPEECH',
-            threshold='BLOCK_NONE'
-        ),
-        google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_DANGEROUS_CONTENT',
-            threshold='BLOCK_NONE'
-        ),
-        google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_HARASSMENT',
-            threshold='BLOCK_NONE'
-        ),
-        google_genai.types.SafetySetting(
-            category='HARM_CATEGORY_SEXUALLY_EXPLICIT',
-            threshold='BLOCK_NONE'
-        )
-    ]
-    
-    # Create a chat
-    chat = client.chats.create(model=google_model)
-    
-    # Create the system message
-    system_message = create_json_structure_prompt()
-    
-    # First message to set system context
-    chat.send_message(message=system_message)
-    
-    # Send the actual prompt
-    response = chat.send_message(
-        message=prompt,
-        config=google_genai.types.ChatConfig(
-            safety_settings=safety_settings
-        )
-    )
-    
+    system_instruction = create_json_structure_prompt()
+
     try:
-        # Clean the response text and try to parse as JSON
+        try:
+            from google.genai import types as google_types
+            response = client.models.generate_content(
+                model=google_model,
+                contents=[prompt],
+                config=google_types.GenerateContentConfig(system_instruction=system_instruction)
+            )
+        except Exception:
+            # Fallback: just prepend system instruction to prompt
+            response = client.models.generate_content(
+                model=google_model,
+                contents=[f"{system_instruction}\n\n{prompt}"]
+            )
+    except Exception as e:
+        st.error(f"Error generating attack tree with Google AI: {str(e)}")
+        return "graph TD\n    A[Error Generating Attack Tree] --> B[API Error]\n    B --> C[\"Error: " + str(e).replace('"', "'") + "]"
+
+    try:
         cleaned_response = clean_json_response(response.text)
         tree_data = json.loads(cleaned_response)
         return convert_tree_to_mermaid(tree_data)
     except (json.JSONDecodeError, AttributeError):
-        # Fallback: try to extract Mermaid code if JSON parsing fails
-        return extract_mermaid_code(response.text)
+        return extract_mermaid_code(getattr(response, 'text', str(response)))
