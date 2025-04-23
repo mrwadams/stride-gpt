@@ -8,6 +8,7 @@ from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt, extract_mermaid_code
 import json
 import google.generativeai as genai
+from google.genai import types
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
@@ -614,14 +615,16 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
         response = chat.send_message(
             prompt, 
             safety_settings=safety_settings,
-            thinking=thinking_config
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=16000) if is_thinking_mode else None
+            )
         )
         
         # Store thinking content in session state if available
-        if is_thinking_mode and hasattr(response, 'thinking'):
-            thinking_content = response.thinking
-            if thinking_content:
-                st.session_state['last_thinking_content'] = thinking_content
+        if is_thinking_mode and hasattr(response, 'thinking') and response.thinking:
+            st.session_state['last_thinking_content'] = response.thinking
+        elif is_thinking_mode and hasattr(response, 'candidates') and hasattr(response.candidates[0], 'thinking') and response.candidates[0].thinking:
+            st.session_state['last_thinking_content'] = response.candidates[0].thinking
         
         try:
             # Clean the response text and try to parse as JSON

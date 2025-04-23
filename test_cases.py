@@ -5,6 +5,7 @@ from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
 import google.generativeai as genai
+from google.genai import types
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
 
@@ -135,14 +136,16 @@ def get_test_cases_google(google_api_key, google_model, prompt):
     try:
         response = model.generate_content(
             prompt,
-            thinking=thinking_config
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=16000) if is_thinking_mode else None
+            )
         )
         
         # Store thinking content in session state if available
-        if is_thinking_mode and hasattr(response, 'thinking'):
-            thinking_content = response.thinking
-            if thinking_content:
-                st.session_state['last_thinking_content'] = thinking_content
+        if is_thinking_mode and hasattr(response, 'thinking') and response.thinking:
+            st.session_state['last_thinking_content'] = response.thinking
+        elif is_thinking_mode and hasattr(response, 'candidates') and hasattr(response.candidates[0], 'thinking') and response.candidates[0].thinking:
+            st.session_state['last_thinking_content'] = response.candidates[0].thinking
         
         # Access the content directly as the response will be in text format
         test_cases = response.candidates[0].content.parts[0].text
