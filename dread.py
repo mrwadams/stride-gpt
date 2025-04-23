@@ -7,7 +7,7 @@ from mistralai import Mistral, UserMessage
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
-import google.generativeai as genai
+from google import genai
 from google.genai import types
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
@@ -188,7 +188,7 @@ def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_vers
 
 # Function to get DREAD risk assessment from the Google model's response.
 def get_dread_assessment_google(google_api_key, google_model, prompt):
-    genai.configure(api_key=google_api_key)
+    from google import genai
     
     # Check if we're using a model with thinking mode
     is_thinking_mode = "thinking" in google_model.lower()
@@ -196,43 +196,40 @@ def get_dread_assessment_google(google_api_key, google_model, prompt):
     # If using thinking mode, use the actual model name without the "thinking" suffix
     actual_model = google_model.replace("-thinking", "") if is_thinking_mode else google_model
     
-    # Configure the generation based on whether thinking mode is enabled
-    generation_config = {
-        "response_mime_type": "application/json"
-    }
-    
-    # Set up thinking configuration if using thinking mode
-    if is_thinking_mode:
-        thinking_config = {
-            "enabled": True,
-            "budget_tokens": 16000
-        }
-    else:
-        thinking_config = None
-        
-    model = genai.GenerativeModel(
-        actual_model,
-        generation_config=genai.types.GenerationConfig(**generation_config),
-        safety_settings={"DANGEROUS":"block_only_high"}
-    )
-    
     try:
+        client = genai.Client(api_key=google_api_key)
+        
         # Create the system message
         system_message = "You are a helpful assistant designed to output JSON. Only provide the DREAD risk assessment in JSON format with no additional text. Do not wrap the output in a code block."
         
-        # Start a chat session with the system message in the history
-        chat = model.start_chat(history=[
+        history = [
             {"role": "user", "parts": [system_message]},
             {"role": "model", "parts": ["Understood. I will provide DREAD risk assessments in JSON format only and will not wrap the output in a code block."]}
-        ])
+        ]
         
-        # Send the actual prompt with thinking configuration if enabled
-        response = chat.send_message(
-            prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=16000) if is_thinking_mode else None
+        chat_params = {
+            "model": actual_model,
+            "history": history,
+            "safety_settings": {"DANGEROUS": "BLOCK_ONLY_HIGH"}
+        }
+        
+        chat = client.start_chat(**chat_params)
+        
+        message_params = {
+            "contents": prompt
+        }
+        
+        # Add thinking configuration if using thinking mode
+        if is_thinking_mode:
+            from google.genai import types
+            message_params["generation_config"] = types.GenerationConfig(
+                response_mime_type="application/json"
             )
-        )
+            message_params["config"] = types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=16000)
+            )
+        
+        response = chat.send_message(**message_params)
         
         # Store thinking content in session state if available
         if is_thinking_mode and hasattr(response, 'thinking') and response.thinking:
@@ -242,7 +239,10 @@ def get_dread_assessment_google(google_api_key, google_model, prompt):
         
         try:
             # Access the JSON content from the response
-            dread_assessment = json.loads(response.text)
+            if hasattr(response, 'text'):
+                dread_assessment = json.loads(response.text)
+            else:
+                dread_assessment = json.loads(response.candidates[0].content.parts[0].text)
             return dread_assessment
         except json.JSONDecodeError:
             # Create a fallback response

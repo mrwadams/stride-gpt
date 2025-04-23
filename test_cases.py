@@ -4,7 +4,7 @@ from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
-import google.generativeai as genai
+from google import genai
 from google.genai import types
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
@@ -110,7 +110,7 @@ def get_test_cases_azure(azure_api_endpoint, azure_api_key, azure_api_version, a
 
 # Function to get test cases from the Google model's response.
 def get_test_cases_google(google_api_key, google_model, prompt):
-    genai.configure(api_key=google_api_key)
+    from google import genai
     
     # Check if we're using a model with thinking mode
     is_thinking_mode = "thinking" in google_model.lower()
@@ -118,28 +118,24 @@ def get_test_cases_google(google_api_key, google_model, prompt):
     # If using thinking mode, use the actual model name without the "thinking" suffix
     actual_model = google_model.replace("-thinking", "") if is_thinking_mode else google_model
     
-    # Set up thinking configuration if using thinking mode
-    if is_thinking_mode:
-        thinking_config = {
-            "enabled": True,
-            "budget_tokens": 16000
-        }
-    else:
-        thinking_config = None
-    
-    model = genai.GenerativeModel(
-        actual_model,
-        system_instruction="You are a helpful assistant that provides Gherkin test cases in Markdown format.",
-        safety_settings={"DANGEROUS":"block_only_high"}
-    )
-    
     try:
-        response = model.generate_content(
-            prompt,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=16000) if is_thinking_mode else None
+        client = genai.Client(api_key=google_api_key)
+        
+        generation_params = {
+            "model": actual_model,
+            "contents": prompt,
+            "system_instruction": "You are a helpful assistant that provides Gherkin test cases in Markdown format.",
+            "safety_settings": {"DANGEROUS": "BLOCK_ONLY_HIGH"}
+        }
+        
+        # Add thinking configuration if using thinking mode
+        if is_thinking_mode:
+            from google.genai import types
+            generation_params["config"] = types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=16000)
             )
-        )
+        
+        response = client.models.generate_content(**generation_params)
         
         # Store thinking content in session state if available
         if is_thinking_mode and hasattr(response, 'thinking') and response.thinking:
@@ -148,7 +144,10 @@ def get_test_cases_google(google_api_key, google_model, prompt):
             st.session_state['last_thinking_content'] = response.candidates[0].thinking
         
         # Access the content directly as the response will be in text format
-        test_cases = response.candidates[0].content.parts[0].text
+        if hasattr(response, 'text'):
+            test_cases = response.text
+        else:
+            test_cases = response.candidates[0].content.parts[0].text
         return test_cases
         
     except Exception as e:

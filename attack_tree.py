@@ -7,7 +7,7 @@ from openai import OpenAI, AzureOpenAI
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt, extract_mermaid_code
 import json
-import google.generativeai as genai
+from google import genai
 from google.genai import types
 
 # Function to create a prompt to generate an attack tree
@@ -573,7 +573,7 @@ def create_attack_tree_schema_lm_studio():
 
 # Function to get attack tree from the Google model's response.
 def get_attack_tree_google(google_api_key, google_model, prompt):
-    genai.configure(api_key=google_api_key)
+    from google import genai
     
     # Check if we're using a model with thinking mode
     is_thinking_mode = "thinking" in google_model.lower()
@@ -581,27 +581,16 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
     # If using thinking mode, use the actual model name without the "thinking" suffix
     actual_model = google_model.replace("-thinking", "") if is_thinking_mode else google_model
     
-    # Set up thinking configuration if using thinking mode
-    if is_thinking_mode:
-        thinking_config = {
-            "enabled": True,
-            "budget_tokens": 16000
-        }
-    else:
-        thinking_config = None
-    
-    # Create the model
-    model = genai.GenerativeModel(actual_model)
-    
     try:
+        client = genai.Client(api_key=google_api_key)
+        
         # Create the system message
         system_message = create_json_structure_prompt()
         
-        # Start a chat session with the system message in the history
-        chat = model.start_chat(history=[
+        history = [
             {"role": "user", "parts": [system_message]},
             {"role": "model", "parts": ["Understood. I will provide attack tree data in JSON format only."]}
-        ])
+        ]
         
         # Configure safety settings to allow generation of attack trees
         safety_settings = {
@@ -611,14 +600,26 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
             'DANGEROUS': 'BLOCK_NONE'
         }
         
-        # Send the actual prompt with safety settings and thinking configuration
-        response = chat.send_message(
-            prompt, 
-            safety_settings=safety_settings,
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=16000) if is_thinking_mode else None
+        chat_params = {
+            "model": actual_model,
+            "history": history,
+            "safety_settings": safety_settings
+        }
+        
+        chat = client.start_chat(**chat_params)
+        
+        message_params = {
+            "contents": prompt
+        }
+        
+        # Add thinking configuration if using thinking mode
+        if is_thinking_mode:
+            from google.genai import types
+            message_params["config"] = types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=16000)
             )
-        )
+        
+        response = chat.send_message(**message_params)
         
         # Store thinking content in session state if available
         if is_thinking_mode and hasattr(response, 'thinking') and response.thinking:
@@ -628,13 +629,19 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
         
         try:
             # Clean the response text and try to parse as JSON
-            cleaned_response = clean_json_response(response.text)
+            if hasattr(response, 'text'):
+                cleaned_response = clean_json_response(response.text)
+            else:
+                cleaned_response = clean_json_response(response.candidates[0].content.parts[0].text)
             tree_data = json.loads(cleaned_response)
             return convert_tree_to_mermaid(tree_data)
         except (json.JSONDecodeError, AttributeError):
             # Fallback: try to extract Mermaid code if JSON parsing fails
             try:
-                return extract_mermaid_code(response.text)
+                if hasattr(response, 'text'):
+                    return extract_mermaid_code(response.text)
+                else:
+                    return extract_mermaid_code(response.candidates[0].content.parts[0].text)
             except:
                 # Create a fallback response if all parsing fails
                 fallback_mermaid = """

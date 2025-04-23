@@ -1,5 +1,5 @@
 anthropic
-google.generativeai
+google-genai>=0.1.0
 mistralai>=1.0.0
 openai
 pyGithub
