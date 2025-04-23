@@ -211,34 +211,45 @@ def get_dread_assessment_google(google_api_key, google_model, prompt):
         "Do not wrap the output in a code block."
     )
 
+    is_gemini_2_5 = "gemini-2.5" in google_model.lower()
+
     try:
-        try:
-            from google.genai import types as google_types
-            response = client.models.generate_content(
-                model=google_model,
-                contents=[prompt],
-                config=google_types.GenerateContentConfig(system_instruction=system_instruction)
+        from google.genai import types as google_types
+        if is_gemini_2_5:
+            config = google_types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                thinking_config=google_types.ThinkingConfig(thinking_budget=1024)
             )
-        except Exception:
-            # Fallback: just prepend system instruction to prompt
-            response = client.models.generate_content(
-                model=google_model,
-                contents=[f"{system_instruction}\n\n{prompt}"]
+        else:
+            config = google_types.GenerateContentConfig(
+                system_instruction=system_instruction
             )
+        response = client.models.generate_content(
+            model=google_model,
+            contents=[prompt],
+            config=config
+        )
+        # Extract Gemini 2.5 'thinking' content if present
+        thinking_content = []
+        for candidate in getattr(response, 'candidates', []):
+            content = getattr(candidate, 'content', None)
+            if content and hasattr(content, 'parts'):
+                for part in content.parts:
+                    if hasattr(part, 'thought') and part.thought:
+                        thinking_content.append(str(part.thought))
+        if thinking_content:
+            joined_thinking = "\n\n".join(thinking_content)
+            st.session_state['last_thinking_content'] = joined_thinking
     except Exception as e:
         st.error(f"Error generating DREAD assessment with Google AI: {str(e)}")
         return {"Risk Assessment": []}
 
-    print("DEBUG: Gemini raw response:", response.text)
     cleaned = clean_json_response(response.text)
-    print("DEBUG: Cleaned Gemini response:", cleaned)
 
     try:
         dread_assessment = json.loads(cleaned)
-        print("DEBUG: Parsed DREAD assessment:", dread_assessment)
         return dread_assessment
     except json.JSONDecodeError:
-        print("DEBUG: Failed to parse Gemini response as JSON.")
         return {}
 
 # Function to get DREAD risk assessment from the Mistral model's response.

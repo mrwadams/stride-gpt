@@ -250,14 +250,18 @@ def get_threat_model_google(google_api_key, google_model, prompt):
     is_gemini_2_5 = "gemini-2.5" in google_model.lower()
     
     try:
-        # Create config with safety settings and JSON response format
-        config = google_genai.types.GenerateContentConfig(
-            response_mime_type='application/json',
-            safety_settings=safety_settings
-        )
-        
-        # Note: For Gemini 2.5 models, thinking is enabled by default
-        # We won't set custom thinking_config to avoid validation errors
+        from google.genai import types as google_types
+        if is_gemini_2_5:
+            config = google_types.GenerateContentConfig(
+                response_mime_type='application/json',
+                safety_settings=safety_settings,
+                thinking_config=google_types.ThinkingConfig(thinking_budget=1024)
+            )
+        else:
+            config = google_types.GenerateContentConfig(
+                response_mime_type='application/json',
+                safety_settings=safety_settings
+            )
         
         # Generate content using the configured settings
         response = client.models.generate_content(
@@ -266,10 +270,18 @@ def get_threat_model_google(google_api_key, google_model, prompt):
             config=config
         )
         
-        # Store thinking content in session state if available
-        if hasattr(response, 'thinking') and response.thinking:
-            st.session_state['last_thinking_content'] = response.thinking
-            
+        # Extract Gemini 2.5 'thinking' content if present
+        thinking_content = []
+        for candidate in getattr(response, 'candidates', []):
+            content = getattr(candidate, 'content', None)
+            if content and hasattr(content, 'parts'):
+                for part in content.parts:
+                    if hasattr(part, 'thought') and part.thought:
+                        thinking_content.append(str(part.thought))
+        if thinking_content:
+            joined_thinking = "\n\n".join(thinking_content)
+            st.session_state['last_thinking_content'] = joined_thinking
+        
     except Exception as e:
         st.error(f"Error generating content with Google AI: {str(e)}")
         return None

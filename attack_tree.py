@@ -601,6 +601,18 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
         st.error(f"Error generating attack tree with Google AI: {str(e)}")
         return "graph TD\n    A[Error Generating Attack Tree] --> B[API Error]\n    B --> C[\"Error: " + str(e).replace('"', "'") + "]"
 
+    # Extract Gemini 2.5 'thinking' content if present
+    thinking_content = []
+    for candidate in getattr(response, 'candidates', []):
+        content = getattr(candidate, 'content', None)
+        if content and hasattr(content, 'parts'):
+            for part in content.parts:
+                if hasattr(part, 'thought') and part.thought:
+                    thinking_content.append(str(part.thought))
+    if thinking_content:
+        joined_thinking = "\n\n".join(thinking_content)
+        st.session_state['last_thinking_content'] = joined_thinking
+
     try:
         cleaned_response = clean_json_response(response.text)
         tree_data = json.loads(cleaned_response)

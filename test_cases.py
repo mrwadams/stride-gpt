@@ -109,10 +109,8 @@ def get_test_cases_azure(azure_api_endpoint, azure_api_key, azure_api_version, a
 
 # Function to get test cases from the Google model's response.
 def get_test_cases_google(google_api_key, google_model, prompt):
-    # Create a client with the Google API key
     client = google_genai.Client(api_key=google_api_key)
     
-    # Set up safety settings to allow security content
     safety_settings = [
         google_genai.types.SafetySetting(
             category=google_genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
@@ -132,33 +130,38 @@ def get_test_cases_google(google_api_key, google_model, prompt):
         )
     ]
     
-    # Configure system instruction
     system_instruction = "You are a helpful assistant that provides Gherkin test cases in Markdown format."
-    
-    # Check if we're using a Gemini 2.5 model (which supports thinking capabilities)
     is_gemini_2_5 = "gemini-2.5" in google_model.lower()
     
     try:
-        # Create config with safety settings and system instruction
-        config = google_genai.types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            safety_settings=safety_settings
-        )
-        
-        # Note: For Gemini 2.5 models, thinking is enabled by default
-        # We won't set custom thinking_config to avoid validation errors
-        
-        # Generate content using the properly configured settings
+        from google.genai import types as google_types
+        if is_gemini_2_5:
+            config = google_types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                safety_settings=safety_settings,
+                thinking_config=google_types.ThinkingConfig(thinking_budget=1024)
+            )
+        else:
+            config = google_types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                safety_settings=safety_settings
+            )
         response = client.models.generate_content(
             model=google_model,
             contents=prompt,
             config=config
         )
-        
-        # Store thinking content in session state if available
-        if hasattr(response, 'thinking') and response.thinking:
-            st.session_state['last_thinking_content'] = response.thinking
-            
+        # Extract Gemini 2.5 'thinking' content if present
+        thinking_content = []
+        for candidate in getattr(response, 'candidates', []):
+            content = getattr(candidate, 'content', None)
+            if content and hasattr(content, 'parts'):
+                for part in content.parts:
+                    if hasattr(part, 'thought') and part.thought:
+                        thinking_content.append(str(part.thought))
+        if thinking_content:
+            joined_thinking = "\n\n".join(thinking_content)
+            st.session_state['last_thinking_content'] = joined_thinking
     except Exception as e:
         st.error(f"Error generating test cases with Google AI: {str(e)}")
         return f"""
@@ -169,9 +172,7 @@ def get_test_cases_google(google_api_key, google_model, prompt):
 Please try again or select a different model provider.
 """
     
-    # Extract the text content from the response
     test_cases = response.text
-    
     return test_cases
 
 # Function to get test cases from the Mistral model's response.
