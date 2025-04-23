@@ -593,17 +593,9 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
         ]
         
         # Configure safety settings to allow generation of attack trees
-        safety_settings = {
-            'HARASSMENT': 'BLOCK_NONE',
-            'HATE_SPEECH': 'BLOCK_NONE',
-            'SEXUALLY_EXPLICIT': 'BLOCK_NONE',
-            'DANGEROUS': 'BLOCK_NONE'
-        }
-        
         chat_params = {
             "model": actual_model,
-            "history": history,
-            "safety_settings": safety_settings
+            "history": history
         }
         
         chat = client.start_chat(**chat_params)
@@ -616,7 +608,47 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
         if is_thinking_mode:
             from google.genai import types
             message_params["config"] = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=16000)
+                thinking_config=types.ThinkingConfig(thinking_budget=16000),
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARASSMENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    )
+                ]
+            )
+        else:
+            from google.genai import types
+            message_params["config"] = types.GenerateContentConfig(
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.HARASSMENT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.HATE_SPEECH,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.SEXUALLY_EXPLICIT,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    ),
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_NONE
+                    )
+                ]
             )
         
         response = chat.send_message(**message_params)

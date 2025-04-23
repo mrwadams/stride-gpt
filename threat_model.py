@@ -237,8 +237,7 @@ def get_threat_model_google(google_api_key, google_model, prompt):
         
         generation_params = {
             "model": actual_model,
-            "contents": prompt,
-            "safety_settings": {"DANGEROUS": "BLOCK_ONLY_HIGH"}
+            "contents": prompt
         }
         
         # Add thinking configuration if using thinking mode
@@ -248,7 +247,23 @@ def get_threat_model_google(google_api_key, google_model, prompt):
                 response_mime_type="application/json"
             )
             generation_params["config"] = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=16000)
+                thinking_config=types.ThinkingConfig(thinking_budget=16000),
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
+                    )
+                ]
+            )
+        else:
+            from google.genai import types
+            generation_params["config"] = types.GenerateContentConfig(
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
+                    )
+                ]
             )
         
         response = client.models.generate_content(**generation_params)

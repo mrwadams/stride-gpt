@@ -101,15 +101,30 @@ def get_mitigations_google(google_api_key, google_model, prompt):
         generation_params = {
             "model": actual_model,
             "contents": prompt,
-            "system_instruction": "You are a helpful assistant that provides threat mitigation strategies in Markdown format.",
-            "safety_settings": {"DANGEROUS": "BLOCK_ONLY_HIGH"}
+            "system_instruction": "You are a helpful assistant that provides threat mitigation strategies in Markdown format."
         }
         
         # Add thinking configuration if using thinking mode
         if is_thinking_mode:
             from google.genai import types
             generation_params["config"] = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=16000)
+                thinking_config=types.ThinkingConfig(thinking_budget=16000),
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
+                    )
+                ]
+            )
+        else:
+            from google.genai import types
+            generation_params["config"] = types.GenerateContentConfig(
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
+                    )
+                ]
             )
         
         response = client.models.generate_content(**generation_params)

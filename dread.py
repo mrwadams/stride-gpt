@@ -209,8 +209,7 @@ def get_dread_assessment_google(google_api_key, google_model, prompt):
         
         chat_params = {
             "model": actual_model,
-            "history": history,
-            "safety_settings": {"DANGEROUS": "BLOCK_ONLY_HIGH"}
+            "history": history
         }
         
         chat = client.start_chat(**chat_params)
@@ -226,7 +225,23 @@ def get_dread_assessment_google(google_api_key, google_model, prompt):
                 response_mime_type="application/json"
             )
             message_params["config"] = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=16000)
+                thinking_config=types.ThinkingConfig(thinking_budget=16000),
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
+                    )
+                ]
+            )
+        else:
+            from google.genai import types
+            message_params["config"] = types.GenerateContentConfig(
+                safety_settings=[
+                    types.SafetySetting(
+                        category=types.HarmCategory.DANGEROUS,
+                        threshold=types.HarmBlockThreshold.BLOCK_ONLY_HIGH
+                    )
+                ]
             )
         
         response = chat.send_message(**message_params)
