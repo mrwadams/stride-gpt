@@ -126,7 +126,7 @@ def get_attack_tree(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
     # For models that support JSON output format
-    if model_name in ["o1", "o3-mini"]:
+    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Create a structured attack tree by analyzing potential attack paths.",
             approach_description="""Analyze the application and create an attack tree showing potential attack paths.

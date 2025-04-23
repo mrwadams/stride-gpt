@@ -48,7 +48,13 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.12 (latest)
+### Version 0.13 (latest)
+
+- **New OpenAI Models**: Added support for OpenAI's latest models: gpt-4.1, o3, and o4-mini while maintaining support for o3-mini. These reasoning models provide detailed analytical capabilities.
+- **Enhanced Reasoning Model Support**: Expanded the reasoning framework to work with all of OpenAI's reasoning models (o1, o3, o3-mini, and o4-mini) across all threat modeling features, including threat model generation, attack trees, mitigations, and DREAD assessments.
+- **Increased Token Limits**: Updated token limits for new models to take advantage of their expanded contexts, particularly for gpt-4.1 which supports 1 million tokens and o4-mini which supports 200K tokens.
+
+### Version 0.12
 
 - **Claude 3.7 Integration**: Added comprehensive support for Anthropic's Claude 3.7 models across all threat modeling features, including the innovative "thinking mode" that provides more detailed reasoning during analysis.
 - **Improved GitHub Repository Analysis**: Significantly enhanced the GitHub repository analysis feature with intelligent file selection, better programming language support, and progress tracking during analysis.

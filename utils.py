@@ -149,7 +149,7 @@ def process_groq_response(response_text, model_name, expect_json=True):
 
 def create_reasoning_system_prompt(task_description, approach_description):
     """
-    Creates a system prompt formatted for OpenAI's reasoning models (o1, o3-mini).
+    Creates a system prompt formatted for OpenAI's reasoning models (o1, o3, o3-mini, o4-mini).
     
     Args:
         task_description (str): Description of what the model needs to do

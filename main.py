@@ -481,10 +481,13 @@ load_env_variables()
 model_token_limits = {
     # OpenAI models
     "OpenAI API:gpt-4.5-preview": {"default": 64000, "max": 128000},
+    "OpenAI API:gpt-4.1": {"default": 128000, "max": 1000000},  # 1M tokens context
     "OpenAI API:gpt-4o": {"default": 64000, "max": 128000},
     "OpenAI API:gpt-4o-mini": {"default": 64000, "max": 128000},
     "OpenAI API:o1": {"default": 64000, "max": 200000},
+    "OpenAI API:o3": {"default": 64000, "max": 200000},
     "OpenAI API:o3-mini": {"default": 64000, "max": 200000},
+    "OpenAI API:o4-mini": {"default": 64000, "max": 200000},  # Increased to 200K based on OpenAI docs
     
     # Claude models
     "Anthropic API:claude-3-7-sonnet-latest": {"default": 64000, "max": 200000},
@@ -623,10 +626,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
+            ["gpt-4.5-preview", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "o1", "o3", "o3-mini", "o4-mini"],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="GPT-4.5 is a preview of OpenAI's latest model. o1 and o3-mini are reasoning models that perform complex reasoning before they provide a response."
+            help="GPT-4.1 is OpenAI's most advanced model with 1M token context. o1, o3, o3-mini, and o4-mini are reasoning models that perform complex reasoning before responding. o3 and o4-mini are newer models with superior reasoning capabilities and 200K token contexts."
         )
 
     if model_provider == "Anthropic API":

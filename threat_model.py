@@ -151,8 +151,8 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
 def get_threat_model(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3-mini), use a structured system prompt
-    if model_name in ["o1", "o3-mini"]:
+    # For reasoning models (o1, o3, o3-mini, o4-mini), use a structured system prompt
+    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Analyze the provided application description and generate a comprehensive threat model using the STRIDE methodology.",
             approach_description="""1. Carefully read and understand the application description
@@ -169,7 +169,7 @@ def get_threat_model(api_key, model_name, prompt):
 4. Generate improvement suggestions based on identified threats
 5. Format the output as a JSON object with 'threat_model' and 'improvement_suggestions' arrays"""
         )
-        # Create completion with max_completion_tokens for o1/o3-mini
+        # Create completion with max_completion_tokens for reasoning models
         response = client.chat.completions.create(
             model=model_name,
             response_format={"type": "json_object"},

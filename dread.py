@@ -112,8 +112,8 @@ Ensure the JSON response is correctly formatted and does not contain any additio
 def get_dread_assessment(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3-mini), use a structured system prompt
-    if model_name in ["o1", "o3-mini"]:
+    # For reasoning models (o1, o3, o3-mini, o4-mini), use a structured system prompt
+    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Perform a DREAD risk assessment for the identified security threats.",
             approach_description="""1. For each threat in the provided threat model:
