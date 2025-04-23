@@ -51,6 +51,8 @@ This video is an excellent resource for anyone interested in understanding how S
 ### Version 0.12 (latest)
 
 - **Claude 3.7 Integration**: Added comprehensive support for Anthropic's Claude 3.7 models across all threat modeling features, including the innovative "thinking mode" that provides more detailed reasoning during analysis.
+- **New OpenAI Models**: Added support for OpenAI's o3, o4-mini reasoning models and gpt-4.1 non-reasoning model.
+- **Google Gemini 2.5 Integration**: Added support for Google's Gemini 2.5 models with "thinking" functionality for enhanced reasoning capabilities.
 - **Improved GitHub Repository Analysis**: Significantly enhanced the GitHub repository analysis feature with intelligent file selection, better programming language support, and progress tracking during analysis.
 - **GPT-4.5 Preview Support**: Added support for OpenAI's GPT-4.5 preview model with improved model selection guidance and descriptions.
 - **Performance Optimizations**: Improved overall application performance with better token usage tracking and warning systems for approaching token limits.

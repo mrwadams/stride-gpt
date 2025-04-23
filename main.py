@@ -485,6 +485,9 @@ model_token_limits = {
     "OpenAI API:gpt-4o-mini": {"default": 64000, "max": 128000},
     "OpenAI API:o1": {"default": 64000, "max": 200000},
     "OpenAI API:o3-mini": {"default": 64000, "max": 200000},
+    "OpenAI API:o3": {"default": 64000, "max": 200000},
+    "OpenAI API:o4-mini": {"default": 64000, "max": 200000},
+    "OpenAI API:gpt-4.1": {"default": 64000, "max": 128000},
     
     # Claude models
     "Anthropic API:claude-3-7-sonnet-latest": {"default": 64000, "max": 200000},
@@ -500,6 +503,8 @@ model_token_limits = {
     "Google AI API:gemini-2.0-flash": {"default": 120000, "max": 1000000},
     "Google AI API:gemini-2.0-flash-lite": {"default": 120000, "max": 1000000},
     "Google AI API:gemini-1.5-pro": {"default": 240000, "max": 2000000},
+    "Google AI API:gemini-2.5-pro-preview-03-25": {"default": 240000, "max": 2000000},
+    "Google AI API:gemini-2.5-flash-preview-04-17": {"default": 240000, "max": 2000000},
     
     # Groq models
     "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
@@ -541,6 +546,10 @@ def on_model_provider_change():
     if 'current_model_key' in st.session_state:
         del st.session_state.current_model_key
     
+    # Clear thinking content when switching model providers
+    if 'last_thinking_content' in st.session_state:
+        del st.session_state['last_thinking_content']
+    
     # Update the selected model based on the new provider
     # This ensures that when provider changes, we reset the model selection
     # which will trigger the on_model_selection_change callback
@@ -568,6 +577,19 @@ def on_model_selection_change():
     
     model_provider = st.session_state.model_provider
     selected_model = st.session_state.selected_model
+    
+    # Clear thinking content when switching to non-thinking models
+    if 'last_thinking_content' in st.session_state:
+        # Check if we're using a model with thinking mode
+        is_thinking_model = False
+        if model_provider == "Anthropic API" and "thinking" in selected_model.lower():
+            is_thinking_model = True
+        elif model_provider == "Google AI API" and "thinking" in selected_model.lower():
+            is_thinking_model = True
+            
+        # Clear thinking content if not using a thinking model
+        if not is_thinking_model:
+            del st.session_state['last_thinking_content']
     
     # Create the key for lookup
     model_key = f"{model_provider}:{selected_model}"
@@ -623,10 +645,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o1", "o3-mini"],
+            ["gpt-4.5-preview", "gpt-4o", "gpt-4o-mini", "o1", "o3-mini", "o3", "o4-mini", "gpt-4.1"],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="GPT-4.5 is a preview of OpenAI's latest model. o1 and o3-mini are reasoning models that perform complex reasoning before they provide a response."
+            help="GPT-4.5 is a preview of OpenAI's latest model. o1, o3-mini, o3, and o4-mini are reasoning models that perform complex reasoning before they provide a response."
         )
 
     if model_provider == "Anthropic API":
@@ -719,10 +741,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
+            ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-2.5-pro-preview-03-25", "gemini-2.5-flash-preview-04-17", "gemini-2.5-pro-preview-03-25-thinking", "gemini-2.5-flash-preview-04-17-thinking"],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Gemini 2.0 Flash is the most capable model, while Gemini 2.0 Flash Lite is more cost-effective."
+            help="Gemini 2.0 Flash is the most capable model, while Gemini 2.0 Flash Lite is more cost-effective. Select models with 'thinking' suffix to use Gemini's extended thinking mode for enhanced reasoning capabilities."
         )
 
     if model_provider == "Mistral API":
@@ -1148,12 +1170,12 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         # Convert the threat model JSON to Markdown
         markdown_output = json_to_markdown(threat_model, improvement_suggestions)
 
-        # Display thinking content in an expander if available and using Claude thinking mode
+        # Display thinking content in an expander if available and using thinking mode
         if ('last_thinking_content' in st.session_state and 
             st.session_state['last_thinking_content'] and 
-            model_provider == "Anthropic API" and 
-            "thinking" in anthropic_model.lower()):
-            with st.expander("View Claude's thinking process"):
+            ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+             (model_provider == "Google AI API" and "thinking" in google_model.lower()))):
+            with st.expander("View model's thinking process"):
                 st.markdown(st.session_state['last_thinking_content'])
 
         # Display the threat model in Markdown
@@ -1222,12 +1244,12 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Groq API":
                         mermaid_code = get_attack_tree_groq(groq_api_key, groq_model, attack_tree_prompt)
 
-                    # Display thinking content in an expander if available and using Claude thinking mode
+                    # Display thinking content in an expander if available and using thinking mode
                     if ('last_thinking_content' in st.session_state and 
                         st.session_state['last_thinking_content'] and 
-                        model_provider == "Anthropic API" and 
-                        "thinking" in anthropic_model.lower()):
-                        with st.expander("View Claude's thinking process"):
+                        ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                         (model_provider == "Google AI API" and "thinking" in google_model.lower()))):
+                        with st.expander("View model's thinking process"):
                             st.markdown(st.session_state['last_thinking_content'])
 
                     # Display the generated attack tree code
@@ -1320,12 +1342,12 @@ the security posture of the application and protect against potential attacks.
                         elif model_provider == "Groq API":
                             mitigations_markdown = get_mitigations_groq(groq_api_key, groq_model, mitigations_prompt)
 
-                        # Display thinking content in an expander if available and using Claude thinking mode
+                        # Display thinking content in an expander if available and using thinking mode
                         if ('last_thinking_content' in st.session_state and 
                             st.session_state['last_thinking_content'] and 
-                            model_provider == "Anthropic API" and 
-                            "thinking" in anthropic_model.lower()):
-                            with st.expander("View Claude's thinking process"):
+                            ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                             (model_provider == "Google AI API" and "thinking" in google_model.lower()))):
+                            with st.expander("View model's thinking process"):
                                 st.markdown(st.session_state['last_thinking_content'])
 
                         # Display the suggested mitigations in Markdown
@@ -1420,12 +1442,12 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
             if not dread_assessment.get("Risk Assessment"):
                 st.warning("Debug: The DREAD assessment response is empty. Please ensure you have generated a threat model first.")
             
-            # Display thinking content in an expander if available and using Claude thinking mode
+            # Display thinking content in an expander if available and using thinking mode
             if ('last_thinking_content' in st.session_state and 
                 st.session_state['last_thinking_content'] and 
-                model_provider == "Anthropic API" and 
-                "thinking" in anthropic_model.lower()):
-                with st.expander("View Claude's thinking process"):
+                ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                 (model_provider == "Google AI API" and "thinking" in google_model.lower()))):
+                with st.expander("View model's thinking process"):
                     st.markdown(st.session_state['last_thinking_content'])
                     
             # Display the DREAD assessment with a header
@@ -1497,12 +1519,12 @@ scenarios.
                         elif model_provider == "Groq API":
                             test_cases_markdown = get_test_cases_groq(groq_api_key, groq_model, test_cases_prompt)
 
-                        # Display thinking content in an expander if available and using Claude thinking mode
+                        # Display thinking content in an expander if available and using thinking mode
                         if ('last_thinking_content' in st.session_state and 
                             st.session_state['last_thinking_content'] and 
-                            model_provider == "Anthropic API" and 
-                            "thinking" in anthropic_model.lower()):
-                            with st.expander("View Claude's thinking process"):
+                            ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                             (model_provider == "Google AI API" and "thinking" in google_model.lower()))):
+                            with st.expander("View model's thinking process"):
                                 st.markdown(st.session_state['last_thinking_content'])
 
                         # Display the suggested mitigations in Markdown
