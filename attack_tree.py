@@ -7,7 +7,7 @@ from openai import OpenAI, AzureOpenAI
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt, extract_mermaid_code
 import json
-import google.generativeai as genai
+from google import genai as google_genai
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
@@ -572,29 +572,45 @@ def create_attack_tree_schema_lm_studio():
 
 # Function to get attack tree from the Google model's response.
 def get_attack_tree_google(google_api_key, google_model, prompt):
-    genai.configure(api_key=google_api_key)
+    # Create a client with the Google API key
+    client = google_genai.Client(api_key=google_api_key)
     
-    model = genai.GenerativeModel(google_model)
+    # Set up safety settings to allow security content
+    safety_settings = [
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_HATE_SPEECH',
+            threshold='BLOCK_NONE'
+        ),
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_DANGEROUS_CONTENT',
+            threshold='BLOCK_NONE'
+        ),
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_HARASSMENT',
+            threshold='BLOCK_NONE'
+        ),
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_SEXUALLY_EXPLICIT',
+            threshold='BLOCK_NONE'
+        )
+    ]
+    
+    # Create a chat
+    chat = client.chats.create(model=google_model)
     
     # Create the system message
     system_message = create_json_structure_prompt()
     
-    # Start a chat session with the system message in the history
-    chat = model.start_chat(history=[
-        {"role": "user", "parts": [system_message]},
-        {"role": "model", "parts": ["Understood. I will provide attack tree data in JSON format only."]}
-    ])
+    # First message to set system context
+    chat.send_message(message=system_message)
     
-    # Configure safety settings to allow generation of attack trees
-    safety_settings = {
-        'HARASSMENT': 'BLOCK_NONE',
-        'HATE_SPEECH': 'BLOCK_NONE',
-        'SEXUALLY_EXPLICIT': 'BLOCK_NONE',
-        'DANGEROUS': 'BLOCK_NONE'
-    }
-    
-    # Send the actual prompt with safety settings
-    response = chat.send_message(prompt, safety_settings=safety_settings)
+    # Send the actual prompt
+    response = chat.send_message(
+        message=prompt,
+        config=google_genai.types.ChatConfig(
+            safety_settings=safety_settings
+        )
+    )
     
     try:
         # Clean the response text and try to parse as JSON

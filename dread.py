@@ -7,7 +7,7 @@ from mistralai import Mistral, UserMessage
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
-import google.generativeai as genai
+from google import genai as google_genai
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
 
@@ -187,28 +187,38 @@ def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_vers
 
 # Function to get DREAD risk assessment from the Google model's response.
 def get_dread_assessment_google(google_api_key, google_model, prompt):
-    genai.configure(api_key=google_api_key)
+    # Create a client with the Google API key
+    client = google_genai.Client(api_key=google_api_key)
     
-    model = genai.GenerativeModel(google_model)
+    # Set up safety settings to allow security content
+    safety_settings = [
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_HATE_SPEECH',
+            threshold='BLOCK_ONLY_HIGH'
+        ),
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_DANGEROUS_CONTENT',
+            threshold='BLOCK_ONLY_HIGH'
+        ),
+    ]
     
-    # Create the system message
+    # Create a chat with system instructions
+    chat = client.chats.create(model=google_model)
+    
+    # Send a first message to set context
     system_message = "You are a helpful assistant designed to output JSON. Only provide the DREAD risk assessment in JSON format with no additional text. Do not wrap the output in a code block."
+    chat.send_message(message=system_message)
     
-    # Start a chat session with the system message in the history
-    chat = model.start_chat(history=[
-        {"role": "user", "parts": [system_message]},
-        {"role": "model", "parts": ["Understood. I will provide DREAD risk assessments in JSON format only and will not wrap the output in a code block."]}
-    ])
-    
-    # Send the actual prompt
+    # Send the actual prompt with safety settings
     response = chat.send_message(
-        prompt, 
-        safety_settings={
-            'DANGEROUS': 'block_only_high' # Set safety filter to allow generation of DREAD risk assessments
-        })
+        message=prompt,
+        config=google_genai.types.ChatConfig(
+            safety_settings=safety_settings
+        )
+    )
     
     try:
-        # Access the JSON content from the response
+        # Parse the response text as JSON
         dread_assessment = json.loads(response.text)
         return dread_assessment
     except json.JSONDecodeError:

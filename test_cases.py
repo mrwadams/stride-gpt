@@ -4,7 +4,7 @@ from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
-import google.generativeai as genai
+from google import genai as google_genai
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
 
@@ -109,16 +109,34 @@ def get_test_cases_azure(azure_api_endpoint, azure_api_key, azure_api_version, a
 
 # Function to get test cases from the Google model's response.
 def get_test_cases_google(google_api_key, google_model, prompt):
-    genai.configure(api_key=google_api_key)
-    model = genai.GenerativeModel(
-        google_model,
-        system_instruction="You are a helpful assistant that provides Gherkin test cases in Markdown format.",
-    )
-    response = model.generate_content(prompt)
+    # Create a client with the Google API key
+    client = google_genai.Client(api_key=google_api_key)
     
-    # Access the content directly as the response will be in text format
-    test_cases = response.candidates[0].content.parts[0].text
-
+    # Set up safety settings to allow security content
+    safety_settings = [
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_HATE_SPEECH',
+            threshold='BLOCK_ONLY_HIGH'
+        ),
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_DANGEROUS_CONTENT',
+            threshold='BLOCK_ONLY_HIGH'
+        ),
+    ]
+    
+    # Generate content using the new SDK
+    response = client.models.generate_content(
+        model=google_model,
+        contents=prompt,
+        config=google_genai.types.GenerateContentConfig(
+            system_instruction="You are a helpful assistant that provides Gherkin test cases in Markdown format.",
+            safety_settings=safety_settings
+        )
+    )
+    
+    # Extract the text content from the response
+    test_cases = response.text
+    
     return test_cases
 
 # Function to get test cases from the Mistral model's response.

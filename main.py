@@ -500,9 +500,10 @@ model_token_limits = {
     "Mistral API:mistral-small-latest": {"default": 16000, "max": 32000},
     
     # Google models
+    "Google AI API:gemini-2.5-pro-preview-03-25": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-2.5-flash-preview-04-17": {"default": 200000, "max": 1000000},
     "Google AI API:gemini-2.0-flash": {"default": 120000, "max": 1000000},
     "Google AI API:gemini-2.0-flash-lite": {"default": 120000, "max": 1000000},
-    "Google AI API:gemini-1.5-pro": {"default": 240000, "max": 2000000},
     
     # Groq models
     "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
@@ -555,7 +556,7 @@ def on_model_provider_change():
         # Use whatever the first Azure model is in your UI
         pass  # Will use the default selected in the UI
     elif new_provider == "Google AI API":
-        st.session_state.selected_model = "gemini-2.0-flash"
+        st.session_state.selected_model = "gemini-2.5-pro-preview-03-25"
     elif new_provider == "Mistral API":
         st.session_state.selected_model = "mistral-large-latest"
     elif new_provider == "Groq API":
@@ -722,10 +723,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
+            ["gemini-2.5-pro-preview-03-25", "gemini-2.5-flash-preview-04-17", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Gemini 2.0 Flash is the most capable model, while Gemini 2.0 Flash Lite is more cost-effective."
+            help="Gemini 2.5 Pro/Flash are Google's latest preview models with 1M token context. Gemini 2.0 Flash is a capable model, while Gemini 2.0 Flash Lite is more cost-effective."
         )
 
     if model_provider == "Mistral API":

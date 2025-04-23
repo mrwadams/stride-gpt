@@ -6,7 +6,7 @@ from openai import OpenAI, AzureOpenAI
 import streamlit as st
 import re
 
-import google.generativeai as genai
+from google import genai as google_genai 
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
 
@@ -223,22 +223,38 @@ def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version,
 
 # Function to get threat model from the Google response.
 def get_threat_model_google(google_api_key, google_model, prompt):
-    genai.configure(api_key=google_api_key)
-    model = genai.GenerativeModel(
-        google_model,
-        generation_config={"response_mime_type": "application/json"})
-    response = model.generate_content(
-        prompt,
-        safety_settings={
-            'DANGEROUS': 'block_only_high' # Set safety filter to allow generation of threat models
-        })
+    # Create a client with the Google API key
+    client = google_genai.Client(api_key=google_api_key)
+    
+    # Set up safety settings to allow security content
+    safety_settings = [
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_HATE_SPEECH',
+            threshold='BLOCK_ONLY_HIGH'
+        ),
+        google_genai.types.SafetySetting(
+            category='HARM_CATEGORY_DANGEROUS_CONTENT',
+            threshold='BLOCK_ONLY_HIGH'
+        ),
+    ]
+    
+    # Generate content using the new SDK
+    response = client.models.generate_content(
+        model=google_model,
+        contents=prompt,
+        config=google_genai.types.GenerateContentConfig(
+            response_mime_type='application/json',
+            safety_settings=safety_settings
+        )
+    )
+    
     try:
-        # Access the JSON content from the 'parts' attribute of the 'content' object
-        response_content = json.loads(response.candidates[0].content.parts[0].text)
+        # Parse the response text as JSON
+        response_content = json.loads(response.text)
     except json.JSONDecodeError:
-
+        st.error("Failed to parse JSON response from Google AI")
         return None
-
+        
     return response_content
 
 # Function to get threat model from the Mistral response.
