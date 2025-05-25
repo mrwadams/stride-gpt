@@ -1020,7 +1020,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     # Display image uploader for supported multimodal models
     with col1:
         supports_image = False
-        if model_provider == "OpenAI API" and selected_model.startswith("gpt-4"):
+        if model_provider == "OpenAI API" and (selected_model.startswith("gpt-4") or selected_model == "o4-mini"):
             supports_image = True
         elif model_provider == "Azure OpenAI Service":
             supports_image = True

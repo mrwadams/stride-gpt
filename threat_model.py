@@ -107,10 +107,7 @@ def create_image_analysis_prompt():
 
 # Function to get analyse uploaded architecture diagrams.
 def get_image_analysis(api_key, model_name, prompt, base64_image):
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    client = OpenAI(api_key=api_key)
 
     messages = [
         {
@@ -127,25 +124,53 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
             ]
         }
     ]
-
-    payload = {
-        "model": model_name,
-        "messages": messages,
-        "max_tokens": 4000
-    }
-
-    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-
-    # Log the response for debugging
-    try:
-        response.raise_for_status()  # Raise an HTTPError for bad responses
-        response_content = response.json()
-        return response_content
-    except requests.exceptions.HTTPError:
-        pass
-    except Exception:
-        pass
-    return None
+    
+    # If using o4-mini, use the structured system prompt approach
+    if model_name == "o4-mini":
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Analyze the provided architecture diagram and explain it to a Security Architect.",
+            approach_description="""1. Carefully examine the diagram
+2. Identify all components and their relationships
+3. Note any technologies, protocols, or security measures shown
+4. Create a clear, structured explanation with these sections:
+   - Overall Architecture: Brief overview of the system
+   - Key Components: List and explain each major component
+   - Data Flow: How information moves through the system
+   - Technologies Used: Identify technologies, frameworks, or platforms
+   - Security Considerations: Note any visible security measures"""
+        )
+        # Insert system message at the beginning
+        messages.insert(0, {"role": "system", "content": system_prompt})
+        
+        # Create completion with max_completion_tokens for reasoning models
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_completion_tokens=4000
+            )
+            return {
+                "choices": [
+                    {"message": {"content": response.choices[0].message.content}}
+                ]
+            }
+        except Exception as e:
+            return None
+    else:
+        # For standard models (gpt-4, etc.)
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=4000
+            )
+            return {
+                "choices": [
+                    {"message": {"content": response.choices[0].message.content}}
+                ]
+            }
+        except Exception as e:
+            return None
 
 # Function to get image analysis using Azure OpenAI
 def get_image_analysis_azure(api_endpoint, api_key, api_version, deployment_name, prompt, base64_image):
