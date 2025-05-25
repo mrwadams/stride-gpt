@@ -20,7 +20,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 ## Features
 - Simple and user-friendly interface
 - Generates threat models based on the STRIDE methodology
-- Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling 
+- Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling across all supported vision-capable models
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
 - Supports DREAD risk scoring for identified threats
@@ -55,6 +55,7 @@ This video is an excellent resource for anyone interested in understanding how S
 - **Migrated to New Google GenAI SDK**: Completely migrated to the new Google GenAI SDK, removing all dependency on the deprecated Google Generative AI library.
 - **Enhanced Reasoning Model Support**: Expanded the reasoning framework to work with all of OpenAI's reasoning models (o1, o3, o3-mini, o4-mini) across all threat modeling features, including threat model generation, attack trees, mitigations, and DREAD assessments.
 - **Increased Token Limits**: Updated token limits for new models to take advantage of their expanded contexts, particularly for gpt-4.1 which supports 1 million tokens and o4-mini which supports 200K tokens.
+- **Universal Multi-Modal Support**: Image upload and analysis now works with any supported model that accepts image inputs, including Gemini 2.5 and Claude 3 models.
 
 ### Version 0.12
 
