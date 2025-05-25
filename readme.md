@@ -20,7 +20,7 @@ If you find STRIDE GPT useful, please consider starring the repository on GitHub
 ## Features
 - Simple and user-friendly interface
 - Generates threat models based on the STRIDE methodology
-- Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling 
+- Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling across supported LLM providers
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
 - Supports DREAD risk scoring for identified threats
@@ -106,7 +106,7 @@ Release highlights:
 
 Release highlights:
 
-- **Multi-Modal Threat Modelling**: STRIDE GPT now supports multi-modal threat modelling using OpenAI's GPT-4o and GPT-4-Turbo models. Users can provide an image of an architecture diagram, flowchart, or other visual representations of their application to enhance the threat modelling process.
+- **Multi-Modal Threat Modelling**: STRIDE GPT now supports multi-modal threat modelling across all major LLM providers that accept image inputs. Upload architecture diagrams or other visual representations to enhance the threat modelling process.
 - **Google AI Integration**: I've added support for Gemini 1.5 Pro via the Google AI API. Please note that Gemini doesn't consistently generate JSON output so you may need to retry some requests. In addition, Attack Trees can't be generated using Google AI models because of Google's safety restrictions.
 - **Refactored Codebase**: I've refactored some parts of the codebase to improve maintainability and readability. This should make it easier to add new features and enhancements in future releases.
 - **Bug Fixes**: Minor bug fixes and error handling improvements.

@@ -147,6 +147,85 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
     return None
 
 
+# Function to get analyse uploaded architecture diagrams using Azure OpenAI Service.
+def get_image_analysis_azure(azure_api_endpoint, azure_api_key, azure_api_version, deployment_name, prompt, base64_image):
+    client = AzureOpenAI(
+        azure_endpoint=azure_api_endpoint,
+        api_key=azure_api_key,
+        api_version=azure_api_version,
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                },
+            ],
+        }
+    ]
+
+    response = client.chat.completions.create(
+        model=deployment_name,
+        messages=messages,
+        max_tokens=4000,
+    )
+
+    content = response.choices[0].message.content
+    return {"choices": [{"message": {"content": content}}]}
+
+
+# Function to analyse uploaded architecture diagrams using Google AI models.
+def get_image_analysis_google(google_api_key, google_model, prompt, base64_image):
+    genai.configure(api_key=google_api_key)
+    model = genai.GenerativeModel(google_model)
+
+    image_bytes = base64.b64decode(base64_image)
+    response = model.generate_content(
+        [prompt, {"mime_type": "image/png", "data": image_bytes}]
+    )
+
+    try:
+        content = response.candidates[0].content.parts[0].text
+        return {"choices": [{"message": {"content": content}}]}
+    except (IndexError, AttributeError):
+        return None
+
+
+# Function to analyse uploaded architecture diagrams using Anthropic models.
+def get_image_analysis_anthropic(anthropic_api_key, anthropic_model, prompt, base64_image):
+    client = Anthropic(api_key=anthropic_api_key)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": base64_image,
+                    },
+                },
+            ],
+        }
+    ]
+
+    response = client.messages.create(
+        model=anthropic_model,
+        messages=messages,
+        max_tokens=4096,
+    )
+
+    content = "".join(block.text for block in response.content if block.type == "text")
+    return {"choices": [{"message": {"content": content}}]}
+
+
 # Function to get threat model from the GPT response.
 def get_threat_model(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
