@@ -500,8 +500,8 @@ model_token_limits = {
     "Mistral API:mistral-small-latest": {"default": 16000, "max": 32000},
     
     # Google models
-    "Google AI API:gemini-2.5-pro-preview-03-25": {"default": 200000, "max": 1000000},
-    "Google AI API:gemini-2.5-flash-preview-04-17": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-2.5-pro-preview-05-06": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-2.5-flash-preview-05-20": {"default": 200000, "max": 1000000},
     "Google AI API:gemini-2.0-flash": {"default": 120000, "max": 1000000},
     "Google AI API:gemini-2.0-flash-lite": {"default": 120000, "max": 1000000},
     
