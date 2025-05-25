@@ -51,11 +51,13 @@ This video is an excellent resource for anyone interested in understanding how S
 ### Version 0.13 (latest)
 
 - **New OpenAI Models**: Added support for OpenAI's latest models: gpt-4.1, o3, and o4-mini while maintaining support for o3-mini. These reasoning models provide detailed analytical capabilities.
+- **Anthropic Claude 4 Integration**: Added support for Anthropic's latest Claude 4 models (claude-opus-4-20250514 and claude-sonnet-4-20250514) with enhanced capabilities.
 - **Google Gemini 2.5 Integration**: Added support for Google's Gemini 2.5 Pro and Flash preview models with a 1 million token context window and enhanced reasoning capabilities.
-- **Migrated to New Google GenAI SDK**: Completely migrated to the new Google GenAI SDK, removing all dependency on the deprecated Google Generative AI library.
+- **Migrated to New Google GenAI SDK**: Completely migrated to the new Google GenAI SDK, removing all dependency on the deprecated Google Generative AI library. Refactored Gemini (Google AI) model integration across all modules for improved consistency and performance.
 - **Enhanced Reasoning Model Support**: Expanded the reasoning framework to work with all of OpenAI's reasoning models (o1, o3, o3-mini, o4-mini) across all threat modeling features, including threat model generation, attack trees, mitigations, and DREAD assessments.
 - **Increased Token Limits**: Updated token limits for new models to take advantage of their expanded contexts, particularly for gpt-4.1 which supports 1 million tokens and o4-mini which supports 200K tokens.
-- **Universal Multi-Modal Support**: Image upload and analysis now works with any supported model that accepts image inputs, including Gemini 2.5 and Claude 3 models.
+- **Enhanced Multi-Modal Support**: Image upload and analysis now works with more models, including Gemini 2.5, Claude 3, and Claude 4 models. Expanded support for analyzing various image formats across all vision-capable models.
+- **Updated to Latest Gemini Preview Models**: Transitioned to use the latest versions of Gemini preview models for improved performance and capabilities.
 
 ### Version 0.12
 

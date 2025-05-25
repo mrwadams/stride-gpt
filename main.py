@@ -506,8 +506,9 @@ model_token_limits = {
     "OpenAI API:o4-mini": {"default": 64000, "max": 200000},  # Increased to 200K based on OpenAI docs
     
     # Claude models
+    "Anthropic API:claude-opus-4-20250514": {"default": 64000, "max": 200000},
+    "Anthropic API:claude-sonnet-4-20250514": {"default": 64000, "max": 200000},
     "Anthropic API:claude-3-7-sonnet-latest": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-3-5-sonnet-latest": {"default": 64000, "max": 200000},
     "Anthropic API:claude-3-5-haiku-latest": {"default": 64000, "max": 200000},
     
     # Mistral models
@@ -566,12 +567,12 @@ def on_model_provider_change():
     if new_provider == "OpenAI API":
         st.session_state.selected_model = "gpt-4o"
     elif new_provider == "Anthropic API":
-        st.session_state.selected_model = "claude-3-7-sonnet-latest"
+        st.session_state.selected_model = "claude-sonnet-4-20250514"
     elif new_provider == "Azure OpenAI Service":
         # Use whatever the first Azure model is in your UI
         pass  # Will use the default selected in the UI
     elif new_provider == "Google AI API":
-        st.session_state.selected_model = "gemini-2.5-pro-preview-03-25"
+        st.session_state.selected_model = "gemini-2.5-pro-preview-05-06"
     elif new_provider == "Mistral API":
         st.session_state.selected_model = "mistral-large-latest"
     elif new_provider == "Groq API":
@@ -669,10 +670,11 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         anthropic_model = st.selectbox(
             "Select the model you would like to use:",
-            ["claude-3-7-sonnet-latest", "claude-3-7-sonnet-thinking", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+            ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"],
+            index=1,  # Make claude-sonnet-4-20250514 the default
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Select 'claude-3-7-sonnet-thinking' to use Claude's extended thinking mode for enhanced reasoning capabilities."
+            help="Claude 4 models are the latest generation with enhanced capabilities. Claude Sonnet 4 offers the best balance of performance and efficiency."
         )
 
     if model_provider == "Azure OpenAI Service":
@@ -738,7 +740,7 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-2.5-pro-preview-03-25", "gemini-2.5-flash-preview-04-17", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
+            ["gemini-2.5-pro-preview-05-06", "gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
             key="selected_model",
             on_change=on_model_selection_change,
             help="Gemini 2.5 Pro/Flash are Google's latest preview models with 1M token context and enhanced thinking capabilities that show model reasoning. Gemini 2.0 Flash is a capable model, while Gemini 2.0 Flash Lite is more cost-effective."
