@@ -507,7 +507,6 @@ model_token_limits = {
     
     # Claude models
     "Anthropic API:claude-3-7-sonnet-latest": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-3-7-sonnet-thinking": {"default": 64000, "max": 200000},
     "Anthropic API:claude-3-5-sonnet-latest": {"default": 64000, "max": 200000},
     "Anthropic API:claude-3-5-haiku-latest": {"default": 64000, "max": 200000},
     
@@ -1020,6 +1019,9 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     # Display image uploader for supported multimodal models
     with col1:
         supports_image = False
+        # Get selected_model from session state
+        selected_model = st.session_state.get('selected_model', '')
+        
         if model_provider == "OpenAI API" and (selected_model.startswith("gpt-4") or selected_model == "o4-mini"):
             supports_image = True
         elif model_provider == "Azure OpenAI Service":
@@ -1038,6 +1040,15 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
 
                 base64_image = encode_image(uploaded_file)
                 image_analysis_prompt = create_image_analysis_prompt()
+                
+                # Determine media type from file extension
+                file_type = uploaded_file.type
+                if file_type == "image/png":
+                    media_type = "image/png"
+                elif file_type in ["image/jpeg", "image/jpg"]:
+                    media_type = "image/jpeg"
+                else:
+                    media_type = "image/jpeg"  # Default fallback
 
                 try:
                     if model_provider == "OpenAI API":
@@ -1060,7 +1071,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         if not anthropic_api_key:
                             st.error("Please enter your Anthropic API key to analyse the image.")
                             raise ValueError
-                        image_analysis_output = get_image_analysis_anthropic(anthropic_api_key, selected_model, image_analysis_prompt, base64_image)
+                        image_analysis_output = get_image_analysis_anthropic(anthropic_api_key, selected_model, image_analysis_prompt, base64_image, media_type)
                     else:
                         image_analysis_output = None
 
@@ -1070,8 +1081,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         st.session_state['app_input'] = image_analysis_content
                     else:
                         st.error("Failed to analyze the image. Please check the API key and try again.")
-                except Exception:
-                    st.error("An unexpected error occurred while analyzing the image.")
+                except Exception as e:
+                    st.error(f"An error occurred while analyzing the image: {str(e)}")
 
         # Use the get_input() function to get the application description and GitHub URL
         app_input = get_input()

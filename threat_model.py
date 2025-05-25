@@ -221,7 +221,7 @@ def get_image_analysis_google(api_key, model_name, prompt, base64_image):
 
 
 # Function to get image analysis using Anthropic Claude models
-def get_image_analysis_anthropic(api_key, model_name, prompt, base64_image):
+def get_image_analysis_anthropic(api_key, model_name, prompt, base64_image, media_type="image/jpeg"):
     client = Anthropic(api_key=api_key)
     response = client.messages.create(
         model=model_name,
@@ -234,7 +234,7 @@ def get_image_analysis_anthropic(api_key, model_name, prompt, base64_image):
                         "type": "image",
                         "source": {
                             "type": "base64",
-                            "media_type": "image/jpeg",
+                            "media_type": media_type,
                             "data": base64_image,
                         },
                     },
