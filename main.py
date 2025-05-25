@@ -13,7 +13,23 @@ import requests
 import json
 import tiktoken
 
-from threat_model import create_threat_model_prompt, get_threat_model, get_threat_model_azure, get_threat_model_google, get_threat_model_mistral, get_threat_model_ollama, get_threat_model_anthropic, get_threat_model_lm_studio, get_threat_model_groq, json_to_markdown, get_image_analysis, create_image_analysis_prompt
+from threat_model import (
+    create_threat_model_prompt,
+    get_threat_model,
+    get_threat_model_azure,
+    get_threat_model_google,
+    get_threat_model_mistral,
+    get_threat_model_ollama,
+    get_threat_model_anthropic,
+    get_threat_model_lm_studio,
+    get_threat_model_groq,
+    json_to_markdown,
+    get_image_analysis,
+    get_image_analysis_azure,
+    get_image_analysis_google,
+    get_image_analysis_anthropic,
+    create_image_analysis_prompt,
+)
 from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
@@ -1001,38 +1017,61 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     if 'app_input' not in st.session_state:
         st.session_state['app_input'] = ''
 
-    # If model provider is OpenAI API and the model is gpt-4o or gpt-4o-mini
+    # Display image uploader for supported multimodal models
     with col1:
-        if model_provider == "OpenAI API" and selected_model in ["gpt-4o", "gpt-4o-mini"]:
+        supports_image = False
+        if model_provider == "OpenAI API" and selected_model.startswith("gpt-4"):
+            supports_image = True
+        elif model_provider == "Azure OpenAI Service":
+            supports_image = True
+        elif model_provider == "Google AI API":
+            supports_image = True
+        elif model_provider == "Anthropic API" and selected_model.startswith("claude-3"):
+            supports_image = True
+
+        if supports_image:
             uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
 
             if uploaded_file is not None:
-                if not openai_api_key:
-                    st.error("Please enter your OpenAI API key to analyse the image.")
-                else:
-                    if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
-                        st.session_state.uploaded_file = uploaded_file
-                        with st.spinner("Analysing the uploaded image..."):
-                            def encode_image(uploaded_file):
-                                return base64.b64encode(uploaded_file.read()).decode('utf-8')
+                def encode_image(uploaded_file):
+                    return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
-                            base64_image = encode_image(uploaded_file)
+                base64_image = encode_image(uploaded_file)
+                image_analysis_prompt = create_image_analysis_prompt()
 
-                            image_analysis_prompt = create_image_analysis_prompt()
+                try:
+                    if model_provider == "OpenAI API":
+                        if not openai_api_key:
+                            st.error("Please enter your OpenAI API key to analyse the image.")
+                            raise ValueError
+                        image_analysis_output = get_image_analysis(openai_api_key, selected_model, image_analysis_prompt, base64_image)
+                    elif model_provider == "Azure OpenAI Service":
+                        if not azure_api_key or not azure_api_endpoint or not azure_deployment_name:
+                            st.error("Please provide your Azure OpenAI configuration to analyse the image.")
+                            raise ValueError
+                        azure_api_version = '2023-12-01-preview'
+                        image_analysis_output = get_image_analysis_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, image_analysis_prompt, base64_image)
+                    elif model_provider == "Google AI API":
+                        if not google_api_key:
+                            st.error("Please enter your Google AI API key to analyse the image.")
+                            raise ValueError
+                        image_analysis_output = get_image_analysis_google(google_api_key, selected_model, image_analysis_prompt, base64_image)
+                    elif model_provider == "Anthropic API":
+                        if not anthropic_api_key:
+                            st.error("Please enter your Anthropic API key to analyse the image.")
+                            raise ValueError
+                        image_analysis_output = get_image_analysis_anthropic(anthropic_api_key, selected_model, image_analysis_prompt, base64_image)
+                    else:
+                        image_analysis_output = None
 
-                            try:
-                                image_analysis_output = get_image_analysis(openai_api_key, selected_model, image_analysis_prompt, base64_image)
-                                if image_analysis_output and 'choices' in image_analysis_output and image_analysis_output['choices'][0]['message']['content']:
-                                    image_analysis_content = image_analysis_output['choices'][0]['message']['content']
-                                    st.session_state.image_analysis_content = image_analysis_content
-                                    # Update app_input session state
-                                    st.session_state['app_input'] = image_analysis_content
-                                else:
-                                    st.error("Failed to analyze the image. Please check the API key and try again.")
-                            except KeyError as e:
-                                st.error("Failed to analyze the image. Please check the API key and try again.")
-                            except Exception as e:
-                                st.error("An unexpected error occurred while analyzing the image.")
+                    if image_analysis_output and 'choices' in image_analysis_output and image_analysis_output['choices'][0]['message']['content']:
+                        image_analysis_content = image_analysis_output['choices'][0]['message']['content']
+                        st.session_state.image_analysis_content = image_analysis_content
+                        st.session_state['app_input'] = image_analysis_content
+                    else:
+                        st.error("Failed to analyze the image. Please check the API key and try again.")
+                except Exception:
+                    st.error("An unexpected error occurred while analyzing the image.")
 
         # Use the get_input() function to get the application description and GitHub URL
         app_input = get_input()
