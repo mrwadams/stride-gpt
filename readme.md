@@ -48,7 +48,11 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.13 (latest)
+### Version 0.14 (latest)
+
+- **GitHub Enterprise Support**: Added support for GitHub Enterprise repositories. The tool now automatically detects and configures the appropriate API endpoint based on the repository URL, making it easy to analyze repositories hosted on private GitHub Enterprise instances. (Thanks to @danielpops for the contribution!)
+
+### Version 0.13
 
 - **New OpenAI Models**: Added support for OpenAI's latest models: gpt-4.1, o3, and o4-mini while maintaining support for o3-mini. These reasoning models provide detailed analytical capabilities.
 - **Anthropic Claude 4 Integration**: Added support for Anthropic's latest Claude 4 models (claude-opus-4-20250514 and claude-sonnet-4-20250514) with enhanced capabilities.
