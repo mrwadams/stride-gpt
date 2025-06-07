@@ -51,6 +51,7 @@ This video is an excellent resource for anyone interested in understanding how S
 ### Version 0.14 (latest)
 
 - **GitHub Enterprise Support**: Added support for GitHub Enterprise repositories. The tool now automatically detects and configures the appropriate API endpoint based on the repository URL, making it easy to analyze repositories hosted on private GitHub Enterprise instances. (Thanks to @danielpops for the contribution!)
+- **Security Updates**: Updated dependencies to address security vulnerabilities identified by Snyk, including updates to anyio, zipp, tornado, requests, and urllib3.
 
 ### Version 0.13
 
