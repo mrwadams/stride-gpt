@@ -1330,6 +1330,8 @@ vulnerabilities and prioritising mitigation efforts.
 
 # ------------------ Mitigations Generation ------------------ #
 
+from knowledge_base import KNOWLEDGE_BASE
+
 with tab3:
     st.markdown("""
 Use this tab to generate potential mitigations for the threats identified in the threat model. Mitigations are security controls or
@@ -1338,6 +1340,13 @@ the security posture of the application and protect against potential attacks.
 """)
     st.markdown("""---""")
     
+    # Add a multiselect for the knowledge base
+    selected_articles = st.multiselect(
+        "Select knowledge base articles to include for additional context:",
+        list(KNOWLEDGE_BASE.keys()),
+        help="Select articles to provide the model with more context for generating mitigations."
+    )
+
     # Create a submit button for Mitigations
     mitigations_submit_button = st.button(label="Suggest Mitigations")
 
@@ -1348,7 +1357,7 @@ the security posture of the application and protect against potential attacks.
             # Convert the threat_model data into a Markdown list
             threats_markdown = json_to_markdown(st.session_state['threat_model'], [])
             # Generate the prompt using the create_mitigations_prompt function
-            mitigations_prompt = create_mitigations_prompt(threats_markdown)
+            mitigations_prompt = create_mitigations_prompt(threats_markdown, selected_articles)
 
             # Clear thinking content when switching models or starting a new operation
             if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():

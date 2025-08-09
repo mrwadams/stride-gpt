@@ -8,10 +8,22 @@ from google import genai as google_genai
 from groq import Groq
 from utils import process_groq_response, create_reasoning_system_prompt
 
+from knowledge_base import KNOWLEDGE_BASE
+
 # Function to create a prompt to generate mitigating controls
-def create_mitigations_prompt(threats):
+def create_mitigations_prompt(threats, selected_articles):
+    knowledge_base_content = ""
+    if selected_articles:
+        knowledge_base_content += "\n\nADDITIONAL KNOWLEDGE BASE ARTICLES FOR CONTEXT:\n"
+        for article_title in selected_articles:
+            if article_title in KNOWLEDGE_BASE:
+                article = KNOWLEDGE_BASE[article_title]
+                knowledge_base_content += f"\n---\nTitle: {article['title']}\nContent: {article['content']}\n---\n"
+
     prompt = f"""
 Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology. Your task is to provide potential mitigations for the threats identified in the threat model. It is very important that your responses are tailored to reflect the details of the threats.
+
+When generating mitigations, you must take into account the provided knowledge base articles. These articles provide additional context and best practices that should be reflected in your recommendations.
 
 Your output should be in the form of a markdown table with the following columns:
     - Column A: Threat Type
@@ -20,7 +32,7 @@ Your output should be in the form of a markdown table with the following columns
 
 Below is the list of identified threats:
 {threats}
-
+{knowledge_base_content}
 YOUR RESPONSE (do not wrap in a code block):
 """
     return prompt
