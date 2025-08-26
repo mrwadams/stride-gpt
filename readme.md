@@ -32,11 +32,13 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Suggests possible mitigations for identified threats
 - Supports DREAD risk scoring for identified threats
 - Generates Gherkin test cases based on identified threats
-- 🆕 GitHub repository analysis for comprehensive threat modelling
+- GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
+- Advanced reasoning model support (OpenAI GPT-5 series, Anthropic Claude 4, Mistral Magistral series)
+- Comprehensive LLM provider support: OpenAI, Azure OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via Ollama and LM Studio Server
 - No data storage; application details are not saved
-- Supports models accessed via OpenAI API, Azure OpenAI Service, Google AI API, Mistral API, or locally hosted models via Ollama and 🆕 LM Studio Server
 - Available as a Docker container image for easy deployment
 - Environment variable support for secure configuration
+- Downloadable outputs in Markdown format for all generated content
 
 ## Roadmap
 - [x] Add support for multi-modal threat modelling
