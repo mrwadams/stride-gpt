@@ -126,7 +126,7 @@ def get_attack_tree(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
     # For models that support JSON output format
-    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Create a structured attack tree by analyzing potential attack paths.",
             approach_description="""Analyze the application and create an attack tree showing potential attack paths.
@@ -171,7 +171,7 @@ ONLY RESPOND WITH THE JSON STRUCTURE, NO ADDITIONAL TEXT."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            max_completion_tokens=4000
+            max_completion_tokens=20000 if model_name.startswith("gpt-5") else 8192
         )
     else:
         # For other models, try to get JSON output without format parameter
@@ -182,7 +182,7 @@ ONLY RESPOND WITH THE JSON STRUCTURE, NO ADDITIONAL TEXT."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=4000
+            max_tokens=8192
         )
 
     # Try to parse JSON response

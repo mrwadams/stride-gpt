@@ -503,38 +503,46 @@ load_env_variables()
 # Define token limits for specific model+provider combinations
 # Format: {"provider:model": {"default": default_value, "max": max_value}}
 model_token_limits = {
-    # OpenAI models
-    "OpenAI API:gpt-4.5-preview": {"default": 64000, "max": 128000},
-    "OpenAI API:gpt-4.1": {"default": 128000, "max": 1000000},  # 1M tokens context
+    "OpenAI API:gpt-5": {"default": 128000, "max": 400000},
+    "OpenAI API:gpt-5-mini": {"default": 64000, "max": 400000},
+    "OpenAI API:gpt-5-nano": {"default": 64000, "max": 400000},
+    
+    "OpenAI API:gpt-4.1": {"default": 128000, "max": 1000000},
     "OpenAI API:gpt-4o": {"default": 64000, "max": 128000},
     "OpenAI API:gpt-4o-mini": {"default": 64000, "max": 128000},
-    "OpenAI API:o1": {"default": 64000, "max": 200000},
+    
     "OpenAI API:o3": {"default": 64000, "max": 200000},
     "OpenAI API:o3-mini": {"default": 64000, "max": 200000},
-    "OpenAI API:o4-mini": {"default": 64000, "max": 200000},  # Increased to 200K based on OpenAI docs
-    
+    "OpenAI API:o4-mini": {"default": 64000, "max": 200000},    
+
     # Claude models
+    "Anthropic API:claude-opus-4-1-20250805": {"default": 64000, "max": 200000},
     "Anthropic API:claude-opus-4-20250514": {"default": 64000, "max": 200000},
     "Anthropic API:claude-sonnet-4-20250514": {"default": 64000, "max": 200000},
     "Anthropic API:claude-3-7-sonnet-latest": {"default": 64000, "max": 200000},
     "Anthropic API:claude-3-5-haiku-latest": {"default": 64000, "max": 200000},
     
     # Mistral models
-    "Mistral API:mistral-large-latest": {"default": 64000, "max": 131000},
-    "Mistral API:mistral-small-latest": {"default": 16000, "max": 32000},
+    "Mistral API:magistral-medium-latest": {"default": 32000, "max": 40000},
+    "Mistral API:magistral-small-latest": {"default": 32000, "max": 40000},
+    "Mistral API:mistral-medium-latest": {"default": 64000, "max": 128000},
+    "Mistral API:mistral-large-latest": {"default": 64000, "max": 128000},
+    "Mistral API:ministral-8b-latest": {"default": 64000, "max": 128000},
+    "Mistral API:mistral-small-latest": {"default": 24000, "max": 32000},
     
     # Google models
-    "Google AI API:gemini-2.5-pro-preview-05-06": {"default": 200000, "max": 1000000},
-    "Google AI API:gemini-2.5-flash-preview-05-20": {"default": 200000, "max": 1000000},
-    "Google AI API:gemini-2.0-flash": {"default": 120000, "max": 1000000},
-    "Google AI API:gemini-2.0-flash-lite": {"default": 120000, "max": 1000000},
+    "Google AI API:gemini-2.5-pro": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-2.5-flash": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-2.5-flash-lite": {"default": 200000, "max": 1000000},
     
     # Groq models
-    "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
+    "Groq API:openai/gpt-oss-120b": {"default": 64000, "max": 128000},
+    "Groq API:openai/gpt-oss-20b": {"default": 64000, "max": 128000},
     "Groq API:llama-3.3-70b-versatile": {"default": 64000, "max": 128000},
-    "Groq API:llama-3.1-8b-instant": {"default": 64000, "max": 128000},
-    "Groq API:mixtral-8x7b-32768": {"default": 16000, "max": 32000},
-    "Groq API:gemma-9b-it": {"default": 4000, "max": 8192},
+    "Groq API:llama-3.1-8b-instant": {"default": 64000, "max": 131072},
+    "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
+    "Groq API:moonshotai/kimi-k2-instruct": {"default": 64000, "max": 128000},
+    "Groq API:qwen/qwen3-32b": {"default": 64000, "max": 128000},
     
     # Azure models - conservative defaults
     "Azure OpenAI Service:default": {"default": 64000, "max": 128000},
@@ -573,7 +581,7 @@ def on_model_provider_change():
     # This ensures that when provider changes, we reset the model selection
     # which will trigger the on_model_selection_change callback
     if new_provider == "OpenAI API":
-        st.session_state.selected_model = "gpt-4o"
+        st.session_state.selected_model = "gpt-5"
     elif new_provider == "Anthropic API":
         st.session_state.selected_model = "claude-sonnet-4-20250514"
     elif new_provider == "Azure OpenAI Service":
@@ -651,10 +659,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         selected_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gpt-4.5-preview", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "o1", "o3", "o3-mini", "o4-mini"],
+            ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4o", "gpt-4o-mini", "o3", "o3-mini", "o4-mini"],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="GPT-4.1 is OpenAI's most advanced model with 1M token context. o1, o3, o3-mini, and o4-mini are reasoning models that perform complex reasoning before responding. o3 and o4-mini are newer models with superior reasoning capabilities and 200K token contexts."
+            help="GPT-5 series are OpenAI's latest models excelling in coding and agentic tasks. GPT-4.1 has 1M token context. o3, o3-mini, and o4-mini are reasoning models with superior reasoning capabilities."
         )
 
     if model_provider == "Anthropic API":
@@ -678,8 +686,8 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         anthropic_model = st.selectbox(
             "Select the model you would like to use:",
-            ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"],
-            index=1,  # Make claude-sonnet-4-20250514 the default
+            ["claude-opus-4-1-20250805", "claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest"],
+            index=2,  # Make claude-sonnet-4-20250514 the default
             key="selected_model",
             on_change=on_model_selection_change,
             help="Claude 4 models are the latest generation with enhanced capabilities. Claude Sonnet 4 offers the best balance of performance and efficiency."
@@ -748,10 +756,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-2.5-pro-preview-05-06", "gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
+            ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Gemini 2.5 Pro/Flash are Google's latest preview models with 1M token context and enhanced thinking capabilities that show model reasoning. Gemini 2.0 Flash is a capable model, while Gemini 2.0 Flash Lite is more cost-effective."
+            help="Gemini 2.5 models are Google's latest with 1M token context, enhanced reasoning capabilities, and JSON mode support."
         )
 
     if model_provider == "Mistral API":
@@ -775,10 +783,10 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         mistral_model = st.selectbox(
             "Select the model you would like to use:",
-            ["mistral-large-latest", "mistral-small-latest"],
+            ["magistral-medium-latest", "magistral-small-latest", "mistral-medium-latest", "mistral-large-latest", "ministral-8b-latest", "mistral-small-latest"],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Mistral Large is the most capable model, while Mistral Small is more cost-effective."
+            help="Magistral models are Mistral's latest flagship models. Mistral Large offers premium capabilities, Medium provides balanced performance, Small is cost-effective, and Ministral 8B is optimized for efficiency."
         )
 
     if model_provider == "Ollama":
@@ -867,15 +875,17 @@ with st.sidebar:
         groq_model = st.selectbox(
             "Select the model you would like to use:",
             [
-                "deepseek-r1-distill-llama-70b",
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
                 "llama-3.3-70b-versatile",
                 "llama-3.1-8b-instant",
-                "mixtral-8x7b-32768",
-                "gemma-9b-it"
+                "deepseek-r1-distill-llama-70b",
+                "moonshotai/kimi-k2-instruct",
+                "qwen/qwen3-32b"
             ],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Select from Groq's supported models. The Llama 3.3 70B Versatile model is recommended for best results."
+            help="OpenAI GPT-OSS models provide open-source options, Llama 3.3 70B excels at tool use, DeepSeek R1 offers reasoning capabilities, Kimi K2 provides multilingual support, and Qwen3 32B delivers balanced performance."
         )
 
     # Add GitHub API key input field to the sidebar
@@ -951,6 +961,21 @@ with st.sidebar:
     st.markdown(
         "⭐ Star on GitHub: [![Star on GitHub](https://img.shields.io/github/stars/mrwadams/stride-gpt?style=social)](https://github.com/mrwadams/stride-gpt)"
     )
+    
+    # Donate button - smaller version
+    st.markdown(
+        """
+        <div style="text-align: center; margin: 10px 0;">
+            <a href="https://buymeacoffee.com/mrwadams" target="_blank">
+                <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" 
+                     alt="Buy Me A Coffee" 
+                     style="height: 35px !important; width: 127px !important;">
+            </a>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+    
     st.markdown("""---""")
 
 
@@ -979,7 +1004,7 @@ with st.sidebar:
     st.markdown(
         """
     ### **How does STRIDE GPT work?**
-    When you enter an application description and other relevant details, the tool will use a GPT model to generate a threat model for your application. The model uses the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
+    When you enter an application description and other relevant details, the tool uses advanced AI models from multiple providers (OpenAI, Anthropic, Google, Mistral, Ollama, LM Studio, and Groq) to generate a threat model for your application. The selected model analyzes the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
     """
     )
     st.markdown(
@@ -991,13 +1016,22 @@ with st.sidebar:
     st.markdown(
         """
     ### **Why does it take so long to generate a threat model?**
-    If you are using a free OpenAI API key, it will take a while to generate a threat model. This is because the free API key has strict rate limits. To speed up the process, you can use a paid API key.
+    Several factors can affect generation time:
+    
+    **API Rate Limits:** Free API keys have strict rate limits. Using a paid API key will speed up the process.
+    
+    **Reasoning Models:** If you've selected a reasoning model (like o3, o3-mini, o4-mini, or GPT-5 series), these models take longer because they "think" before responding to provide more thorough analysis.
+    
+    **For Faster Results:** Choose smaller/faster models like:
+    - Gemini Flash instead of Gemini Pro
+    - GPT-4o-mini instead of GPT-4o 
+    - Claude Haiku instead of Claude Sonnet
     """
     )
     st.markdown(
         """
     ### **Are the threat models 100% accurate?**
-    No, the threat models are not 100% accurate. STRIDE GPT uses GPT Large Language Models (LLMs) to generate its output. The GPT models are powerful, but they sometimes makes mistakes and are prone to 'hallucinations' (generating irrelevant or inaccurate content). Please use the output only as a starting point for identifying and addressing potential security risks in your applications.
+    No, the threat models are not 100% accurate. STRIDE GPT uses various Large Language Models (LLMs) from multiple AI providers to generate its output. While these models are powerful, they can sometimes make mistakes and are prone to 'hallucinations' (generating irrelevant or inaccurate content). Please use the output only as a starting point for identifying and addressing potential security risks in your applications.
     """
     )
     st.markdown(

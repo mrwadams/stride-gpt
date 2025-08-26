@@ -37,8 +37,8 @@ YOUR RESPONSE (do not add introductory text, just provide the Gherkin test cases
 def get_test_cases(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3, o3-mini, o4-mini), use a structured system prompt
-    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Generate comprehensive security test cases in Gherkin format for the identified threats.",
             approach_description="""1. Analyze each threat in the provided threat model:
@@ -67,7 +67,7 @@ def get_test_cases(api_key, model_name, prompt):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            max_completion_tokens=4000
+            max_completion_tokens=20000 if model_name.startswith("gpt-5") else 8192
         )
     else:
         system_prompt = "You are a helpful assistant that provides Gherkin test cases in Markdown format."
@@ -78,7 +78,7 @@ def get_test_cases(api_key, model_name, prompt):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=4000
+            max_tokens=8192
         )
 
     # Access the content directly as the response will be in text format
