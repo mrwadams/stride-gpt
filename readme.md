@@ -13,9 +13,16 @@ STRIDE GPT is an AI-powered threat modelling tool that leverages Large Language 
 - [Contributing](#contributing)
 - [License](#license)
 
-## Star the Repo
+## Support the Project
 
-If you find STRIDE GPT useful, please consider starring the repository on GitHub. This helps more people discover the tool. Your support is greatly appreciated! ⭐
+If you find STRIDE GPT useful, please consider supporting the project:
+
+- ⭐ **Star the repository** on GitHub to help more people discover the tool
+- ☕ **Buy me a coffee** to support continued development and maintenance
+
+<a href="https://buymeacoffee.com/mrwadams" target="_blank">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px; width: 217px;">
+</a>
 
 ## Features
 - Simple and user-friendly interface
@@ -48,11 +55,22 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.13 (latest)
+### Version 0.14 (latest)
+
+- **GPT-5 Series Support**: Added comprehensive support for OpenAI's GPT-5 series models (gpt-5, gpt-5-mini, gpt-5-nano) across all threat modeling features. These advanced reasoning models provide enhanced analytical capabilities with proper token allocation for both internal reasoning and output generation.
+- **Anthropic Claude 4 Integration**: Added support for Anthropic's latest Claude 4 models (claude-opus-4-1-20250805, claude-opus-4-20250514, and claude-sonnet-4-20250514) with enhanced capabilities.
+- **GitHub Enterprise Support**: Added support for GitHub Enterprise repositories. The tool now automatically detects and configures the appropriate API endpoint based on the repository URL, making it easy to analyze repositories hosted on private GitHub Enterprise instances. (Thanks to @danielpops for the contribution!)
+- **Enhanced Reasoning Model Integration**: Updated parameter handling to use `max_completion_tokens` instead of deprecated `max_tokens` for GPT-5 and other OpenAI reasoning models, ensuring compatibility with OpenAI's latest API requirements.
+- **Improved DREAD Assessment Display**: Removed truncation limits in DREAD assessment scenario descriptions, allowing users to view complete threat scenarios in the risk assessment table instead of abbreviated "..." versions.
+- **Security Updates**: Updated dependencies to address security vulnerabilities identified by Snyk, including updates to anyio, zipp, tornado, requests, and urllib3.
+- **Mistral Model Updates**: Added support for Mistral's latest models including Magistral Medium/Small (reasoning models), Mistral Medium, and Ministral 8B.
+- **Groq Model Updates**: Updated Groq model selection with OpenAI GPT-OSS models (120B, 20B), maintained Llama 3.3 70B and 3.1 8B, kept DeepSeek R1, and added Moonshot Kimi K2 and Qwen3 32B.
+- **Google Gemini 2.5 GA Update**: Updated to use the General Availability versions of Gemini 2.5 models (Pro, Flash, Flash Lite) replacing the previous preview versions.
+- **Support the Project**: Added a "Buy me a coffee" button in the sidebar to allow users to support the continued development and maintenance of STRIDE GPT.
+
+### Version 0.13
 
 - **New OpenAI Models**: Added support for OpenAI's latest models: gpt-4.1, o3, and o4-mini while maintaining support for o3-mini. These reasoning models provide detailed analytical capabilities.
-- **Anthropic Claude 4 Integration**: Added support for Anthropic's latest Claude 4 models (claude-opus-4-20250514 and claude-sonnet-4-20250514) with enhanced capabilities.
-- **Google Gemini 2.5 Integration**: Added support for Google's Gemini 2.5 Pro and Flash preview models with a 1 million token context window and enhanced reasoning capabilities.
 - **Migrated to New Google GenAI SDK**: Completely migrated to the new Google GenAI SDK, removing all dependency on the deprecated Google Generative AI library. Refactored Gemini (Google AI) model integration across all modules for improved consistency and performance.
 - **Enhanced Reasoning Model Support**: Expanded the reasoning framework to work with all of OpenAI's reasoning models (o1, o3, o3-mini, o4-mini) across all threat modeling features, including threat model generation, attack trees, mitigations, and DREAD assessments.
 - **Increased Token Limits**: Updated token limits for new models to take advantage of their expanded contexts, particularly for gpt-4.1 which supports 1 million tokens and o4-mini which supports 200K tokens.

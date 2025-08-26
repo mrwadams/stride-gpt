@@ -2,7 +2,7 @@ import json
 import requests
 import base64
 from anthropic import Anthropic
-from mistralai import Mistral, UserMessage
+from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
 import re
@@ -125,8 +125,8 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
         }
     ]
     
-    # If using o4-mini, use the structured system prompt approach
-    if model_name == "o4-mini":
+    # If using reasoning models, use the structured system prompt approach
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Analyze the provided architecture diagram and explain it to a Security Architect.",
             approach_description="""1. Carefully examine the diagram
@@ -144,10 +144,11 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
         
         # Create completion with max_completion_tokens for reasoning models
         try:
+            max_tokens = 20000 if model_name.startswith("gpt-5") else 8192
             response = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
-                max_completion_tokens=4000
+                max_completion_tokens=max_tokens
             )
             return {
                 "choices": [
@@ -157,12 +158,12 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
         except Exception as e:
             return None
     else:
-        # For standard models (gpt-4, etc.)
+        # For standard models (gpt-4o, etc.)
         try:
             response = client.chat.completions.create(
                 model=model_name,
                 messages=messages,
-                max_tokens=4000
+                max_tokens=8192
             )
             return {
                 "choices": [
@@ -252,8 +253,8 @@ def get_image_analysis_anthropic(api_key, model_name, prompt, base64_image, medi
 def get_threat_model(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3, o3-mini, o4-mini), use a structured system prompt
-    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Analyze the provided application description and generate a comprehensive threat model using the STRIDE methodology.",
             approach_description="""1. Carefully read and understand the application description
@@ -271,6 +272,8 @@ def get_threat_model(api_key, model_name, prompt):
 5. Format the output as a JSON object with 'threat_model' and 'improvement_suggestions' arrays"""
         )
         # Create completion with max_completion_tokens for reasoning models
+        # GPT-5 models need more tokens for reasoning + output
+        max_tokens = 20000 if model_name.startswith("gpt-5") else 8192
         response = client.chat.completions.create(
             model=model_name,
             response_format={"type": "json_object"},
@@ -278,7 +281,7 @@ def get_threat_model(api_key, model_name, prompt):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            max_completion_tokens=4000
+            max_completion_tokens=max_tokens
         )
     else:
         system_prompt = "You are a helpful assistant designed to output JSON."
@@ -290,11 +293,16 @@ def get_threat_model(api_key, model_name, prompt):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=4000
+            max_tokens=8192
         )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
+    content = response.choices[0].message.content
+    
+    if not content:
+        raise ValueError(f"Empty response from model {model_name}. This may indicate the model is not available or has rate limits.")
+    
+    response_content = json.loads(content)
 
     return response_content
 
@@ -404,7 +412,7 @@ def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
         model = mistral_model,
         response_format={"type": "json_object"},
         messages=[
-            UserMessage(content=prompt)
+            {"role": "user", "content": prompt}
         ]
     )
 

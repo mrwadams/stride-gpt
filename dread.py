@@ -3,7 +3,7 @@ import requests
 import time
 import re
 from anthropic import Anthropic
-from mistralai import Mistral, UserMessage
+from mistralai import Mistral
 from openai import OpenAI, AzureOpenAI
 import streamlit as st
 
@@ -44,9 +44,7 @@ def dread_json_to_markdown(dread_assessment):
                 threat_type = str(threat_type).replace('|', '\\|')
                 scenario = str(scenario).replace('|', '\\|')
                 
-                # Ensure scenario text doesn't break table formatting by limiting length and removing newlines
-                if len(scenario) > 100:
-                    scenario = scenario[:97] + "..."
+                # Ensure scenario text doesn't break table formatting by removing newlines
                 scenario = scenario.replace('\n', ' ').replace('\r', '')
                 
                 # Add the row to the table with proper formatting
@@ -126,8 +124,8 @@ def clean_json_response(response_text):
 def get_dread_assessment(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3, o3-mini, o4-mini), use a structured system prompt
-    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Perform a DREAD risk assessment for the identified security threats.",
             approach_description="""1. For each threat in the provided threat model:
@@ -260,7 +258,7 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
         model=mistral_model,
         response_format={"type": "json_object"},
         messages=[
-            UserMessage(content=prompt)
+            {"role": "user", "content": prompt}
         ]
     )
 

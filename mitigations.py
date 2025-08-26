@@ -30,8 +30,8 @@ YOUR RESPONSE (do not wrap in a code block):
 def get_mitigations(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3, o3-mini, o4-mini), use a structured system prompt
-    if model_name in ["o1", "o3", "o3-mini", "o4-mini"]:
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Generate effective security mitigations for the identified threats using the STRIDE methodology.",
             approach_description="""1. Analyze each threat in the provided threat model
