@@ -39,11 +39,11 @@ from dread import create_dread_assessment_prompt, get_dread_assessment, get_drea
 # ------------------ Helper Functions ------------------ #
 
 # Function to get available models from LM Studio Server
-def get_lm_studio_models(endpoint):
+def get_lm_studio_models(endpoint, api_key="not-needed"):
     try:
         client = OpenAI(
             base_url=f"{endpoint}/v1",
-            api_key="not-needed"
+            api_key=api_key
         )
         models = client.models.list()
         return [model.id for model in models.data]
@@ -59,7 +59,8 @@ def get_lm_studio_models(endpoint):
 Please check:
 1. LM Studio is properly configured and running
 2. You have loaded a model in LM Studio
-3. The server is running in local inference mode""")
+3. The server is running in local inference mode
+4. If using authentication, verify your API key is correct""")
         return ["local-model"]
 
 def get_ollama_models(ollama_endpoint):
@@ -825,8 +826,9 @@ with st.sidebar:
         st.markdown(
         """
     1. Configure your LM Studio Server endpoint below (defaults to http://localhost:1234) 🔧
-    2. Provide details of the application that you would like to threat model 📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    2. Optionally enter an API key if your LM Studio Server requires authentication 🔑
+    3. Provide details of the application that you would like to threat model 📝
+    4. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
     """
     )
         # Add LM Studio Server endpoint configuration field
@@ -835,6 +837,17 @@ with st.sidebar:
             value=st.session_state.get('lm_studio_endpoint', 'http://localhost:1234'),
             help="The URL of your LM Studio Server instance. Default is http://localhost:1234 for local installations.",
         )
+        
+        # Add LM Studio API key input field (optional)
+        lm_studio_api_key = st.text_input(
+            "Enter your LM Studio API key (optional):",
+            value=st.session_state.get('lm_studio_api_key', ''),
+            type="password",
+            help="Optional API key for LM Studio Server authentication. Leave empty if your server doesn't require authentication.",
+        )
+        if lm_studio_api_key:
+            st.session_state['lm_studio_api_key'] = lm_studio_api_key
+        
         if lm_studio_endpoint:
             # Basic URL validation
             if not lm_studio_endpoint.startswith(('http://', 'https://')):
@@ -842,7 +855,7 @@ with st.sidebar:
             else:
                 st.session_state['lm_studio_endpoint'] = lm_studio_endpoint
                 # Fetch available models from LM Studio Server
-                available_models = get_lm_studio_models(lm_studio_endpoint)
+                available_models = get_lm_studio_models(lm_studio_endpoint, st.session_state.get('lm_studio_api_key', ''))
 
         # Add model selection input field
         selected_model = st.selectbox(
@@ -1223,7 +1236,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             st.markdown("2. Checking the application logs for more details")
                             st.markdown("3. Using a different model if the issue persists")
                     elif model_provider == "LM Studio Server":
-                        model_output = get_threat_model_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, threat_model_prompt)
+                        model_output = get_threat_model_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, threat_model_prompt, st.session_state.get('lm_studio_api_key', ''))
                     elif model_provider == "Groq API":
                         model_output = get_threat_model_groq(groq_api_key, groq_model, threat_model_prompt)
 
@@ -1317,7 +1330,7 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Anthropic API":
                         mermaid_code = get_attack_tree_anthropic(anthropic_api_key, anthropic_model, attack_tree_prompt)
                     elif model_provider == "LM Studio Server":
-                        mermaid_code = get_attack_tree_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, attack_tree_prompt)
+                        mermaid_code = get_attack_tree_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, attack_tree_prompt, st.session_state.get('lm_studio_api_key', ''))
                     elif model_provider == "Groq API":
                         mermaid_code = get_attack_tree_groq(groq_api_key, groq_model, attack_tree_prompt)
 
@@ -1416,7 +1429,7 @@ the security posture of the application and protect against potential attacks.
                         elif model_provider == "Anthropic API":
                             mitigations_markdown = get_mitigations_anthropic(anthropic_api_key, anthropic_model, mitigations_prompt)
                         elif model_provider == "LM Studio Server":
-                            mitigations_markdown = get_mitigations_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, mitigations_prompt)
+                            mitigations_markdown = get_mitigations_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, mitigations_prompt, st.session_state.get('lm_studio_api_key', ''))
                         elif model_provider == "Groq API":
                             mitigations_markdown = get_mitigations_groq(groq_api_key, groq_model, mitigations_prompt)
 
@@ -1498,7 +1511,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "Anthropic API":
                             dread_assessment = get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, dread_assessment_prompt)
                         elif model_provider == "LM Studio Server":
-                            dread_assessment = get_dread_assessment_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, dread_assessment_prompt)
+                            dread_assessment = get_dread_assessment_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, dread_assessment_prompt, st.session_state.get('lm_studio_api_key', ''))
                         elif model_provider == "Groq API":
                             dread_assessment = get_dread_assessment_groq(groq_api_key, groq_model, dread_assessment_prompt)
                         
@@ -1595,7 +1608,7 @@ scenarios.
                         elif model_provider == "Anthropic API":
                             test_cases_markdown = get_test_cases_anthropic(anthropic_api_key, anthropic_model, test_cases_prompt)
                         elif model_provider == "LM Studio Server":
-                            test_cases_markdown = get_test_cases_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, test_cases_prompt)
+                            test_cases_markdown = get_test_cases_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, test_cases_prompt, st.session_state.get('lm_studio_api_key', ''))
                         elif model_provider == "Groq API":
                             test_cases_markdown = get_test_cases_groq(groq_api_key, groq_model, test_cases_prompt)
 
