@@ -195,6 +195,84 @@ ONLY RESPOND WITH THE JSON STRUCTURE, NO ADDITIONAL TEXT."""
         # Fallback: try to extract Mermaid code if JSON parsing fails
         return extract_mermaid_code(response.choices[0].message.content)
 
+# Function to get attack tree from OpenAI-compatible API.
+def get_attack_tree_openai_compatible(api_key, base_url, model_name, prompt):
+    """
+    Get attack tree from OpenAI-compatible API.
+    This function reuses the standard OpenAI logic but with a custom base_url.
+    """
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
+    # For models that support JSON output format
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Create a structured attack tree by analyzing potential attack paths.",
+            approach_description="""Analyze the application and create an attack tree showing potential attack paths.
+
+Rules:
+- Use simple alphanumeric IDs (A1, A2, B1, etc.)
+- Make labels clear and descriptive
+- Include all attack paths and sub-paths
+- Maintain proper parent-child relationships
+- Ensure proper JSON structure
+
+Example format:
+{
+    "nodes": [
+        {
+            "id": "A1",
+            "label": "Compromise Application",
+            "children": [
+                {
+                    "id": "B1",
+                    "label": "Exploit Authentication Vulnerabilities",
+                    "children": [
+                        {
+                            "id": "C1",
+                            "label": "Brute Force Credentials",
+                            "children": []
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
+
+ONLY RESPOND WITH THE JSON STRUCTURE, NO ADDITIONAL TEXT."""
+        )
+        
+        response = client.chat.completions.create(
+            model=model_name,
+            response_format=create_attack_tree_schema(),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_completion_tokens=20000 if model_name.startswith("gpt-5") else 8192
+        )
+    else:
+        # For other models, try to get JSON output without format parameter
+        system_prompt = create_json_structure_prompt()
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=8192
+        )
+
+    # Try to parse JSON response
+    try:
+        # Clean the response text first
+        cleaned_response = clean_json_response(response.choices[0].message.content)
+        tree_data = json.loads(cleaned_response)
+        return convert_tree_to_mermaid(tree_data)
+    except json.JSONDecodeError:
+        # Fallback: try to extract Mermaid code if JSON parsing fails
+        return extract_mermaid_code(response.choices[0].message.content)
+
 # Function to get attack tree from the Azure OpenAI response.
 def get_attack_tree_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(

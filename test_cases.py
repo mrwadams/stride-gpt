@@ -86,6 +86,63 @@ def get_test_cases(api_key, model_name, prompt):
 
     return test_cases
 
+# Function to get test cases from OpenAI-compatible API.
+def get_test_cases_openai_compatible(api_key, base_url, model_name, prompt):
+    """
+    Get test cases from OpenAI-compatible API.
+    This function reuses the standard OpenAI logic but with a custom base_url.
+    """
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Generate comprehensive security test cases in Gherkin format for the identified threats.",
+            approach_description="""1. Analyze each threat in the provided threat model:
+   - Understand the threat type and scenario
+   - Identify critical security aspects to test
+   - Consider both positive and negative test cases
+2. For each test case:
+   - Write clear preconditions in 'Given' steps
+   - Define specific actions in 'When' steps
+   - Specify expected outcomes in 'Then' steps
+   - Include relevant security validation checks
+3. Structure the test cases:
+   - Add descriptive titles for each scenario
+   - Use proper Gherkin syntax and formatting
+   - Group related test cases together
+   - Include edge cases and boundary conditions
+4. Format output as Markdown with Gherkin code blocks:
+   - Use proper code block syntax
+   - Ensure consistent indentation
+   - Add clear scenario descriptions"""
+        )
+        # Create completion with max_completion_tokens for reasoning models
+        response = client.chat.completions.create(
+            model = model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_completion_tokens=20000 if model_name.startswith("gpt-5") else 8192
+        )
+    else:
+        system_prompt = "You are a helpful assistant that provides Gherkin test cases in Markdown format."
+        # Create completion with max_tokens for other models
+        response = client.chat.completions.create(
+            model = model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=8192
+        )
+
+    # Access the content directly as the response will be in text format
+    test_cases = response.choices[0].message.content
+
+    return test_cases
+
 # Function to get mitigations from the Azure OpenAI response.
 def get_test_cases_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(

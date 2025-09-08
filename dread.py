@@ -171,6 +171,60 @@ def get_dread_assessment(api_key, model_name, prompt):
     
     return dread_assessment
 
+def get_dread_assessment_openai_compatible(api_key, base_url, model_name, prompt):
+    """
+    Get DREAD assessment from OpenAI-compatible API.
+    This function reuses the standard OpenAI logic but with a custom base_url.
+    """
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Perform a DREAD risk assessment for the identified security threats.",
+            approach_description="""1. For each threat in the provided threat model:
+   - Analyze the threat type and scenario in detail
+   - Evaluate Damage Potential (1-10):
+     * Consider direct and indirect damage
+     * Assess financial, reputational, and operational impact
+   - Evaluate Reproducibility (1-10):
+     * Assess how reliably the attack can be reproduced
+     * Consider required conditions and resources
+   - Evaluate Exploitability (1-10):
+     * Analyze technical complexity
+     * Consider required skills and tools
+   - Evaluate Affected Users (1-10):
+     * Determine scope of impact
+     * Consider both direct and indirect users
+   - Evaluate Discoverability (1-10):
+     * Assess how easily the vulnerability can be found
+     * Consider visibility and detection methods
+2. Format output as JSON with 'Risk Assessment' array containing:
+   - Threat Type
+   - Scenario
+   - Numerical scores (1-10) for each DREAD category"""
+        )
+    else:
+        system_prompt = "You are a helpful assistant designed to output JSON."
+
+    response = client.chat.completions.create(
+        model=model_name,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    try:
+        dread_assessment = json.loads(response.choices[0].message.content)
+    except json.JSONDecodeError:
+        # Handle error silently
+        dread_assessment = {}
+    
+    return dread_assessment
+
 def get_dread_assessment_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
     client = AzureOpenAI(
         azure_endpoint = azure_api_endpoint,

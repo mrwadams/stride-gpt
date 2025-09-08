@@ -24,17 +24,19 @@ from threat_model import (
     get_threat_model_anthropic,
     get_threat_model_lm_studio,
     get_threat_model_groq,
+    get_threat_model_openai_compatible,
     json_to_markdown,
     get_image_analysis,
     get_image_analysis_azure,
     get_image_analysis_google,
     get_image_analysis_anthropic,
+    get_image_analysis_openai_compatible,
     create_image_analysis_prompt,
 )
-from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google
-from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq
-from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
-from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, get_dread_assessment_groq, dread_json_to_markdown
+from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_tree_azure, get_attack_tree_mistral, get_attack_tree_ollama, get_attack_tree_anthropic, get_attack_tree_lm_studio, get_attack_tree_groq, get_attack_tree_google, get_attack_tree_openai_compatible
+from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq, get_mitigations_openai_compatible
+from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq, get_test_cases_openai_compatible
+from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, get_dread_assessment_groq, get_dread_assessment_openai_compatible, dread_json_to_markdown
 
 # ------------------ Helper Functions ------------------ #
 
@@ -632,7 +634,7 @@ with st.sidebar:
     # Add model selection input field to the sidebar
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        ["OpenAI API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Groq API", "Ollama", "LM Studio Server"],
+        ["OpenAI API", "OpenAI-Compatible API", "Anthropic API", "Azure OpenAI Service", "Google AI API", "Mistral API", "Groq API", "Ollama", "LM Studio Server"],
         key="model_provider",
         on_change=on_model_provider_change,
         help="Select the model provider you would like to use. This will determine the models available for selection.",
@@ -664,6 +666,51 @@ with st.sidebar:
             on_change=on_model_selection_change,
             help="GPT-5 series are OpenAI's latest models excelling in coding and agentic tasks. GPT-4.1 has 1M token context. o3, o3-mini, and o4-mini are reasoning models with superior reasoning capabilities."
         )
+
+    if model_provider == "OpenAI-Compatible API":
+        st.markdown(
+        """
+    1. Enter your API key, base URL, and model name below 🔑
+    2. Provide details of the application that you would like to threat model  📝
+    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
+    """
+    )
+        # Add OpenAI-Compatible API key input field to the sidebar
+        openai_compatible_api_key = st.text_input(
+            "Enter your API key:",
+            value=st.session_state.get('openai_compatible_api_key', ''),
+            type="password",
+            help="Enter the API key for your OpenAI-compatible service.",
+        )
+        if openai_compatible_api_key:
+            st.session_state['openai_compatible_api_key'] = openai_compatible_api_key
+
+        # Add base URL input field to the sidebar
+        openai_compatible_base_url = st.text_input(
+            "Enter the base URL:",
+            value=st.session_state.get('openai_compatible_base_url', ''),
+            placeholder="https://api.example.com/v1",
+            help="Enter the base URL for your OpenAI-compatible API endpoint (e.g., https://api.example.com/v1).",
+        )
+        if openai_compatible_base_url:
+            # Basic URL validation
+            if not openai_compatible_base_url.startswith(('http://', 'https://')):
+                st.error("Base URL must start with http:// or https://")
+            else:
+                st.session_state['openai_compatible_base_url'] = openai_compatible_base_url
+
+        # Add model name input field to the sidebar
+        openai_compatible_model = st.text_input(
+            "Enter the model name:",
+            value=st.session_state.get('openai_compatible_model', ''),
+            placeholder="gpt-3.5-turbo",
+            key="selected_model",
+            help="Enter the exact model name as expected by your OpenAI-compatible API (e.g., gpt-3.5-turbo, llama-2-7b-chat, etc.).",
+        )
+        if openai_compatible_model:
+            st.session_state['openai_compatible_model'] = openai_compatible_model
+
+        st.info("This option allows you to connect to any OpenAI-compatible API endpoint, such as local LLM servers (vLLM, Text Generation Inference), alternative providers, or self-hosted models.")
 
     if model_provider == "Anthropic API":
         st.markdown(
@@ -1111,6 +1158,17 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             st.error("Please enter your Google AI API key to analyse the image.")
                             raise ValueError
                         image_analysis_output = get_image_analysis_google(google_api_key, selected_model, image_analysis_prompt, base64_image)
+                    elif model_provider == "OpenAI-Compatible API":
+                        if not st.session_state.get('openai_compatible_api_key') or not st.session_state.get('openai_compatible_base_url') or not st.session_state.get('openai_compatible_model'):
+                            st.error("Please provide your OpenAI-Compatible API configuration to analyse the image.")
+                            raise ValueError
+                        image_analysis_output = get_image_analysis_openai_compatible(
+                            st.session_state['openai_compatible_api_key'], 
+                            st.session_state['openai_compatible_base_url'], 
+                            st.session_state['openai_compatible_model'], 
+                            image_analysis_prompt, 
+                            base64_image
+                        )
                     elif model_provider == "Anthropic API":
                         if not anthropic_api_key:
                             st.error("Please enter your Anthropic API key to analyse the image.")
@@ -1208,6 +1266,13 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, threat_model_prompt)
                     elif model_provider == "OpenAI API":
                         model_output = get_threat_model(openai_api_key, selected_model, threat_model_prompt)
+                    elif model_provider == "OpenAI-Compatible API":
+                        model_output = get_threat_model_openai_compatible(
+                            openai_compatible_api_key,
+                            openai_compatible_base_url,
+                            openai_compatible_model,
+                            threat_model_prompt
+                        )
                     elif model_provider == "Google AI API":
                         model_output = get_threat_model_google(google_api_key, google_model, threat_model_prompt)
                     elif model_provider == "Mistral API":
@@ -1308,6 +1373,13 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, attack_tree_prompt)
                     elif model_provider == "OpenAI API":
                         mermaid_code = get_attack_tree(openai_api_key, selected_model, attack_tree_prompt)
+                    elif model_provider == "OpenAI-Compatible API":
+                        mermaid_code = get_attack_tree_openai_compatible(
+                            openai_compatible_api_key,
+                            openai_compatible_base_url,
+                            openai_compatible_model,
+                            attack_tree_prompt
+                        )
                     elif model_provider == "Google AI API":
                         mermaid_code = get_attack_tree_google(google_api_key, google_model, attack_tree_prompt)
                     elif model_provider == "Mistral API":
@@ -1407,6 +1479,13 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, mitigations_prompt)
                         elif model_provider == "OpenAI API":
                             mitigations_markdown = get_mitigations(openai_api_key, selected_model, mitigations_prompt)
+                        elif model_provider == "OpenAI-Compatible API":
+                            mitigations_markdown = get_mitigations_openai_compatible(
+                                openai_compatible_api_key,
+                                openai_compatible_base_url,
+                                openai_compatible_model,
+                                mitigations_prompt
+                            )
                         elif model_provider == "Google AI API":
                             mitigations_markdown = get_mitigations_google(google_api_key, google_model, mitigations_prompt)
                         elif model_provider == "Mistral API":
@@ -1499,6 +1578,13 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                             dread_assessment = get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, dread_assessment_prompt)
                         elif model_provider == "LM Studio Server":
                             dread_assessment = get_dread_assessment_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, dread_assessment_prompt)
+                        elif model_provider == "OpenAI-Compatible API":
+                            dread_assessment = get_dread_assessment_openai_compatible(
+                                openai_compatible_api_key,
+                                openai_compatible_base_url,
+                                openai_compatible_model,
+                                dread_assessment_prompt
+                            )
                         elif model_provider == "Groq API":
                             dread_assessment = get_dread_assessment_groq(groq_api_key, groq_model, dread_assessment_prompt)
                         
@@ -1596,6 +1682,13 @@ scenarios.
                             test_cases_markdown = get_test_cases_anthropic(anthropic_api_key, anthropic_model, test_cases_prompt)
                         elif model_provider == "LM Studio Server":
                             test_cases_markdown = get_test_cases_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, test_cases_prompt)
+                        elif model_provider == "OpenAI-Compatible API":
+                            test_cases_markdown = get_test_cases_openai_compatible(
+                                openai_compatible_api_key,
+                                openai_compatible_base_url,
+                                openai_compatible_model,
+                                test_cases_prompt
+                            )
                         elif model_provider == "Groq API":
                             test_cases_markdown = get_test_cases_groq(groq_api_key, groq_model, test_cases_prompt)
 

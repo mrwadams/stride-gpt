@@ -315,6 +315,46 @@ def get_mitigations_lm_studio(lm_studio_endpoint, model_name, prompt):
 
     return mitigations
 
+# Function to get mitigations from OpenAI-compatible API response.
+def get_mitigations_openai_compatible(api_key, base_url, model_name, prompt):
+    """
+    Get mitigations from OpenAI-compatible API.
+    This function reuses the standard OpenAI logic but with a custom base_url.
+    """
+    client = OpenAI(api_key=api_key, base_url=base_url)
+
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Generate effective security mitigations for the identified threats using the STRIDE methodology.",
+            approach_description="""1. Analyze each threat in the provided threat model
+2. For each threat:
+   - Understand the threat type and scenario
+   - Consider the potential impact
+   - Identify appropriate security controls and mitigations
+   - Ensure mitigations are specific and actionable
+3. Format the output as a markdown table with columns for:
+   - Threat Type
+   - Scenario
+   - Suggested Mitigation(s)
+4. Ensure mitigations follow security best practices and industry standards"""
+        )
+    else:
+        system_prompt = "You are a helpful assistant that provides threat mitigation strategies in Markdown format."
+
+    response = client.chat.completions.create(
+        model = model_name,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Access the content directly as the response will be in text format
+    mitigations = response.choices[0].message.content
+
+    return mitigations
+
 # Function to get mitigations from the Groq model's response.
 def get_mitigations_groq(groq_api_key, groq_model, prompt):
     client = Groq(api_key=groq_api_key)

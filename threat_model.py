@@ -668,3 +668,134 @@ def get_threat_model_groq(groq_api_key, groq_model, prompt):
             st.write(reasoning)
 
     return response_content
+
+# Function to get threat model from OpenAI-compatible API response.
+def get_threat_model_openai_compatible(api_key, base_url, model_name, prompt):
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url
+    )
+
+    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Analyze the provided application description and generate a comprehensive threat model using the STRIDE methodology.",
+            approach_description="""1. Carefully read and understand the application description
+2. For each component and data flow:
+   - Identify potential Spoofing threats
+   - Identify potential Tampering threats
+   - Identify potential Repudiation threats
+   - Identify potential Information Disclosure threats
+   - Identify potential Denial of Service threats
+   - Identify potential Elevation of Privilege threats
+3. For each identified threat:
+   - Describe the specific scenario
+   - Analyze the potential impact
+4. Generate improvement suggestions based on identified threats
+5. Format the output as a JSON object with 'threat_model' and 'improvement_suggestions' arrays"""
+        )
+        # Create completion with max_completion_tokens for reasoning models
+        # GPT-5 models need more tokens for reasoning + output
+        max_tokens = 20000 if model_name.startswith("gpt-5") else 8192
+        response = client.chat.completions.create(
+            model=model_name,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_completion_tokens=max_tokens
+        )
+    else:
+        system_prompt = "You are a helpful assistant designed to output JSON."
+        # Create completion with max_tokens for other models
+        response = client.chat.completions.create(
+            model=model_name,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=8192
+        )
+
+    # Convert the JSON string in the 'content' field to a Python dictionary
+    content = response.choices[0].message.content
+    
+    if not content:
+        raise ValueError(f"Empty response from model {model_name}. This may indicate the model is not available or has rate limits.")
+    
+    response_content = json.loads(content)
+
+    return response_content
+
+# Function to get image analysis using OpenAI-compatible API
+def get_image_analysis_openai_compatible(api_key, base_url, model_name, prompt, base64_image):
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": prompt
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                }
+            ]
+        }
+    ]
+    
+    # If using reasoning models, use the structured system prompt approach
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+        system_prompt = create_reasoning_system_prompt(
+            task_description="Analyze the provided architecture diagram and explain it to a Security Architect.",
+            approach_description="""1. Carefully examine the diagram
+2. Identify all components and their relationships
+3. Note any technologies, protocols, or security measures shown
+4. Create a clear, structured explanation with these sections:
+   - Overall Architecture: Brief overview of the system
+   - Key Components: List and explain each major component
+   - Data Flow: How information moves through the system
+   - Technologies Used: Identify technologies, frameworks, or platforms
+   - Security Considerations: Note any visible security measures"""
+        )
+        # Insert system message at the beginning
+        messages.insert(0, {"role": "system", "content": system_prompt})
+        
+        # Create completion with max_completion_tokens for reasoning models
+        try:
+            max_tokens = 20000 if model_name.startswith("gpt-5") else 8192
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_completion_tokens=max_tokens
+            )
+            return {
+                "choices": [
+                    {"message": {"content": response.choices[0].message.content}}
+                ]
+            }
+        except Exception as e:
+            return None
+    else:
+        # For standard models (gpt-4o, etc.)
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=8192
+            )
+            return {
+                "choices": [
+                    {"message": {"content": response.choices[0].message.content}}
+                ]
+            }
+        except Exception as e:
+            return None
