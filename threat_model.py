@@ -591,10 +591,10 @@ def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
         return fallback_response
 
 # Function to get threat model from LM Studio Server response.
-def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt):
+def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="not-needed"):
     client = OpenAI(
         base_url=f"{lm_studio_endpoint}/v1",
-        api_key="not-needed"  # LM Studio Server doesn't require an API key
+        api_key=api_key  # Use provided API key or default to "not-needed"
     )
 
     # Define the expected response structure
