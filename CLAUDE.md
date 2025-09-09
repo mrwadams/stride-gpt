@@ -43,10 +43,11 @@ cp .env.example .env
 - **mitigations.py**: Mitigation suggestion generation for identified threats
 - **dread.py**: DREAD risk scoring assessment functionality
 - **test_cases.py**: Gherkin test case generation from threat models
+- **dfd.py**: Data Flow Diagram generation, analysis, and refinement with multi-provider support
 - **utils.py**: Shared utilities including response processing and reasoning extraction
 
 ### Multi-Provider Architecture
-Each core module (threat_model, attack_tree, mitigations, dread, test_cases) implements functions for all supported LLM providers:
+Each core module (threat_model, attack_tree, mitigations, dread, test_cases, dfd) implements functions for all supported LLM providers:
 - OpenAI API (`get_*`)
 - Azure OpenAI (`get_*_azure`)
 - Google AI/Gemini (`get_*_google`)
@@ -58,18 +59,20 @@ Each core module (threat_model, attack_tree, mitigations, dread, test_cases) imp
 
 ### Key Features
 - **Multi-modal support**: Image analysis for architecture diagrams (supported by vision-capable models)
+- **Data Flow Diagram functionality**: Complete DFD generation, import, analysis, and iterative refinement
 - **GitHub integration**: Automatic repository analysis using PyGithub
 - **Reasoning model support**: Handles OpenAI's reasoning models (o1, o3 series) and DeepSeek R1
 - **Local model support**: Integration with Ollama and LM Studio for on-premises deployment
-- **Export functionality**: Downloadable Markdown outputs for all generated content
+- **Export functionality**: Downloadable Markdown outputs and PNG exports for diagrams
 
 ### Data Flow
 1. User provides application details via Streamlit UI or GitHub URL
 2. Application details are processed into structured prompts
 3. Selected LLM provider generates threat model in JSON format
 4. JSON is converted to Markdown for display
-5. Additional analyses (attack trees, mitigations, DREAD, test cases) can be generated from the threat model
-6. All outputs are available for download as Markdown files
+5. Additional analyses (attack trees, mitigations, DREAD, test cases, DFDs) can be generated from the threat model
+6. DFDs support iterative refinement through natural language feedback
+7. All outputs are available for download as Markdown files or PNG images (for diagrams)
 
 ### Configuration
 - API keys loaded from `.env` file or environment variables
