@@ -35,6 +35,7 @@ from attack_tree import create_attack_tree_prompt, get_attack_tree, get_attack_t
 from mitigations import create_mitigations_prompt, get_mitigations, get_mitigations_azure, get_mitigations_google, get_mitigations_mistral, get_mitigations_ollama, get_mitigations_anthropic, get_mitigations_lm_studio, get_mitigations_groq
 from test_cases import create_test_cases_prompt, get_test_cases, get_test_cases_azure, get_test_cases_google, get_test_cases_mistral, get_test_cases_ollama, get_test_cases_anthropic, get_test_cases_lm_studio, get_test_cases_groq
 from dread import create_dread_assessment_prompt, get_dread_assessment, get_dread_assessment_azure, get_dread_assessment_google, get_dread_assessment_mistral, get_dread_assessment_ollama, get_dread_assessment_anthropic, get_dread_assessment_lm_studio, get_dread_assessment_groq, dread_json_to_markdown
+from dfd import create_dfd_prompt, get_dfd, get_dfd_azure, get_dfd_google, get_dfd_mistral, get_dfd_ollama, get_dfd_anthropic, get_dfd_lm_studio, get_dfd_groq, analyze_dfd_image, analyze_dfd_text, create_dfd_analysis_prompt
 
 # ------------------ Helper Functions ------------------ #
 
@@ -428,20 +429,114 @@ def summarize_file(file_path, content):
     
     return summary
 
-# Function to render Mermaid diagram
+# Function to render Mermaid diagram with PNG export capability
 def mermaid(code: str, height: int = 500) -> None:
+    diagram_id = f"mermaid-{hash(code) % 100000}"
     components.html(
         f"""
-        <pre class="mermaid" style="height: {height}px;">
-            {code}
-        </pre>
+        <div style="width: 100%; margin-bottom: 10px;">
+            <div style="width: 100%; height: {height}px; overflow: auto; border: 1px solid #e0e0e0; border-radius: 4px; background: white;">
+                <div id="{diagram_id}" class="mermaid" style="padding: 20px; min-width: 100%; min-height: 100%;">
+                    {code}
+                </div>
+            </div>
+            <div style="margin-top: 10px;">
+                <button id="download-{diagram_id}" onclick="downloadDiagramAsPNG('{diagram_id}')" 
+                        style="background-color: #1CB3E0; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; transition: background-color 0.3s ease;">
+                    Download Image
+                </button>
+            </div>
+        </div>
 
         <script type="module">
             import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-            mermaid.initialize({{ startOnLoad: true }});
+            mermaid.initialize({{ 
+                startOnLoad: true,
+                theme: 'default',
+                securityLevel: 'loose',
+                flowchart: {{ 
+                    useMaxWidth: false,
+                    htmlLabels: true,
+                    curve: 'basis'
+                }},
+                er: {{
+                    useMaxWidth: false
+                }},
+                sequence: {{
+                    useMaxWidth: false
+                }},
+                journey: {{
+                    useMaxWidth: false
+                }},
+                gantt: {{
+                    useMaxWidth: false
+                }}
+            }});
+            
+            // Force re-render after initialization
+            setTimeout(() => {{
+                mermaid.run();
+            }}, 100);
+
+            // Function to download diagram as PNG
+            window.downloadDiagramAsPNG = async function(diagramId) {{
+                try {{
+                    const element = document.getElementById(diagramId);
+                    const svgElement = element.querySelector('svg');
+                    
+                    if (!svgElement) {{
+                        alert('Diagram not found. Please wait for it to load and try again.');
+                        return;
+                    }}
+
+                    // Get SVG dimensions
+                    const bbox = svgElement.getBBox();
+                    const width = bbox.width + 40; // Add padding
+                    const height = bbox.height + 40;
+
+                    // Create canvas
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    // Create image from SVG
+                    const svgData = new XMLSerializer().serializeToString(svgElement);
+                    const svgBlob = new Blob([svgData], {{type: 'image/svg+xml;charset=utf-8'}});
+                    const svgUrl = URL.createObjectURL(svgBlob);
+
+                    const img = new Image();
+                    img.onload = function() {{
+                        // Fill white background
+                        ctx.fillStyle = 'white';
+                        ctx.fillRect(0, 0, width, height);
+                        
+                        // Draw the SVG
+                        ctx.drawImage(img, 20, 20);
+                        
+                        // Download the image
+                        canvas.toBlob(function(blob) {{
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'data_flow_diagram.png';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                        }}, 'image/png');
+                        
+                        URL.revokeObjectURL(svgUrl);
+                    }};
+                    img.src = svgUrl;
+                }} catch (error) {{
+                    console.error('Error downloading PNG:', error);
+                    alert('Error generating PNG. Please try again.');
+                }}
+            }};
         </script>
         """,
-        height=height,
+        height=height + 60,  # Add space for the button
     )
 
 def load_env_variables():
@@ -1044,7 +1139,7 @@ with st.sidebar:
 
 # ------------------ Main App UI ------------------ #
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases", "Data Flow Diagram"])
 
 with tab1:
     st.markdown("""
@@ -1066,24 +1161,36 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         # Get selected_model from session state
         selected_model = st.session_state.get('selected_model', '')
         
-        if model_provider == "OpenAI API" and (selected_model.startswith("gpt-4") or selected_model == "o4-mini"):
-            supports_image = True
-        elif model_provider == "Azure OpenAI Service":
-            supports_image = True
-        elif model_provider == "Google AI API":
-            supports_image = True
-        elif model_provider == "Anthropic API" and selected_model.startswith("claude-3"):
+        if model_provider in ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Anthropic API"]:
             supports_image = True
 
         if supports_image:
-            uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"])
+            st.markdown("**Visual System Inputs** *(optional)*")
+            upload_option = st.radio(
+                "Do you want to upload a diagram to enhance your system description?",
+                ["None", "Architecture Diagram", "Data Flow Diagram"],
+                horizontal=True
+            )
+            
+            uploaded_file = None
+            if upload_option == "Architecture Diagram":
+                uploaded_file = st.file_uploader("Upload architecture diagram", type=["jpg", "jpeg", "png"], key="arch_diagram")
+                analysis_type = "architecture"
+            elif upload_option == "Data Flow Diagram":
+                uploaded_file = st.file_uploader("Upload Data Flow Diagram", type=["jpg", "jpeg", "png"], key="dfd_diagram")
+                analysis_type = "dfd"
 
             if uploaded_file is not None:
                 def encode_image(uploaded_file):
                     return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
                 base64_image = encode_image(uploaded_file)
-                image_analysis_prompt = create_image_analysis_prompt()
+                
+                # Use appropriate prompt based on diagram type
+                if analysis_type == "dfd":
+                    image_analysis_prompt = create_dfd_analysis_prompt()
+                else:
+                    image_analysis_prompt = create_image_analysis_prompt()
                 
                 # Determine media type from file extension
                 file_type = uploaded_file.type
@@ -1194,7 +1301,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         threat_model_prompt = create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
 
         # Clear thinking content when switching models or starting a new operation
-        if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+        if model_provider not in ["Anthropic API", "Google AI API"]:
             st.session_state.pop('last_thinking_content', None)
 
         # Show a spinner while generating the threat model
@@ -1249,7 +1356,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         # Display thinking content in an expander if available
         if ('last_thinking_content' in st.session_state and 
             st.session_state['last_thinking_content'] and 
-            ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+            (model_provider == "Anthropic API" or
              (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower()))):
             thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
             with st.expander(f"View {thinking_model}'s thinking process"):
@@ -1297,7 +1404,7 @@ vulnerabilities and prioritising mitigation efforts.
             attack_tree_prompt = create_attack_tree_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
 
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider not in ["Anthropic API", "Google AI API"]:
                 st.session_state.pop('last_thinking_content', None)
 
             # Show a spinner while generating the attack tree
@@ -1324,7 +1431,7 @@ vulnerabilities and prioritising mitigation efforts.
                     # Display thinking content in an expander if available
                     if ('last_thinking_content' in st.session_state and 
                         st.session_state['last_thinking_content'] and 
-                        ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                        (model_provider == "Anthropic API" or
                          (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower()))):
                         thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
                         with st.expander(f"View {thinking_model}'s thinking process"):
@@ -1368,6 +1475,10 @@ vulnerabilities and prioritising mitigation efforts.
                     
                 except Exception as e:
                     st.error(f"Error generating attack tree: {e}")
+        else:
+            # Handle case where no application description is provided
+            if attack_tree_submit_button:
+                st.error("Please provide application details first before generating an attack tree.")
 
 
 # ------------------ Mitigations Generation ------------------ #
@@ -1393,7 +1504,7 @@ the security posture of the application and protect against potential attacks.
             mitigations_prompt = create_mitigations_prompt(threats_markdown)
 
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider not in ["Anthropic API", "Google AI API"]:
                 st.session_state.pop('last_thinking_content', None)
 
             # Show a spinner while suggesting mitigations
@@ -1423,7 +1534,7 @@ the security posture of the application and protect against potential attacks.
                         # Display thinking content in an expander if available and using a model with thinking capabilities
                         if ('last_thinking_content' in st.session_state and 
                             st.session_state['last_thinking_content'] and 
-                            ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                            (model_provider == "Anthropic API" or
                              (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower()))):
                             thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
                             with st.expander(f"View {thinking_model}'s thinking process"):
@@ -1475,7 +1586,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
             # Generate the prompt using the create_dread_assessment_prompt function
             dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown)
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider not in ["Anthropic API", "Google AI API"]:
                 st.session_state.pop('last_thinking_content', None)
 
             # Show a spinner while generating DREAD Risk Assessment
@@ -1524,7 +1635,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
             # Display thinking content in an expander if available and using a model with thinking capabilities
             if ('last_thinking_content' in st.session_state and 
                 st.session_state['last_thinking_content'] and 
-                ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                (model_provider == "Anthropic API" or
                  (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower()))):
                 thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
                 with st.expander(f"View {thinking_model}'s thinking process"):
@@ -1572,7 +1683,7 @@ scenarios.
             test_cases_prompt = create_test_cases_prompt(threats_markdown)
 
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider not in ["Anthropic API", "Google AI API"]:
                 st.session_state.pop('last_thinking_content', None)
 
             # Show a spinner while generating test cases
@@ -1602,7 +1713,7 @@ scenarios.
                         # Display thinking content in an expander if available and using a model with thinking capabilities
                         if ('last_thinking_content' in st.session_state and 
                             st.session_state['last_thinking_content'] and 
-                            ((model_provider == "Anthropic API" and "thinking" in anthropic_model.lower()) or
+                            (model_provider == "Anthropic API" or
                              (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower()))):
                             thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
                             with st.expander(f"View {thinking_model}'s thinking process"):
@@ -1634,3 +1745,377 @@ scenarios.
 
         else:
             st.error("Please generate a threat model first before requesting test cases.")
+
+with tab6:
+    st.markdown("""
+Data Flow Diagrams (DFDs) are essential tools for threat modeling that visualize how data moves through your application. 
+They help identify potential security boundaries, trust zones, and areas where threats might occur.
+""")
+    st.markdown("""---""")
+
+    # Section 1: Generate New DFD (Primary action)
+    st.subheader("🔄 Generate New DFD")
+    st.markdown("Create a fresh DFD from your application details:")
+    
+    if not app_input:
+        st.warning("⚠️ Please provide application details in the **Threat Model** tab first.")
+    else:
+        st.info("✅ Application details detected. Ready to generate DFD.")
+    
+    dfd_submit_button = st.button(label="Generate Data Flow Diagram", disabled=not app_input)
+
+    # If the Generate DFD button is clicked
+    if dfd_submit_button:
+        # Check if we have application details
+        if app_input:
+            # Generate the prompt using the create_dfd_prompt function
+            dfd_prompt = create_dfd_prompt(app_type, authentication, internet_facing, sensitive_data, app_input)
+
+            # Clear thinking content when switching models or starting a new operation
+            if model_provider not in ["Anthropic API", "Google AI API"]:
+                st.session_state.pop('last_thinking_content', None)
+
+            # Show a spinner while generating DFD
+            with st.spinner("Generating Data Flow Diagram..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        # Debug: Show what we're about to do
+                        st.write(f"Debug: Calling {model_provider} with prompt length: {len(dfd_prompt)}")
+                        
+                        # Call to the relevant get_dfd function with the generated prompt
+                        if model_provider == "Azure OpenAI Service":
+                            dfd_mermaid = get_dfd_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, dfd_prompt)
+                        elif model_provider == "OpenAI API":
+                            dfd_mermaid = get_dfd(openai_api_key, selected_model, dfd_prompt)
+                        elif model_provider == "Google AI API":
+                            dfd_mermaid = get_dfd_google(google_api_key, google_model, dfd_prompt)
+                        elif model_provider == "Mistral API":
+                            dfd_mermaid = get_dfd_mistral(mistral_api_key, mistral_model, dfd_prompt)
+                        elif model_provider == "Ollama":
+                            dfd_mermaid = get_dfd_ollama(st.session_state['ollama_endpoint'], selected_model, dfd_prompt)
+                        elif model_provider == "Anthropic API":
+                            dfd_mermaid = get_dfd_anthropic(anthropic_api_key, anthropic_model, dfd_prompt)
+                        elif model_provider == "LM Studio Server":
+                            dfd_mermaid = get_dfd_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, dfd_prompt)
+                        elif model_provider == "Groq API":
+                            dfd_mermaid = get_dfd_groq(groq_api_key, groq_model, dfd_prompt)
+
+                        # Display thinking content in an expander if available and using a model with thinking capabilities
+                        if ('last_thinking_content' in st.session_state and 
+                            st.session_state['last_thinking_content'] and 
+                            (model_provider == "Anthropic API" or
+                             (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower()))):
+                            thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
+                            with st.expander(f"View {thinking_model}'s thinking process"):
+                                st.markdown(st.session_state['last_thinking_content'])
+
+                        if dfd_mermaid and dfd_mermaid.strip():
+                            # Store DFD in session state
+                            st.session_state['dfd_mermaid'] = dfd_mermaid
+                            st.session_state['dfd_version'] = 1
+                            # Clear any existing history when generating new DFD
+                            if 'dfd_history' in st.session_state:
+                                st.session_state['dfd_history'] = []
+                            
+                            # Display the DFD using Mermaid
+                            st.subheader("✅ Generated Data Flow Diagram")
+                            
+                            # Display with responsive sizing and scrollable container
+                            mermaid(dfd_mermaid, height=600)
+                            
+                            st.markdown("")
+                            
+                            # Show raw Mermaid code in an expander
+                            with st.expander("View Mermaid Code"):
+                                st.code(dfd_mermaid, language="mermaid")
+
+                            # Additional export option
+                            st.info("💡 **Tip:** Use the 'Download Image' button above the diagram for direct image export, or copy the Mermaid code for use elsewhere.")
+                        else:
+                            st.error("Failed to generate Data Flow Diagram. Please try again.")
+                            # Debug: Show what we actually received
+                            if dfd_mermaid:
+                                with st.expander("Debug: Raw Response"):
+                                    st.text(f"Response length: {len(str(dfd_mermaid))}")
+                                    st.text(repr(dfd_mermaid)[:500])
+                        
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error generating Data Flow Diagram after {max_retries} attempts: {e}")
+                            with st.expander("Debug: Full Error Details"):
+                                st.text(str(e))
+                                import traceback
+                                st.text(traceback.format_exc())
+                        else:
+                            st.warning(f"Error generating Data Flow Diagram. Retrying attempt {retry_count+1}/{max_retries}...")
+            
+            st.markdown("")
+
+        else:
+            st.error("Please provide application details first before generating a Data Flow Diagram.")
+
+    st.markdown("""---""")
+
+    # Section 2: Work with Existing DFD (Secondary option)
+    st.subheader("📋 Work with Existing DFD")
+    st.markdown("Already have a DFD? Import it here:")
+    
+    # Create tabs for different input methods
+    dfd_input_tab1, dfd_input_tab2, dfd_input_tab3 = st.tabs(["📝 Paste Mermaid Code", "🖼️ Upload Image", "🔍 Analyze Text"])
+    
+    with dfd_input_tab1:
+        import_dfd_text = st.text_area(
+            "Paste Mermaid DFD Code", 
+            height=200,
+            placeholder="flowchart TD\n    User[\"External User\"]\n    App(\"Web Application\")\n    DB[(\"Database\")]\n    User -->|\"HTTPS Requests\"| App\n    App -->|\"SQL Queries\"| DB",
+            key="import_dfd_text"
+        )
+        
+        if st.button("Import DFD", key="import_dfd_btn"):
+            if import_dfd_text.strip():
+                st.session_state['dfd_mermaid'] = import_dfd_text.strip()
+                st.session_state['dfd_version'] = 1
+                # Clear any existing history when importing new DFD
+                if 'dfd_history' in st.session_state:
+                    st.session_state['dfd_history'] = []
+                st.success("✅ DFD imported successfully! Scroll down to view and refine it.")
+                st.rerun()
+            else:
+                st.warning("Please paste DFD code before importing.")
+    
+    with dfd_input_tab2:
+        # Check if current model supports vision
+        supports_vision = False
+        selected_model = st.session_state.get('selected_model', '')
+        
+        if model_provider in ["OpenAI API", "Azure OpenAI Service", "Google AI API", "Anthropic API"]:
+            supports_vision = True
+
+        if supports_vision:
+            dfd_image_file = st.file_uploader("Upload DFD image", type=["jpg", "jpeg", "png"], key="dfd_image")
+            
+            if dfd_image_file is not None:
+                st.image(dfd_image_file, caption="Uploaded DFD", width=300)
+                
+                # Analyze and extract as text
+                if st.button("Extract as Text Description"):
+                    with st.spinner("Analyzing DFD image..."):
+                        try:
+                            # Encode image
+                            import base64
+                            base64_image = base64.b64encode(dfd_image_file.read()).decode('utf-8')
+                            media_type = dfd_image_file.type
+                            
+                            # Determine provider for analysis
+                            provider_map = {
+                                "OpenAI API": "openai",
+                                "Azure OpenAI Service": "azure", 
+                                "Google AI API": "google",
+                                "Anthropic API": "anthropic"
+                            }
+                            
+                            provider = provider_map.get(model_provider, "openai")
+                            
+                            # Get appropriate API key
+                            api_key = None
+                            if provider == "openai":
+                                api_key = openai_api_key
+                            elif provider == "google":
+                                api_key = google_api_key
+                            elif provider == "anthropic":
+                                api_key = anthropic_api_key
+                            
+                            if api_key:
+                                dfd_analysis = analyze_dfd_image(api_key, selected_model, base64_image, media_type, provider)
+                                
+                                if dfd_analysis:
+                                    st.success("DFD image analyzed successfully!")
+                                    st.text_area("Extracted Description", dfd_analysis, height=150, key="extracted_description")
+                                    
+                                    # Option to use this as application input
+                                    def add_to_app_input():
+                                        st.session_state['app_input'] = dfd_analysis
+                                    
+                                    if st.button("Use for Threat Modeling", on_click=add_to_app_input):
+                                        st.success("Added to application description!")
+                                else:
+                                    st.error("Failed to analyze DFD image.")
+                            else:
+                                st.error("API key not available for image analysis.")
+                                
+                        except Exception as e:
+                            st.error(f"Error analyzing DFD image: {e}")
+                
+                st.info("💡 **Tip:** After extracting the description, click 'Use for Threat Modeling' to add it to your application details, then use 'Generate New DFD' to create a Mermaid version.")
+        else:
+            st.info(f"Image analysis not supported with {model_provider} - {selected_model}")
+    
+    with dfd_input_tab3:
+        dfd_text_input = st.text_area(
+            "Describe your existing DFD in text", 
+            height=150, 
+            placeholder="The system has an external user that connects to a web application through HTTPS. The web app connects to a database for storing user data...",
+            key="dfd_text"
+        )
+        
+        if dfd_text_input and st.button("Analyze & Generate Mermaid"):
+            with st.spinner("Converting text to DFD..."):
+                dfd_analysis = analyze_dfd_text(dfd_text_input)
+                
+                if dfd_analysis:
+                    st.success("Text analyzed successfully!")
+                    st.text_area("Extracted Description", dfd_analysis, height=150, key="dfd_text_analysis")
+                    
+                    # Option to use this as application input
+                    def add_text_to_app_input():
+                        st.session_state['app_input'] = dfd_analysis
+                    
+                    if st.button("Use for Threat Modeling", key="use_text_analysis", on_click=add_text_to_app_input):
+                        st.success("Added to application description!")
+                else:
+                    st.error("Failed to analyze DFD text.")
+
+    st.markdown("""---""")
+    
+    # Current DFD & Refinement (appears for any active DFD)
+    if 'dfd_mermaid' in st.session_state and st.session_state['dfd_mermaid']:
+        
+        # Header with status
+        col_header1, col_header2 = st.columns([3, 1])
+        with col_header1:
+            st.subheader("🎯 Current Data Flow Diagram")
+        with col_header2:
+            version = st.session_state.get('dfd_version', 1)
+            st.info(f"Version {version}")
+    elif not ('dfd_mermaid' in st.session_state and st.session_state['dfd_mermaid']):
+        # Show status when no DFD is available
+        st.markdown("""---""")
+        st.info("👆 **No DFD loaded.** Use the sections above to import an existing DFD or generate a new one.")
+    
+    # Display DFD if available
+    if 'dfd_mermaid' in st.session_state and st.session_state['dfd_mermaid']:
+        
+        # Display the DFD using Mermaid
+        mermaid(st.session_state['dfd_mermaid'], height=600)
+        
+        st.markdown("")
+        
+        # Show raw Mermaid code in an expander
+        with st.expander("View Mermaid Code"):
+            st.code(st.session_state['dfd_mermaid'], language="mermaid")
+
+        # Additional export option
+        st.info("💡 **Tip:** Use the 'Download Image' button above the diagram for direct image export, or copy the Mermaid code for use elsewhere.")
+        
+        st.markdown("""---""")
+        
+        # DFD Refinement Section
+        st.subheader("✏️ Refine Data Flow Diagram")
+        st.markdown("Provide feedback to improve the DFD accuracy and completeness:")
+        
+        refinement_feedback = st.text_area(
+            "Refinement Instructions",
+            placeholder="Example: Add a database connection between the web server and user data store, include payment processor as external entity, update trust boundaries around sensitive components...",
+            height=100,
+            key="dfd_refinement_feedback"
+        )
+        
+        refine_dfd_button = st.button("🔄 Refine DFD", key="refine_dfd", help="Apply your feedback to generate an improved DFD")
+        
+        # Handle DFD refinement
+        if refine_dfd_button and refinement_feedback.strip():
+            with st.spinner("Refining Data Flow Diagram..."):
+                try:
+                    # Create refinement prompt - handle case where no app_input exists (imported DFD)
+                    app_context = app_input if app_input else "No specific application details provided. Please use the DFD structure and user feedback to guide improvements."
+                    
+                    refinement_prompt = f"""Based on the previous DFD and the following feedback, generate an improved Data Flow Diagram.
+
+Application Context:
+{app_context}
+
+Previous DFD (Mermaid):
+{st.session_state['dfd_mermaid']}
+
+User Feedback for Refinement:
+{refinement_feedback}
+
+Please generate an updated Mermaid Data Flow Diagram that incorporates this feedback while maintaining proper DFD conventions. Include all elements from the original but enhanced based on the feedback provided."""
+
+                    # Call the same LLM function with refinement prompt
+                    if model_provider == "Azure OpenAI Service":
+                        refined_dfd_mermaid = get_dfd_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, refinement_prompt)
+                    elif model_provider == "OpenAI API":
+                        refined_dfd_mermaid = get_dfd(openai_api_key, selected_model, refinement_prompt)
+                    elif model_provider == "Google AI API":
+                        refined_dfd_mermaid = get_dfd_google(google_api_key, google_model, refinement_prompt)
+                    elif model_provider == "Mistral API":
+                        refined_dfd_mermaid = get_dfd_mistral(mistral_api_key, mistral_model, refinement_prompt)
+                    elif model_provider == "Ollama":
+                        refined_dfd_mermaid = get_dfd_ollama(st.session_state['ollama_endpoint'], selected_model, refinement_prompt)
+                    elif model_provider == "Anthropic API":
+                        refined_dfd_mermaid = get_dfd_anthropic(anthropic_api_key, anthropic_model, refinement_prompt)
+                    elif model_provider == "LM Studio Server":
+                        refined_dfd_mermaid = get_dfd_lm_studio(st.session_state['lm_studio_endpoint'], selected_model, refinement_prompt)
+                    elif model_provider == "Groq API":
+                        refined_dfd_mermaid = get_dfd_groq(groq_api_key, groq_model, refinement_prompt)
+
+                    if refined_dfd_mermaid and refined_dfd_mermaid.strip():
+                        # Store previous version for comparison
+                        if 'dfd_history' not in st.session_state:
+                            st.session_state['dfd_history'] = []
+                        
+                        st.session_state['dfd_history'].append({
+                            'version': st.session_state['dfd_version'],
+                            'mermaid': st.session_state['dfd_mermaid'],
+                            'feedback': refinement_feedback
+                        })
+                        
+                        # Update current DFD
+                        st.session_state['dfd_mermaid'] = refined_dfd_mermaid
+                        st.session_state['dfd_version'] += 1
+                        
+                        st.success(f"✅ DFD refined successfully! Now showing version {st.session_state['dfd_version']}")
+                        st.rerun()
+                    else:
+                        st.error("Failed to refine DFD. Please try rephrasing your feedback.")
+                
+                except Exception as e:
+                    st.error(f"Error refining DFD: {e}")
+        
+        elif refine_dfd_button and not refinement_feedback.strip():
+            st.warning("Please provide refinement feedback before clicking 'Refine DFD'.")
+        
+        # Show DFD history if it exists
+        if 'dfd_history' in st.session_state and st.session_state['dfd_history']:
+            with st.expander("📜 View DFD History"):
+                for i, history_item in enumerate(st.session_state['dfd_history']):
+                    st.markdown(f"**Version {history_item['version']}**")
+                    st.markdown(f"*Feedback:* {history_item['feedback']}")
+                    
+                    col_hist1, col_hist2 = st.columns([1, 4])
+                    with col_hist1:
+                        if st.button(f"↩️ Revert to v{history_item['version']}", key=f"revert_{i}"):
+                            # Store current as history entry
+                            st.session_state['dfd_history'].append({
+                                'version': st.session_state['dfd_version'],
+                                'mermaid': st.session_state['dfd_mermaid'],
+                                'feedback': 'Current version before revert'
+                            })
+                            
+                            # Revert to selected version
+                            st.session_state['dfd_mermaid'] = history_item['mermaid']
+                            st.session_state['dfd_version'] += 1
+                            st.success(f"↩️ Reverted to version {history_item['version']} (now version {st.session_state['dfd_version']})")
+                            st.rerun()
+                    
+                    with col_hist2:
+                        with st.expander(f"View v{history_item['version']} Code"):
+                            st.code(history_item['mermaid'], language="mermaid")
+                    
+                    if i < len(st.session_state['dfd_history']) - 1:
+                        st.markdown("---")
