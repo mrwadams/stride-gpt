@@ -3,7 +3,6 @@
 import base64
 import streamlit as st
 import streamlit.components.v1 as components
-from github import Github
 from collections import defaultdict
 from urllib.parse import urlparse
 import re
@@ -13,6 +12,11 @@ from openai import OpenAI
 import requests
 import json
 import tiktoken
+from typing import Optional
+
+from providers.base import RepoProvider, RepoRef
+from providers.github_provider import GitHubProvider
+from providers.azure_devops_provider import AzureDevOpsProvider
 
 from threat_model import (
     create_threat_model_prompt,
@@ -123,21 +127,28 @@ Please check:
 
 # Function to get user input for the application description and key details
 def get_input():
-    github_url = st.text_input(
-        label="Enter GitHub repository URL (optional)",
-        placeholder="https://github.com/owner/repo",
-        key="github_url",
-        help="Enter the URL of the GitHub repository you want to analyze.",
+    repo_url = st.text_input(
+        label="Enter repository URL (GitHub or Azure DevOps) — optional",
+        placeholder="https://github.com/owner/repo or https://dev.azure.com/org/project/_git/repo",
+        key="repo_url",
+        help="Provide a repository URL for automatic code/README analysis (GitHub, GitHub Enterprise, or Azure DevOps).",
     )
 
-    if github_url and github_url != st.session_state.get('last_analyzed_url', ''):
-        if 'github_api_key' not in st.session_state or not st.session_state['github_api_key']:
-            st.warning("Please enter a GitHub API key to analyze the repository.")
+    if repo_url and repo_url != st.session_state.get('last_analyzed_url', ''):
+        # Determine provider and check tokens
+        provider = detect_provider(repo_url)
+        needs_token = provider == 'github' and not st.session_state.get('github_api_key')
+        needs_pat = provider == 'azure-devops' and not st.session_state.get('azure_devops_pat')
+        if needs_token or needs_pat:
+            if provider == 'github':
+                st.warning("Please enter a GitHub API key to analyze the repository.")
+            else:
+                st.warning("Please enter an Azure DevOps PAT to analyze the repository.")
         else:
-            with st.spinner('Analyzing GitHub repository...'):
-                system_description = analyze_github_repo(github_url)
-                st.session_state['github_analysis'] = system_description
-                st.session_state['last_analyzed_url'] = github_url
+            with st.spinner('Analyzing repository...'):
+                system_description = analyze_repository(repo_url)
+                st.session_state['repo_analysis'] = system_description
+                st.session_state['last_analyzed_url'] = repo_url
                 st.session_state['app_input'] = system_description + "\n\n" + st.session_state.get('app_input', '')
 
     input_text = st.text_area(
@@ -175,34 +186,13 @@ def estimate_tokens(text, model="gpt-4o"):
         # English: ~4 chars per token, Chinese: ~1-2 chars per token
         return len(text) // 4  # Conservative estimate for English text
 
-def analyze_github_repo(repo_url):
-    # Extract owner and repo name from URL
-    parsed_url = urlparse(repo_url)
-    parts = parsed_url.path.split('/')
-    owner = parts[-2]
-    repo_name = parts[-1]
-
-    # Initialize PyGithub
-    g = Github(
-        st.session_state.get('github_api_key', ''),
-        base_url='{scheme}://{hostname}/api/v3'.format(
-            scheme=parsed_url.scheme,
-            hostname=parsed_url.hostname,
-        )
-    )
-
-    # Get the repository
-    repo = g.get_repo(f"{owner}/{repo_name}")
-
-    # Get the default branch
-    default_branch = repo.default_branch
-
-    # Get the tree of the default branch
-    tree = repo.get_git_tree(default_branch, recursive=True)
+def analyze_repository(repo_url: str):
+    provider_key = detect_provider(repo_url)
+    provider = get_provider_instance(provider_key)
+    ref = provider.parse_url(repo_url)
 
     # Analyze files
     file_summaries = defaultdict(list)
-    total_tokens = 0
     
     # Get the configured token limit from session state, or use a default
     token_limit = st.session_state.get('token_limit', 64000)
@@ -212,131 +202,114 @@ def analyze_github_repo(repo_url):
     selected_model = st.session_state.get('selected_model', 'gpt-4o')
     
     # Determine which model to use for token estimation
-    token_estimation_model = "gpt-4o"  # Default fallback
+    token_estimation_model = "gpt-4o"
     if model_provider == "OpenAI API":
         token_estimation_model = selected_model
     
-    # Reserve some tokens for the model's response (typically 20-30% of the context window)
-    # This ensures the model has enough space to generate a response
+    # Reserve tokens for response
     analysis_token_limit = int(token_limit * 0.7)
-    
-    # Progress bar for GitHub analysis
+
+    # Progress bar
     progress_bar = st.progress(0)
     status_text = st.empty()
     status_text.text("Analyzing repository structure...")
-    
-    # First, get the README to prioritize it
-    readme_content = ""
-    readme_tokens = 0
-    try:
-        readme_file = repo.get_contents("README.md", ref=default_branch)
-        readme_content = base64.b64decode(readme_file.content).decode()
-        readme_tokens = estimate_tokens(readme_content, token_estimation_model)
-    except:
-        try:
-            # Try lowercase readme.md as fallback
-            readme_file = repo.get_contents("readme.md", ref=default_branch)
-            readme_content = base64.b64decode(readme_file.content).decode()
-            readme_tokens = estimate_tokens(readme_content, token_estimation_model)
-        except:
-            st.warning("No README.md found in the repository.")
-    
-    # Calculate how many tokens we can use for code analysis
-    # Reserve at least 30% of the token limit for code analysis
+
+    # Default branch
+    default_branch = provider.get_default_branch(ref)
+
+    # README
+    readme_content = provider.get_readme_text(ref, default_branch) or ""
+    readme_tokens = estimate_tokens(readme_content, token_estimation_model) if readme_content else 0
+
+    # Budget
     code_token_limit = max(int(analysis_token_limit * 0.3), analysis_token_limit - readme_tokens)
-    
-    # If README is too large, truncate it
     if readme_tokens > analysis_token_limit * 0.7:
-        # Truncate README to 70% of the analysis token limit
-        truncation_ratio = (analysis_token_limit * 0.7) / readme_tokens
+        truncation_ratio = (analysis_token_limit * 0.7) / max(readme_tokens, 1)
         max_readme_chars = int(len(readme_content) * truncation_ratio)
         readme_content = readme_content[:max_readme_chars] + "...\n(README truncated due to length)\n\n"
         readme_tokens = estimate_tokens(readme_content, token_estimation_model)
-    
-    # Update progress
+
     progress_bar.progress(0.2)
     status_text.text("Analyzing code files...")
-    
-    # Get all code files
-    code_files = [file for file in tree.tree if file.type == "blob" and file.path.endswith(
-        ('.py', '.js', '.ts', '.html', '.css', '.java', '.go', '.rb', '.c', '.cpp', '.h', '.cs', '.php')
-    )]
-    
-    # Sort files by importance (you can customize this logic)
-    # For example, prioritize main files, configuration files, etc.
-    def file_importance(file):
-        # Lower score means higher importance
-        if file.path.lower() in ['main.py', 'app.py', 'index.js', 'package.json', 'config.json']:
+
+    # Enumerate files
+    all_files = list(provider.iter_code_files(ref, default_branch))
+
+    def file_importance(path: str) -> int:
+        p = path.lower()
+        if p in ['main.py', 'app.py', 'index.js', 'package.json', 'config.json']:
             return 0
-        if 'test' in file.path.lower() or 'spec' in file.path.lower():
+        if 'test' in p or 'spec' in p:
             return 3
-        if file.path.endswith(('.py', '.js', '.ts', '.java', '.go')):
+        if p.endswith(('.py', '.js', '.ts', '.java', '.go')):
             return 1
         return 2
-    
-    code_files.sort(key=file_importance)
-    
-    # Process files until we reach the token limit
+
+    all_files.sort(key=file_importance)
+
     total_tokens = readme_tokens
-    file_count = len(code_files)
+    file_count = len(all_files)
     processed_files = 0
-    
-    for i, file in enumerate(code_files):
-        # Update progress
-        progress_percent = 0.2 + (0.8 * (i / file_count))
+
+    for i, path in enumerate(all_files):
+        progress_percent = 0.2 + (0.8 * (i / max(file_count, 1)))
         progress_bar.progress(min(progress_percent, 1.0))
-        status_text.text(f"Analyzing file {i+1}/{file_count}: {file.path}")
-        
+        status_text.text(f"Analyzing file {i+1}/{file_count}: {path}")
         try:
-            content = repo.get_contents(file.path, ref=default_branch)
-            decoded_content = base64.b64decode(content.content).decode()
-            
-            # Summarize the file content
-            summary = summarize_file(file.path, decoded_content)
+            decoded_content = provider.get_file_content(ref, path, default_branch)
+            summary = summarize_file(path, decoded_content)
             summary_tokens = estimate_tokens(summary, token_estimation_model)
-            
-            # Check if adding this summary would exceed our token limit
             if total_tokens + summary_tokens > analysis_token_limit:
-                # If we're about to exceed the limit, add a note and stop processing
                 file_summaries["info"].append(f"Analysis truncated: {file_count - i} more files not analyzed due to token limit.")
                 break
-            
-            file_summaries[file.path.split('.')[-1]].append(summary)
+            file_summaries[path.split('.')[-1] if '.' in path else 'text'].append(summary)
             total_tokens += summary_tokens
             processed_files += 1
-        except Exception as e:
-            # Skip files that can't be decoded
+        except Exception:
             continue
-    
+
     # Clear progress indicators
     progress_bar.empty()
     status_text.empty()
-    
-    # Compile the analysis into a system description
-    system_description = f"Repository: {repo_url}\n\n"
-    
-    if readme_content:
-        system_description += "README.md Content:\n"
-        system_description += readme_content + "\n\n"
 
+    # Compile description
+    system_description = f"Repository: {repo_url}\n\n"
+    if readme_content:
+        system_description += "README.md Content:\n" + readme_content + "\n\n"
     for file_type, summaries in file_summaries.items():
         system_description += f"{file_type.upper()} Files:\n"
         for summary in summaries:
             system_description += summary + "\n"
         system_description += "\n"
-    
-    # Add token usage information
+
     estimated_total_tokens = estimate_tokens(system_description, token_estimation_model)
     system_description += f"\nRepository Analysis Summary:\n"
     system_description += f"- Files analyzed: {processed_files} of {file_count} total files\n"
     system_description += f"- Token usage estimate: ~{estimated_total_tokens} tokens\n"
     system_description += f"- Token limit configured: {token_limit} tokens\n"
-    
-    # Show a warning if we're close to the token limit
     if estimated_total_tokens > token_limit * 0.9:
-        st.warning(f"⚠️ The GitHub analysis is using approximately {estimated_total_tokens} tokens, which is close to your configured limit of {token_limit}. Consider increasing the token limit in the sidebar settings if you need more comprehensive analysis.")
-    
+        st.warning(
+            f"⚠️ The repository analysis is using approximately {estimated_total_tokens} tokens, which is close to your configured limit of {token_limit}. Consider increasing the token limit in the sidebar settings if you need more comprehensive analysis."
+        )
     return system_description
+
+def detect_provider(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.hostname or '').lower()
+    path = parsed.path.lower()
+    if 'github' in host or host.endswith('.githubenterprise.com'):
+        return 'github'
+    if host == 'dev.azure.com' or host.endswith('visualstudio.com') or '/_git/' in path:
+        return 'azure-devops'
+    # Default to GitHub if unknown pattern
+    return 'github'
+
+def get_provider_instance(provider_key: str) -> RepoProvider:
+    if provider_key == 'github':
+        return GitHubProvider(st.session_state.get('github_api_key', ''))
+    if provider_key == 'azure-devops':
+        return AzureDevOpsProvider(st.session_state.get('azure_devops_pat', ''))
+    raise ValueError(f"Unsupported provider: {provider_key}")
 
 def summarize_file(file_path, content):
     """
@@ -454,6 +427,11 @@ def load_env_variables():
     github_api_key = os.getenv('GITHUB_API_KEY')
     if github_api_key:
         st.session_state['github_api_key'] = github_api_key
+
+    # Load Azure DevOps PAT from environment variable
+    azure_devops_pat_env = os.getenv('AZURE_DEVOPS_PAT')
+    if azure_devops_pat_env:
+        st.session_state['azure_devops_pat'] = azure_devops_pat_env
 
     # Load other API keys if needed
     openai_api_key = os.getenv('OPENAI_API_KEY')
@@ -901,17 +879,24 @@ with st.sidebar:
             help="OpenAI GPT-OSS models provide open-source options, Llama 3.3 70B excels at tool use, DeepSeek R1 offers reasoning capabilities, Kimi K2 provides multilingual support, and Qwen3 32B delivers balanced performance."
         )
 
-    # Add GitHub API key input field to the sidebar
+    # Credentials for repository analysis
     github_api_key = st.text_input(
-        "Enter your GitHub API key (optional):",
+        "GitHub Personal Access Token (optional)",
         value=st.session_state.get('github_api_key', ''),
         type="password",
-        help="You can find or create your GitHub API key in your GitHub account settings under Developer settings > Personal access tokens.",
+        help="PAT used for GitHub/GitHub Enterprise repository analysis.",
     )
-
-    # Store the GitHub API key in session state
     if github_api_key:
         st.session_state['github_api_key'] = github_api_key
+
+    azure_devops_pat = st.text_input(
+        "Azure DevOps Personal Access Token (optional)",
+        value=st.session_state.get('azure_devops_pat', ''),
+        type="password",
+        help="PAT used for Azure DevOps repository analysis.",
+    )
+    if azure_devops_pat:
+        st.session_state['azure_devops_pat'] = azure_devops_pat
 
     # Add Advanced Settings section with token limit configuration
     with st.expander("Advanced Settings"):
@@ -947,12 +932,12 @@ with st.sidebar:
         
         # Add token limit slider with fixed minimum and dynamic maximum
         token_limit = st.slider(
-            "Maximum token limit for GitHub analysis:",
+            "Maximum token limit for repository analysis:",
             min_value=4000,  # Fixed minimum as requested
             max_value=max_token_limit,
             value=st.session_state.token_limit,  # Use the current value from session state
             step=1000,
-            help="Set the maximum number of tokens to use for GitHub repository analysis. This helps prevent exceeding your model's context window."
+            help="Set the maximum number of tokens to use for repository analysis. This helps prevent exceeding your model's context window."
         )
         
         # Store the token limit in session state
@@ -1141,7 +1126,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                 except Exception as e:
                     st.error(f"An error occurred while analyzing the image: {str(e)}")
 
-        # Use the get_input() function to get the application description and GitHub URL
+    # Use the get_input() function to get the application description and optional repository URL
         app_input = get_input()
         # Update session state only if the text area content has changed
         if app_input != st.session_state['app_input']:
