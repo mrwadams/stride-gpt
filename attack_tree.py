@@ -246,7 +246,7 @@ def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
         return extract_mermaid_code(response.choices[0].message.content)
 
 # Function to get attack tree from Ollama hosted LLM.
-def get_attack_tree_ollama(ollama_endpoint, ollama_model, prompt):
+def get_attack_tree_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
     """
     Get attack tree from Ollama hosted LLM.
     
@@ -278,7 +278,7 @@ def get_attack_tree_ollama(ollama_endpoint, ollama_model, prompt):
     }
 
     try:
-        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response = requests.post(url, json=data, timeout=ollama_timeout)  # Add timeout
         response.raise_for_status()  # Raise exception for bad status codes
         outer_json = response.json()
         

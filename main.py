@@ -822,6 +822,16 @@ with st.sidebar:
             help="Select a model from your local Ollama instance. If you don't see any models, make sure Ollama is running and has models installed."
         )
 
+        # Add timeout configuration
+        ollama_timeout = st.number_input(
+            "Ollama request timeout (seconds):",
+            min_value=60,
+            max_value=600,
+            value=60,
+            step=20,
+            help="Set the timeout for requests to your Ollama instance. Increase this if you experience timeouts with larger models.",
+        )
+
     if model_provider == "LM Studio Server":
         st.markdown(
         """
@@ -1226,7 +1236,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                     elif model_provider == "Mistral API":
                         model_output = get_threat_model_mistral(mistral_api_key, mistral_model, threat_model_prompt)
                     elif model_provider == "Ollama":
-                        model_output = get_threat_model_ollama(st.session_state['ollama_endpoint'], selected_model, threat_model_prompt)
+                        model_output = get_threat_model_ollama(st.session_state['ollama_endpoint'], selected_model, ollama_timeout, threat_model_prompt)
                     elif model_provider == "Anthropic API":
                         model_output = get_threat_model_anthropic(anthropic_api_key, anthropic_model, threat_model_prompt)
                         # Check if we got a fallback response
@@ -1326,7 +1336,7 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(mistral_api_key, mistral_model, attack_tree_prompt)
                     elif model_provider == "Ollama":
-                        mermaid_code = get_attack_tree_ollama(st.session_state['ollama_endpoint'], selected_model, attack_tree_prompt)
+                        mermaid_code = get_attack_tree_ollama(st.session_state['ollama_endpoint'], selected_model, ollama_timeout, attack_tree_prompt)
                     elif model_provider == "Anthropic API":
                         mermaid_code = get_attack_tree_anthropic(anthropic_api_key, anthropic_model, attack_tree_prompt)
                     elif model_provider == "LM Studio Server":
@@ -1425,7 +1435,7 @@ the security posture of the application and protect against potential attacks.
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(mistral_api_key, mistral_model, mitigations_prompt)
                         elif model_provider == "Ollama":
-                            mitigations_markdown = get_mitigations_ollama(st.session_state['ollama_endpoint'], selected_model, mitigations_prompt)
+                            mitigations_markdown = get_mitigations_ollama(st.session_state['ollama_endpoint'], selected_model, ollama_timeout, mitigations_prompt)
                         elif model_provider == "Anthropic API":
                             mitigations_markdown = get_mitigations_anthropic(anthropic_api_key, anthropic_model, mitigations_prompt)
                         elif model_provider == "LM Studio Server":
@@ -1507,7 +1517,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(mistral_api_key, mistral_model, dread_assessment_prompt)
                         elif model_provider == "Ollama":
-                            dread_assessment = get_dread_assessment_ollama(st.session_state['ollama_endpoint'], selected_model, dread_assessment_prompt)
+                            dread_assessment = get_dread_assessment_ollama(st.session_state['ollama_endpoint'], selected_model, ollama_timeout, dread_assessment_prompt)
                         elif model_provider == "Anthropic API":
                             dread_assessment = get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, dread_assessment_prompt)
                         elif model_provider == "LM Studio Server":
@@ -1604,7 +1614,7 @@ scenarios.
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(mistral_api_key, mistral_model, test_cases_prompt)
                         elif model_provider == "Ollama":
-                            test_cases_markdown = get_test_cases_ollama(st.session_state['ollama_endpoint'], selected_model, test_cases_prompt)
+                            test_cases_markdown = get_test_cases_ollama(st.session_state['ollama_endpoint'], selected_model, ollama_timeout, test_cases_prompt)
                         elif model_provider == "Anthropic API":
                             test_cases_markdown = get_test_cases_anthropic(anthropic_api_key, anthropic_model, test_cases_prompt)
                         elif model_provider == "LM Studio Server":
