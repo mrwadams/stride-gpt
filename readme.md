@@ -5,6 +5,7 @@ STRIDE GPT is an AI-powered threat modelling tool that leverages Large Language 
 ## Table of Contents
 - [Star the Repo](#star-the-repo)
 - [Features](#features)
+- [Enterprise Deployment](#enterprise-deployment)
 - [Roadmap](#roadmap)
 - [Talk at Open Security Summit](#talk-at-open-security-summit)
 - [Changelog](#changelog)
@@ -39,6 +40,17 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Available as a Docker container image for easy deployment
 - Environment variable support for secure configuration
 - Downloadable outputs in Markdown format for all generated content
+
+## Enterprise Deployment
+
+Want to customize STRIDE-GPT for your organization? Check out our comprehensive [Operationalization Guide](docs/operationalization-guide.md) to learn how to:
+
+- 🎯 Inject organizational security controls and standards
+- 📋 Customize threat models with your compliance requirements
+- 🔧 Fork and deploy STRIDE-GPT internally
+- 📊 Get context-aware, actionable threat models specific to your environment
+
+The guide includes step-by-step instructions, code examples, and deployment patterns for organizations looking to scale AI-powered threat modeling across their teams.
 
 ## Roadmap
 - [x] Add support for multi-modal threat modelling
