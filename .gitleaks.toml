@@ -1,0 +1,28 @@
+# Gitleaks configuration for STRIDE GPT
+title = "STRIDE GPT Gitleaks Configuration"
+
+[extend]
+# Use the default gitleaks configuration as a base
+useDefault = true
+
+[allowlist]
+description = "Allowlist for STRIDE GPT project"
+
+# Ignore specific paths that may contain example API keys or test data
+paths = [
+    '''\.streamlit/secrets\.toml\.example''',
+    '''README\.md''',
+    '''\.env\.example''',
+]
+
+# Ignore commits before a certain date if migrating existing repo
+# stopwords = []
+
+# Regex patterns to allowlist (use sparingly)
+regexes = [
+    # Example: Allow placeholder API keys in documentation
+    '''(OPENAI_API_KEY|ANTHROPIC_API_KEY|GOOGLE_API_KEY).*=.*"[a-zA-Z0-9-]+".*# Example''',
+]
+
+# Specific commits to ignore (if needed)
+# commits = []

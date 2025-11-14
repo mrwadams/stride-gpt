@@ -1,5 +1,5 @@
-# Specify the base image
-FROM python:3.12-slim
+# Specify the base image with SHA256 for reproducibility and security
+FROM python:3.12-slim@sha256:d86b4c74b936c438cd4cc3a9f7256b9a7c27ad68c7caf8c205e18d9845af0164
 
 # Turns off buffering for easier container logging and updating pip as root
 ENV PYTHONUNBUFFERED=1
@@ -26,13 +26,17 @@ USER appuser
 ENV PATH="$PATH:/home/appuser/.local/bin:/home/appuser/.local/lib:/home/appuser/venv/bin"
 ENV VIRTUAL_ENV=/home/appuser/venv
 
-# Install pip requirements
+# Install pip requirements and validate
 RUN python -m venv ${VIRTUAL_ENV}
-RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r requirements.txt
+RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r requirements.txt && \
+    ${VIRTUAL_ENV}/bin/pip check
 
 # Test if the container is listening on port 8501
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl --fail http://localhost:8501/_stcore/health
 
-# Configure the container to run as an executable
-ENTRYPOINT ["streamlit", "run", "main.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Configure the container to run as an executable with security enhancements
+ENTRYPOINT ["streamlit", "run", "main.py", \
+            "--server.port=8501", \
+            "--server.address=0.0.0.0", \
+            "--server.enableXsrfProtection=true"]

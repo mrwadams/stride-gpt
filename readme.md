@@ -292,6 +292,73 @@ Release highlights:
 
 Note: When you run the application (either locally or via Docker), it will automatically load the environment variables you've set in the `.env` file. This will pre-fill the API keys in the application interface.
 
+## Security Best Practices
+
+STRIDE GPT is designed for local, single-user deployment. When using the tool:
+
+### Protecting Your API Keys
+
+**Your API keys are sensitive credentials that can incur charges on your account.**
+
+✅ **DO:**
+- Enter API keys through the UI (they stay in your browser session)
+- Use .env file for convenience on your personal machine
+- Set spending limits in your LLM provider dashboard
+- Regularly review your API usage and costs
+- Clear session when using on shared computers
+
+❌ **DON'T:**
+- Commit .env files to version control (already in .gitignore)
+- Share screenshots with API keys visible
+- Run STRIDE GPT on untrusted/compromised systems
+- Share your API keys with others
+- Ignore unexpected API charges
+
+### Data Privacy Considerations
+
+When you generate threat models, STRIDE GPT sends data to your chosen LLM provider:
+- Application details (type, authentication methods, architecture)
+- System architecture descriptions
+- Uploaded architecture diagrams/images
+- Generated threat models and mitigations
+
+**What this means:**
+- OpenAI, Anthropic, Google, etc. may log this data per their privacy policies
+- Consider using generic/fictional system details for demonstrations
+- Review your LLM provider's data retention and privacy policies
+- For sensitive systems, consider:
+  - Using local models (Ollama, LM Studio)
+  - Using providers with stricter privacy guarantees
+  - Sanitizing system descriptions before input
+
+### For Team/Organization Deployments
+
+If deploying STRIDE GPT for multiple users (not the default use case):
+- Add authentication/authorization (not included by default)
+- Use a secrets management service for API keys
+- Deploy behind VPN or internal network
+- Review the [SECURITY.md](SECURITY.md) document for additional considerations
+- Consider data residency and compliance requirements
+- Implement appropriate access controls for generated threat models
+
+### Dependency Security
+
+We maintain dependencies and monitor for vulnerabilities:
+- Dependencies are updated regularly via Dependabot
+- Automated security scanning runs on every commit
+- Security advisories are tracked in GitHub Security tab
+- Run `pip-audit` to check for known vulnerabilities locally
+
+See [SECURITY.md](SECURITY.md) for comprehensive security information including automated security scanning, vulnerability reporting, and secure development practices.
+
+### Reporting Security Issues
+
+Found a security issue? Please report it responsibly:
+- Create a security advisory via GitHub's [private vulnerability reporting](https://github.com/mrwadams/stride-gpt/security/advisories/new)
+- Don't post security issues publicly
+- We'll acknowledge within 48 hours
+- Fixes will be prioritized and released quickly
+
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
