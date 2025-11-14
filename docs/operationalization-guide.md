@@ -4,7 +4,7 @@
 
 STRIDE-GPT is a Streamlit application that generates threat models using LLMs. This guide shows you how to customize it for your organization to get better, more relevant threat models.
 
-**The key insight**: The quality of threat models depends on the context you provide. Generic inputs → generic threats. Organizational context → specific, actionable threats.
+**Key insight**: The quality of threat models depends on the context you provide. Generic inputs → generic threats. Organizational context → specific, actionable threats.
 
 ---
 
@@ -25,11 +25,11 @@ flowchart TD
 
     G[Organizational<br/>Context] -.->|Inject here| B
 
-    style G fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#bbf,stroke:#333,stroke-width:2px
+    style G fill:#A855F7,stroke:#9333EA,stroke-width:2px,color:#fff
+    style B fill:#06B6D4,stroke:#0891B2,stroke-width:2px,color:#fff
 ```
 
-**Customization Point:** The organizational context (pink box) needs to be injected into the Prompt Builder (blue box).
+**Customization Point:** The organizational context (purple box) needs to be injected into the Prompt Builder (blue box).
 
 ### Current Customization Points
 
@@ -40,14 +40,12 @@ graph LR
     E[dread.py] -->|Priority: ⭐⭐| F[Apply org<br/>risk criteria]
     G[attack_tree.py] -->|Priority: ⭐| H[Known attack<br/>patterns]
     I[test_cases.py] -->|Priority: ⭐| J[Testing standards]
-    K[dfd.py] -->|Priority: ⭐| L[Architecture<br/>patterns]
 
-    style A fill:#ffcccc
-    style C fill:#ffcccc
-    style E fill:#ffffcc
-    style G fill:#ccffcc
-    style I fill:#ccffcc
-    style K fill:#ccffcc
+    style A fill:#D946EF,color:#fff
+    style C fill:#D946EF,color:#fff
+    style E fill:#F59E0B,color:#fff
+    style G fill:#06B6D4,color:#fff
+    style I fill:#06B6D4,color:#fff
 ```
 
 ### Key Limitation
@@ -73,8 +71,8 @@ graph TD
     B2 --> C2[✅ Consistent<br/>✅ One-time setup<br/>❌ Maintain fork]
     B3 --> C3[✅ No code changes<br/>❌ Extra tooling<br/>❌ Less integrated]
 
-    style A2 fill:#90EE90
-    style C2 fill:#90EE90
+    style A2 fill:#10B981,color:#fff
+    style C2 fill:#10B981,color:#fff
 ```
 
 ### Approach 1: Use As-Is (Quickest)
@@ -126,16 +124,16 @@ graph LR
 
     W1 ==> W2 ==> W3 ==> W4
 
-    style W1 fill:#e1f5ff
-    style W2 fill:#b3e5ff
-    style W3 fill:#85d6ff
-    style W4 fill:#57c7ff
+    style W1 fill:#A855F7,color:#fff
+    style W2 fill:#8B5CF6,color:#fff
+    style W3 fill:#3B82F6,color:#fff
+    style W4 fill:#06B6D4,color:#fff
 ```
 
 ### Prerequisites
 - Basic Python knowledge
 - Git installed
-- Python 3.9+ installed
+- Python 3.12+ installed
 
 ### Step 1: Fork the Repository
 ```bash
@@ -145,160 +143,58 @@ cd my-org-stride-gpt
 
 ### Step 2: Create Your Organizational Context
 
-Create a new file `org_context.py` in the root directory:
-
-```python
-# org_context.py
-
-ORG_CONTEXT = """
-# [Your Organization] Security Context
-
-## Approved Security Controls
-- Authentication: Okta SSO with MFA (mandatory for all production apps)
-- Data Encryption: AES-256 at rest, TLS 1.3 in transit
-- Network: VPC with private subnets, no direct internet access to databases
-- Monitoring: CloudWatch + Datadog for all production systems
-
-## Approved Technology Stack
-### Allowed:
-- Languages: Python 3.9+, Node.js 18+, Java 17+
-- Frontend: React, Vue.js
-- Backend: FastAPI, Express.js, Spring Boot
-- Databases: PostgreSQL, MongoDB
-- Cloud: AWS only (us-east-1, eu-west-1)
-
-### Prohibited:
-- Deprecated protocols: FTP, Telnet
-- Weak cryptography: MD5, SHA1, DES
-
-## Compliance Requirements
-- SOC2 Type II (all production systems)
-- GDPR (EU customer data)
-- PCI-DSS (payment processing apps only)
-
-## Data Classification Levels
-- **Public**: Marketing content, public documentation
-- **Internal**: Internal processes, organizational charts
-- **Confidential**: Customer PII, financial data
-- **Restricted**: Payment card data, health records
-
-## Standard Reference Architecture (Web Applications)
-- CloudFront (CDN) → ALB → ECS Fargate → RDS PostgreSQL
-- Security: WAF, API Gateway rate limiting, VPC isolation
-- Monitoring: CloudWatch Logs, X-Ray tracing
-"""
-
-def get_org_context():
-    """Return organizational security context for threat modeling"""
-    return ORG_CONTEXT
-```
+Create a new file `org_context.py` that contains:
+- **Approved security controls** (authentication, encryption, network, monitoring)
+- **Technology stack** (approved languages, frameworks, cloud platforms)
+- **Compliance requirements** (SOC2, GDPR, PCI-DSS, etc.)
+- **Data classification levels** (Public, Internal, Confidential, Restricted)
+- **Standard architectures** (your typical web app, mobile app, API patterns)
 
 **Important:** Start small. Add your top 10-20 controls, 1-2 architectures, and key compliance requirements. You can expand later.
+
+<details>
+<summary>Example: org_context.py structure (click to expand)</summary>
+
+The file should define your security context as a text string including:
+- Authentication requirements (e.g., "Okta SSO with MFA mandatory")
+- Encryption standards (e.g., "AES-256 at rest, TLS 1.3 in transit")
+- Approved tech stack (e.g., "Python 3.9+, React, PostgreSQL, AWS only")
+- Compliance frameworks (e.g., "SOC2 Type II for all production")
+- Reference architectures (e.g., "CloudFront → ALB → ECS → RDS")
+</details>
 
 ### Step 3: Modify the Threat Model Prompt
 
 Open `threat_model.py` and find the `create_threat_model_prompt` function (around line 33).
 
-**Add the import at the top of the file:**
-```python
-from org_context import get_org_context
-```
+**Key changes needed:**
+1. Import your organizational context: `from org_context import get_org_context`
+2. Inject the context into the prompt before the main instructions
+3. Add guidance to the LLM to reference your specific controls, tech stack, and compliance requirements
 
-**Modify the function to inject organizational context:**
+This ensures every threat model generated will be tailored to your organization's standards.
 
-```python
-def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
-    # Get organizational context
-    org_context = get_org_context()
+<details>
+<summary>Technical implementation details (click to expand)</summary>
 
-    prompt = f"""
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to analyze the provided code summary, README content, and application description to produce a list of specific threats for the application.
-
-Pay special attention to the README content as it often provides valuable context about the project's purpose, architecture, and potential security considerations.
-
-ORGANIZATIONAL SECURITY CONTEXT:
-{org_context}
-
-IMPORTANT: When generating threats and mitigations:
-1. Reference our approved security controls by name when they apply
-2. Only suggest mitigations using our approved technology stack
-3. Consider our compliance requirements (SOC2, GDPR, PCI-DSS as applicable)
-4. Apply our data classification levels when assessing impact severity
-5. Flag any technologies not in our approved stack as potential risks
-6. Identify gaps where our standard controls are not implemented
-
-For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege), list multiple (3 or 4) credible threats if applicable. Each threat scenario should provide a credible scenario in which the threat could occur in the context of the application. It is very important that your responses are tailored to reflect the details you are given.
-
-When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact".
-
-Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis. For example:
-- Missing architectural details that would help identify more specific threats
-- Unclear authentication flows that need more detail
-- Incomplete data flow descriptions
-- Missing technical stack information
-- Unclear system boundaries or trust zones
-- Incomplete description of sensitive data handling
-
-Do not provide general security recommendations - focus only on what additional information would help create a better threat model.
-
-APPLICATION TYPE: {app_type}
-AUTHENTICATION METHODS: {authentication}
-INTERNET FACING: {internet_facing}
-SENSITIVE DATA: {sensitive_data}
-CODE SUMMARY, README CONTENT, AND APPLICATION DESCRIPTION:
-{app_input}
-
-Example of expected JSON response format:
-
-    {{
-      "threat_model": [
-        {{
-          "Threat Type": "Spoofing",
-          "Scenario": "An attacker could impersonate a legitimate user by stealing session tokens transmitted over an unencrypted connection.",
-          "Potential Impact": "Unauthorized access to user accounts and sensitive data."
-        }}
-      ],
-      "improvement_suggestions": [
-        "Provide details about the authentication mechanism used (e.g., OAuth, SAML, JWT).",
-        "Clarify where and how session tokens are stored and transmitted.",
-        "Specify which data classification levels are handled by this application."
-      ]
-    }}
-"""
-    return prompt
-```
-
-**Note:** This preserves the original prompt structure while injecting your organizational context.
+The modification involves adding your org context to the prompt template and instructing the LLM to:
+- Reference approved security controls by name
+- Only suggest mitigations using your approved tech stack
+- Consider your specific compliance requirements
+- Apply your data classification levels when assessing impact
+- Flag technologies not in your approved stack
+- Identify gaps where standard controls aren't implemented
+</details>
 
 ### Step 4: Update Other Modules (Optional but Recommended)
 
-You should also update the other modules to use organizational context:
+Apply the same pattern to other modules:
+- **`mitigations.py`** - Ensures suggested mitigations use your approved tech stack
+- **`attack_tree.py`** - Incorporates known attack patterns from your environment
+- **`dread.py`** - Applies your organization's risk scoring criteria
+- **`test_cases.py`** - References your testing standards and frameworks
 
-**For `mitigations.py`**, find `create_mitigations_prompt` and add:
-```python
-from org_context import get_org_context
-
-def create_mitigations_prompt(threats):
-    org_context = get_org_context()
-
-    prompt = f"""
-Act as a cyber security expert...
-
-ORGANIZATIONAL CONTEXT:
-{org_context}
-
-IMPORTANT: Suggest mitigations using only our approved technology stack and security controls.
-
-THREAT MODEL:
-{threats}
-...
-"""
-```
-
-**Repeat for:**
-- `attack_tree.py` - Add context about known attack patterns in your environment
-- `dread.py` - Add context about your risk scoring criteria
-- `test_cases.py` - Add context about your testing standards
+Each follows the same pattern: import the context, inject it into the prompt, and guide the LLM to use your organization's standards.
 
 ### Step 5: Test Your Changes
 
@@ -320,26 +216,13 @@ streamlit run main.py
 
 ### Step 6: Handle Token Limits
 
-Large organizational context can consume tokens. Monitor this:
+Large organizational context can consume tokens. Best practices:
+- **Monitor context size** - Keep organizational context under 10-20k tokens
+- **Start focused** - Include only your top 20 controls and 2-3 reference architectures
+- **Optimize over time** - Add more detail based on actual usage patterns
+- **Conditional loading** - Load different context based on application type (web, mobile, API)
 
-**Add token counting (optional):**
-```python
-import tiktoken
-
-def estimate_tokens(text, model="gpt-4"):
-    encoding = tiktoken.encoding_for_model(model)
-    return len(encoding.encode(text))
-
-# Before sending to LLM
-org_context = get_org_context()
-context_tokens = estimate_tokens(org_context)
-print(f"Organizational context uses ~{context_tokens} tokens")
-```
-
-**If context is too large:**
-- Reduce to essential controls only
-- Split into multiple context functions (get_controls(), get_compliance(), etc.)
-- Load context conditionally based on app type
+Modern LLMs (GPT-4o, Claude Sonnet 4.5) have 100k-200k token context windows, so most organizational contexts fit comfortably.
 
 ---
 
@@ -359,8 +242,8 @@ graph LR
     B2 --> C2[Approved Controls<br/>+ Tech Stack<br/>+ Control IDs]
     end
 
-    style B2 fill:#90EE90
-    style C2 fill:#90EE90
+    style B2 fill:#14B8A6,color:#fff
+    style C2 fill:#14B8A6,color:#fff
 ```
 
 ### Without Organizational Context
@@ -443,101 +326,54 @@ streamlit run main.py --server.port 8501 --server.address 0.0.0.0
 
 ### Option 3: Docker Deployment
 
-The project already includes a Dockerfile. Build your customized version:
+The project includes a Dockerfile. Build your customized version:
 
 ```bash
-# Build custom image
 docker build -t myorg-stride-gpt .
+```
 
-# Run with environment file
+**Local development/testing:**
+```bash
+# Use .env file for local testing only
 docker run -p 8501:8501 --env-file .env myorg-stride-gpt
 ```
 
-**Update `.env` file for production:**
+**Production deployment:**
+
+⚠️ **Never use `.env` files in production.** Use proper secrets management:
+
+**Option A: Docker Swarm Secrets**
 ```bash
-# Required API keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Optional (based on your model provider choice)
-AZURE_API_KEY=...
-GOOGLE_API_KEY=...
-MISTRAL_API_KEY=...
-GROQ_API_KEY=...
-
-# For on-premises models
-OLLAMA_ENDPOINT=http://ollama-server:11434
-LM_STUDIO_ENDPOINT=http://lm-studio-server:1234
-
-# Optional: GitHub for repo analysis
-GITHUB_API_KEY=ghp_...
-```
-
-**Docker secrets management:**
-```bash
-# Use Docker secrets instead of .env for production
 echo "sk-..." | docker secret create openai_api_key -
-docker service create --secret openai_api_key myorg-stride-gpt
+docker service create \
+  --secret openai_api_key \
+  --publish 8501:8501 \
+  myorg-stride-gpt
 ```
+
+**Option B: Environment variables from secure source**
+```bash
+# Pass from AWS Secrets Manager, HashiCorp Vault, etc.
+docker run -p 8501:8501 \
+  -e OPENAI_API_KEY=$(aws secretsmanager get-secret-value --secret-id prod/stride-gpt/openai --query SecretString --output text) \
+  myorg-stride-gpt
+```
+
+**API Keys needed:**
+- LLM provider keys (OpenAI, Anthropic, Google, etc.)
+- Optional: GitHub token for repository analysis
+- Optional: Ollama/LM Studio endpoints for local models
 
 ### Option 4: Kubernetes (Enterprise)
 
-```yaml
-# deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: stride-gpt
-  namespace: security-tools
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: stride-gpt
-  template:
-    metadata:
-      labels:
-        app: stride-gpt
-    spec:
-      containers:
-      - name: stride-gpt
-        image: myorg/stride-gpt:latest
-        ports:
-        - containerPort: 8501
-        env:
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: stride-gpt-secrets
-              key: openai-api-key
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "500m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: stride-gpt-service
-  namespace: security-tools
-spec:
-  selector:
-    app: stride-gpt
-  ports:
-  - port: 80
-    targetPort: 8501
-  type: LoadBalancer
-```
+For organizations running Kubernetes:
+- Deploy as a standard containerized application
+- Store API keys as Kubernetes secrets
+- Configure resource limits (typically 512Mi-1Gi memory)
+- Use load balancer for high availability
+- Enable autoscaling based on usage
 
-**Create secrets:**
-```bash
-kubectl create secret generic stride-gpt-secrets \
-  --from-literal=openai-api-key=sk-... \
-  --namespace=security-tools
-```
+Your DevOps team can use standard Kubernetes deployment patterns with the STRIDE-GPT Docker image.
 
 ---
 
@@ -566,25 +402,11 @@ git merge upstream/main
 
 ### Version Control Your Organizational Context
 
-```python
-# org_context.py
-ORG_CONTEXT_VERSION = "1.0.0"
-LAST_UPDATED = "2024-01-15"
-UPDATED_BY = "security-team@myorg.com"
-
-ORG_CONTEXT = f"""
-# MyOrg Security Context v{ORG_CONTEXT_VERSION}
-Last Updated: {LAST_UPDATED}
-
-## Change Log
-- v1.0.0 (2024-01-15): Initial organizational context
-  - Added 20 core security controls
-  - Documented standard web application architecture
-  - Defined data classification levels
-
-...rest of context...
-"""
-```
+Treat your `org_context.py` like any other critical configuration:
+- Include version numbers and last updated dates
+- Maintain a changelog of what controls were added/modified
+- Review and update quarterly
+- Track who made changes and why
 
 ### Regular Updates to Consider
 
@@ -620,11 +442,11 @@ flowchart TD
     P4 --> S4[Update mitigations.py<br/>too, not just<br/>threat_model.py]
     P5 --> S5[Manual merge<br/>or cherry-pick<br/>specific commits]
 
-    style P1 fill:#ffcccc
-    style P2 fill:#ffcccc
-    style P3 fill:#ffcccc
-    style P4 fill:#ffcccc
-    style P5 fill:#ffcccc
+    style P1 fill:#F43F5E,color:#fff
+    style P2 fill:#F43F5E,color:#fff
+    style P3 fill:#F43F5E,color:#fff
+    style P4 fill:#F43F5E,color:#fff
+    style P5 fill:#F43F5E,color:#fff
 ```
 
 ### Problem: JSON Output Breaks After Adding Context
@@ -644,16 +466,7 @@ flowchart TD
 **Symptom:** API errors about token limits
 
 **Solutions:**
-1. Measure your context size:
-```python
-from org_context import get_org_context
-import tiktoken
-
-encoding = tiktoken.encoding_for_model("gpt-4")
-tokens = len(encoding.encode(get_org_context()))
-print(f"Context uses {tokens} tokens")
-```
-
+1. Measure your context size using token counting tools
 2. If too large (>10k tokens for context alone):
    - Reduce to top 20 controls
    - Remove verbose descriptions
@@ -708,84 +521,13 @@ git cherry-pick <commit-hash>  # Pick specific improvements
 ## Common Customizations
 
 ### 1. Environment-Based Context Loading
-
-Load different context for dev/staging/prod:
-
-```python
-# org_context.py
-import os
-
-def get_org_context():
-    env = os.getenv('ENVIRONMENT', 'production')
-
-    if env == 'production':
-        return PROD_CONTEXT
-    elif env == 'staging':
-        return STAGING_CONTEXT
-    else:
-        return DEV_CONTEXT
-
-PROD_CONTEXT = """
-# Production Security Context
-- All controls mandatory
-- SOC2 compliance required
-...
-"""
-
-DEV_CONTEXT = """
-# Development Security Context
-- Relaxed controls for testing
-- Focus on secure coding practices
-...
-"""
-```
+Load different security contexts for dev/staging/prod environments. Production requires all controls, while development can have relaxed requirements for testing.
 
 ### 2. Application Type-Specific Context
+Customize context based on application type (web, mobile, API). Each type has specific security controls relevant to it (e.g., WAF for web apps, certificate pinning for mobile).
 
-```python
-# org_context.py
-def get_org_context(app_type=None):
-    base_context = get_base_context()
-
-    if app_type == 'web':
-        return base_context + WEB_APP_CONTEXT
-    elif app_type == 'api':
-        return base_context + API_CONTEXT
-    elif app_type == 'mobile':
-        return base_context + MOBILE_CONTEXT
-    else:
-        return base_context
-
-WEB_APP_CONTEXT = """
-## Web Application Specific Controls
-- CloudFront CDN required
-- WAF mandatory
-- CORS policies defined
-...
-"""
-```
-
-Then in `threat_model.py`:
-```python
-org_context = get_org_context(app_type=app_type)
-```
-
-### 3. Use Environment Variables for Context
-
-Instead of hardcoding, load from environment:
-
-```python
-# org_context.py
-import os
-
-def get_org_context():
-    return os.getenv('ORG_SECURITY_CONTEXT', DEFAULT_CONTEXT)
-```
-
-Then set in `.env`:
-```bash
-ORG_SECURITY_CONTEXT="# MyOrg Context\n## Controls\n- Auth: Okta SSO..."
-```
+### 3. Conditional Loading
+Load only relevant portions of your context based on application characteristics to manage token usage efficiently.
 
 ---
 
@@ -803,102 +545,27 @@ Consider tracking:
 
 ### Simple Usage Tracking
 
-Add basic analytics to understand usage:
+Consider adding basic logging to track:
+- Number of threat models generated per month
+- Which LLM providers are being used
+- Average threats identified per model
+- Which teams/applications are using the tool
 
-```python
-# analytics.py
-import json
-from datetime import datetime
-import os
-
-def log_threat_model(app_name, model_provider, threat_count, org_context_used=True):
-    """Log threat model generation for tracking"""
-
-    log_entry = {
-        'timestamp': datetime.now().isoformat(),
-        'app_name': app_name,
-        'provider': model_provider,
-        'threat_count': threat_count,
-        'org_context_used': org_context_used
-    }
-
-    log_file = os.getenv('ANALYTICS_LOG', 'usage_log.jsonl')
-
-    with open(log_file, 'a') as f:
-        f.write(json.dumps(log_entry) + '\n')
-```
-
-Add to `threat_model.py`:
-```python
-from analytics import log_threat_model
-
-# After generating threat model
-log_threat_model(
-    app_name=app_input[:50],  # First 50 chars as identifier
-    model_provider=model_name,
-    threat_count=len(threat_model.get('threat_model', []))
-)
-```
-
-Analyze logs:
-```bash
-# Count threat models generated
-cat usage_log.jsonl | wc -l
-
-# Most used provider
-cat usage_log.jsonl | jq -r '.provider' | sort | uniq -c | sort -rn
-
-# Average threats per model
-cat usage_log.jsonl | jq '.threat_count' | awk '{sum+=$1; count++} END {print sum/count}'
-```
+This data helps demonstrate ROI and identify opportunities for improvement.
 
 ---
 
 ## Alternative: Wrapper Script Approach
 
-If you don't want to modify STRIDE-GPT code, create a wrapper:
+If you don't want to modify STRIDE-GPT code, you can create a simple script that:
+1. Takes your application description as input
+2. Automatically prepends your organizational context
+3. Outputs the combined text to paste into STRIDE-GPT
 
-```python
-#!/usr/bin/env python3
-# threat_model_wrapper.py
+**Pros:** No STRIDE-GPT code changes, easier to maintain
+**Cons:** Manual copy-paste step, not integrated into the UI
 
-import sys
-from org_context import get_org_context
-
-def prepare_enhanced_input(app_description):
-    """Prepend organizational context to app description"""
-    org_context = get_org_context()
-
-    enhanced_input = f"""
-{org_context}
-
----
-
-APPLICATION TO ANALYZE:
-{app_description}
-"""
-    return enhanced_input
-
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: ./threat_model_wrapper.py <app_description_file>")
-        sys.exit(1)
-
-    with open(sys.argv[1], 'r') as f:
-        app_description = f.read()
-
-    enhanced = prepare_enhanced_input(app_description)
-
-    # Write to temp file
-    with open('enhanced_input.txt', 'w') as f:
-        f.write(enhanced)
-
-    print("Enhanced input written to enhanced_input.txt")
-    print("Copy this into STRIDE-GPT's application description field")
-```
-
-**Pros:** No STRIDE-GPT code changes
-**Cons:** Manual copy-paste step, not integrated into UI
+This is useful for quick pilots or when you can't deploy a modified version.
 
 ---
 
@@ -963,59 +630,13 @@ Be careful with merge conflicts in files you've modified (`threat_model.py`, etc
 **A:** Yes, STRIDE-GPT supports reasoning models. They already handle context well, so organizational context injection works the same way. Note that reasoning models use more tokens, so monitor your context size.
 
 ### Q: Can I automate threat model generation in CI/CD?
-**A:** STRIDE-GPT is built as an interactive Streamlit app, not a CLI tool. However, you can extract the core functions and build a wrapper:
-
-```python
-# automated_threat_model.py
-from threat_model import create_threat_model_prompt, get_threat_model
-from org_context import get_org_context
-
-def generate_threat_model_auto(app_details):
-    prompt = create_threat_model_prompt(
-        app_type=app_details['type'],
-        authentication=app_details['auth'],
-        internet_facing=app_details['internet_facing'],
-        sensitive_data=app_details['sensitive_data'],
-        app_input=app_details['description']
-    )
-
-    return get_threat_model(
-        model_name='gpt-4',
-        prompt=prompt
-    )
-
-# Usage in CI/CD
-if __name__ == "__main__":
-    app_info = {
-        'type': 'Web application',
-        'auth': 'OAuth 2.0',
-        'internet_facing': 'Yes',
-        'sensitive_data': 'Yes - PII',
-        'description': 'Customer portal application...'
-    }
-
-    threat_model = generate_threat_model_auto(app_info)
-    print(threat_model)
-```
+**A:** STRIDE-GPT is built as an interactive Streamlit app, not a CLI tool. However, you can extract the core functions to create an automated wrapper for CI/CD pipelines. This allows you to generate threat models automatically when code changes or during release processes.
 
 ### Q: What if my organization uses GitHub Enterprise?
 **A:** STRIDE-GPT already supports GitHub Enterprise (added in v0.14). Just provide your GitHub Enterprise URL and it will automatically detect and use the correct API endpoint.
 
 ### Q: How do I handle multiple compliance frameworks?
-**A:** Include all applicable frameworks in your org context, then use conditional logic:
-
-```python
-def get_compliance_context(app_type, data_classification):
-    base_compliance = "SOC2 Type II (all production systems)"
-
-    if data_classification in ['Confidential', 'Restricted']:
-        base_compliance += "\nGDPR Article 32 (security of processing)"
-
-    if app_type == 'payment':
-        base_compliance += "\nPCI-DSS Requirements 6.5.1-6.5.10"
-
-    return base_compliance
-```
+**A:** Include all applicable frameworks in your organizational context. You can conditionally load specific requirements based on the application's data classification or type. For example, GDPR applies when handling EU customer data, PCI-DSS for payment processing, HIPAA for healthcare data, etc.
 
 ---
 
