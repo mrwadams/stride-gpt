@@ -12,3 +12,4 @@ requests>=2.32.2 # not directly required, pinned by Snyk to avoid a vulnerabilit
 urllib3>=2.2.2 # not directly required, pinned by Snyk to avoid a vulnerability
 anyio>=4.4.0 # not directly required, pinned by Snyk to avoid a vulnerability
 zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability
+h11>=0.16.0 # not directly required, pinned by Snyk to avoid a vulnerability
