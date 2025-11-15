@@ -69,7 +69,17 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.14 (latest)
+### Version 0.14.1 (latest)
+
+- **Security Infrastructure**: Added comprehensive automated security scanning and hardening including:
+  - GitHub Actions workflows for Bandit (Python security), CodeQL (vulnerability detection), pip-audit (dependency scanning), Safety (package vulnerabilities), Gitleaks (secret detection), and Trivy (Docker image scanning)
+  - SECURITY.md with vulnerability reporting process (48-hour acknowledgment SLA) and security best practices
+  - Enhanced Docker configuration with security hardening, resource limits, and production-ready docker-compose.yml
+  - Dependabot configuration for automated weekly dependency updates
+  - Production-ready secrets management guidance (Docker Swarm secrets, cloud secret managers)
+- **Enterprise Operationalization Guide**: Added comprehensive guide for customizing STRIDE-GPT with organizational context including security controls, compliance requirements, approved technology stacks, and deployment patterns for enterprise use.
+
+### Version 0.14
 
 - **GPT-5 Series Support**: Added comprehensive support for OpenAI's GPT-5 series models (gpt-5, gpt-5-mini, gpt-5-nano) across all threat modeling features. These advanced reasoning models provide enhanced analytical capabilities with proper token allocation for both internal reasoning and output generation.
 - **Anthropic Claude 4 Integration**: Added support for Anthropic's latest Claude 4 models (claude-opus-4-1-20250805, claude-opus-4-20250514, and claude-sonnet-4-20250514) with enhanced capabilities.
