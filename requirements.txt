@@ -3,6 +3,7 @@ google-genai
 mistralai>=1.0.0
 openai
 pyGithub
+azure-devops
 streamlit>=1.40
 python-dotenv
 groq
