@@ -618,9 +618,11 @@ model_token_limits = {
     "Mistral API:ministral-8b-latest": {"default": 64000, "max": 128000},
     "Mistral API:mistral-small-latest": {"default": 24000, "max": 32000},
     # Google models
-    "Google AI API:gemini-2.5-pro": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-3-pro-preview": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-3-flash-preview": {"default": 200000, "max": 1000000},
     "Google AI API:gemini-2.5-flash": {"default": 200000, "max": 1000000},
     "Google AI API:gemini-2.5-flash-lite": {"default": 200000, "max": 1000000},
+    "Google AI API:gemini-2.5-pro": {"default": 200000, "max": 1000000},
     # Groq models
     "Groq API:openai/gpt-oss-120b": {"default": 64000, "max": 128000},
     "Groq API:openai/gpt-oss-20b": {"default": 64000, "max": 128000},
@@ -673,7 +675,7 @@ def on_model_provider_change():
         # Use whatever the first Azure model is in your UI
         pass  # Will use the default selected in the UI
     elif new_provider == "Google AI API":
-        st.session_state.selected_model = "gemini-2.5-pro-preview-05-06"
+        st.session_state.selected_model = "gemini-3-pro-preview"
     elif new_provider == "Mistral API":
         st.session_state.selected_model = "mistral-large-latest"
     elif new_provider == "Groq API":
@@ -870,10 +872,16 @@ with st.sidebar:
         # Add model selection input field to the sidebar
         google_model = st.selectbox(
             "Select the model you would like to use:",
-            ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+            [
+                "gemini-3-pro-preview",
+                "gemini-3-flash-preview",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-pro",
+            ],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Gemini 2.5 models are Google's latest with 1M token context, enhanced reasoning capabilities, and JSON mode support.",
+            help="Gemini 3 models are Google's latest preview models. Gemini 2.5 models offer 1M token context with enhanced reasoning capabilities.",
         )
 
     if model_provider == "Mistral API":
@@ -1633,8 +1641,8 @@ with tab1:
             "last_thinking_content" in st.session_state
             and st.session_state["last_thinking_content"]
             and (
-                (model_provider == "Anthropic API" and "thinking" in anthropic_model.lower())
-                or (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower())
+                (model_provider == "Anthropic API" and st.session_state.get("use_thinking", False))
+                or (model_provider == "Google AI API" and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()))
             )
         ):
             thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
@@ -1772,7 +1780,7 @@ vulnerabilities and prioritising mitigation efforts.
                             )
                             or (
                                 model_provider == "Google AI API"
-                                and "gemini-2.5" in google_model.lower()
+                                and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower())
                             )
                         )
                     ):
@@ -1914,7 +1922,7 @@ the security posture of the application and protect against potential attacks.
                                 )
                                 or (
                                     model_provider == "Google AI API"
-                                    and "gemini-2.5" in google_model.lower()
+                                    and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower())
                                 )
                             )
                         ):
@@ -2064,8 +2072,8 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                 "last_thinking_content" in st.session_state
                 and st.session_state["last_thinking_content"]
                 and (
-                    (model_provider == "Anthropic API" and "thinking" in anthropic_model.lower())
-                    or (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower())
+                    (model_provider == "Anthropic API" and st.session_state.get("use_thinking", False))
+                    or (model_provider == "Google AI API" and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()))
                 )
             ):
                 thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
@@ -2187,7 +2195,7 @@ scenarios.
                                 )
                                 or (
                                     model_provider == "Google AI API"
-                                    and "gemini-2.5" in google_model.lower()
+                                    and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower())
                                 )
                             )
                         ):

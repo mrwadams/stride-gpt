@@ -301,12 +301,12 @@ def get_dread_assessment_google(google_api_key, google_model, prompt):
         "Do not wrap the output in a code block."
     )
 
-    is_gemini_2_5 = "gemini-2.5" in google_model.lower()
+    is_gemini_thinking = "gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()
 
     try:
         from google.genai import types as google_types
 
-        if is_gemini_2_5:
+        if is_gemini_thinking:
             config = google_types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 thinking_config=google_types.ThinkingConfig(thinking_budget=1024),

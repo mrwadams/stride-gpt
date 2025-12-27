@@ -661,13 +661,13 @@ def get_threat_model_google(google_api_key, google_model, prompt):
         ),
     ]
 
-    # Check if we're using a Gemini 2.5 model (which supports thinking capabilities)
-    is_gemini_2_5 = "gemini-2.5" in google_model.lower()
+    # Check if we're using a Gemini 2.5+ model (which supports thinking capabilities)
+    is_gemini_thinking = "gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()
 
     try:
         from google.genai import types as google_types
 
-        if is_gemini_2_5:
+        if is_gemini_thinking:
             config = google_types.GenerateContentConfig(
                 response_mime_type="application/json",
                 safety_settings=safety_settings,

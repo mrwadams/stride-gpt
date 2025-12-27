@@ -272,12 +272,12 @@ def get_test_cases_google(google_api_key, google_model, prompt):
     system_instruction = (
         "You are a helpful assistant that provides Gherkin test cases in Markdown format."
     )
-    is_gemini_2_5 = "gemini-2.5" in google_model.lower()
+    is_gemini_thinking = "gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()
 
     try:
         from google.genai import types as google_types
 
-        if is_gemini_2_5:
+        if is_gemini_thinking:
             config = google_types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 safety_settings=safety_settings,
