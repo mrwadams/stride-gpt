@@ -683,7 +683,8 @@ def get_threat_model_google(google_api_key, google_model, prompt):
             model=google_model, contents=prompt, config=config
         )
 
-        # Extract Gemini 2.5 'thinking' content if present
+        # Extract text and thinking content from response parts
+        text_content = []
         thinking_content = []
         for candidate in getattr(response, "candidates", []):
             content = getattr(candidate, "content", None)
@@ -691,9 +692,13 @@ def get_threat_model_google(google_api_key, google_model, prompt):
                 for part in content.parts:
                     if hasattr(part, "thought") and part.thought:
                         thinking_content.append(str(part.thought))
+                    elif hasattr(part, "text") and part.text:
+                        text_content.append(part.text)
         if thinking_content:
             joined_thinking = "\n\n".join(thinking_content)
             st.session_state["last_thinking_content"] = joined_thinking
+
+        response_text = "".join(text_content)
 
     except Exception as e:
         st.error(f"Error generating content with Google AI: {e!s}")
@@ -701,7 +706,7 @@ def get_threat_model_google(google_api_key, google_model, prompt):
 
     try:
         # Parse the response text as JSON
-        response_content = json.loads(response.text)
+        response_content = json.loads(response_text)
     except json.JSONDecodeError:
         st.error("Failed to parse JSON response from Google AI")
         return None

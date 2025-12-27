@@ -290,7 +290,8 @@ def get_test_cases_google(google_api_key, google_model, prompt):
         response = client.models.generate_content(
             model=google_model, contents=prompt, config=config
         )
-        # Extract Gemini 2.5 'thinking' content if present
+        # Extract text and thinking content from response parts
+        text_content = []
         thinking_content = []
         for candidate in getattr(response, "candidates", []):
             content = getattr(candidate, "content", None)
@@ -298,9 +299,13 @@ def get_test_cases_google(google_api_key, google_model, prompt):
                 for part in content.parts:
                     if hasattr(part, "thought") and part.thought:
                         thinking_content.append(str(part.thought))
+                    elif hasattr(part, "text") and part.text:
+                        text_content.append(part.text)
         if thinking_content:
             joined_thinking = "\n\n".join(thinking_content)
             st.session_state["last_thinking_content"] = joined_thinking
+
+        response_text = "".join(text_content)
     except Exception as e:
         st.error(f"Error generating test cases with Google AI: {e!s}")
         return f"""
@@ -311,7 +316,7 @@ def get_test_cases_google(google_api_key, google_model, prompt):
 Please try again or select a different model provider.
 """
 
-    return response.text
+    return response_text
 
 
 # Function to get test cases from the Mistral model's response.

@@ -696,7 +696,8 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
             + "]"
         )
 
-    # Extract Gemini 2.5 'thinking' content if present
+    # Extract text and thinking content from response parts
+    text_content = []
     thinking_content = []
     for candidate in getattr(response, "candidates", []):
         content = getattr(candidate, "content", None)
@@ -704,13 +705,17 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
             for part in content.parts:
                 if hasattr(part, "thought") and part.thought:
                     thinking_content.append(str(part.thought))
+                elif hasattr(part, "text") and part.text:
+                    text_content.append(part.text)
     if thinking_content:
         joined_thinking = "\n\n".join(thinking_content)
         st.session_state["last_thinking_content"] = joined_thinking
 
+    response_text = "".join(text_content)
+
     try:
-        cleaned_response = clean_json_response(response.text)
+        cleaned_response = clean_json_response(response_text)
         tree_data = json.loads(cleaned_response)
         return convert_tree_to_mermaid(tree_data)
     except (json.JSONDecodeError, AttributeError):
-        return extract_mermaid_code(getattr(response, "text", str(response)))
+        return extract_mermaid_code(response_text)
