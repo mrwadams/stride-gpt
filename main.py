@@ -611,12 +611,13 @@ model_token_limits = {
     "Anthropic API:claude-haiku-4-5-20251001": {"default": 64000, "max": 200000},
     "Anthropic API:claude-opus-4-5-20251101": {"default": 64000, "max": 200000},
     # Mistral models
-    "Mistral API:magistral-medium-latest": {"default": 32000, "max": 40000},
-    "Mistral API:magistral-small-latest": {"default": 32000, "max": 40000},
-    "Mistral API:mistral-medium-latest": {"default": 64000, "max": 128000},
-    "Mistral API:mistral-large-latest": {"default": 64000, "max": 128000},
-    "Mistral API:ministral-8b-latest": {"default": 64000, "max": 128000},
-    "Mistral API:mistral-small-latest": {"default": 24000, "max": 32000},
+    "Mistral API:mistral-large-2512": {"default": 64000, "max": 128000},
+    "Mistral API:mistral-medium-2508": {"default": 64000, "max": 128000},
+    "Mistral API:mistral-small-2506": {"default": 24000, "max": 32000},
+    "Mistral API:ministral-14b-2512": {"default": 64000, "max": 128000},
+    "Mistral API:ministral-8b-2512": {"default": 64000, "max": 128000},
+    "Mistral API:magistral-medium-2509": {"default": 32000, "max": 40000},
+    "Mistral API:magistral-small-2509": {"default": 32000, "max": 40000},
     # Google models
     "Google AI API:gemini-3-pro-preview": {"default": 200000, "max": 1000000},
     "Google AI API:gemini-3-flash-preview": {"default": 200000, "max": 1000000},
@@ -677,7 +678,7 @@ def on_model_provider_change():
     elif new_provider == "Google AI API":
         st.session_state.selected_model = "gemini-3-pro-preview"
     elif new_provider == "Mistral API":
-        st.session_state.selected_model = "mistral-large-latest"
+        st.session_state.selected_model = "mistral-large-2512"
     elif new_provider == "Groq API":
         st.session_state.selected_model = "llama-3.3-70b-versatile"
     # For Ollama and LM Studio, we don't set a default as they depend on locally available models
@@ -906,16 +907,17 @@ with st.sidebar:
         mistral_model = st.selectbox(
             "Select the model you would like to use:",
             [
-                "magistral-medium-latest",
-                "magistral-small-latest",
-                "mistral-medium-latest",
-                "mistral-large-latest",
-                "ministral-8b-latest",
-                "mistral-small-latest",
+                "mistral-large-2512",
+                "mistral-medium-2508",
+                "mistral-small-2506",
+                "ministral-14b-2512",
+                "ministral-8b-2512",
+                "magistral-medium-2509",
+                "magistral-small-2509",
             ],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Magistral models are Mistral's latest flagship models. Mistral Large offers premium capabilities, Medium provides balanced performance, Small is cost-effective, and Ministral 8B is optimized for efficiency.",
+            help="Mistral Large 3 offers premium capabilities. Medium 3.1 and Small 3.2 provide balanced performance. Ministral models are optimized for efficiency. Magistral models are reasoning-focused.",
         )
 
     if model_provider == "Ollama":
@@ -1672,9 +1674,9 @@ vulnerabilities and prioritising mitigation efforts.
 """
     )
     st.markdown("""---""")
-    if model_provider == "Mistral API" and mistral_model == "mistral-small-latest":
+    if model_provider == "Mistral API" and mistral_model == "mistral-small-2506":
         st.warning(
-            "⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use the Mistral Large model for generating attack trees, or select a different model provider."
+            "⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use Mistral Large for generating attack trees, or select a different model provider."
         )
     else:
         if model_provider in ["Ollama", "LM Studio Server"]:
