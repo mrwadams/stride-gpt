@@ -10,8 +10,61 @@ from utils import create_reasoning_system_prompt, process_groq_response
 
 
 # Function to create a prompt to generate mitigating controls
-def create_mitigations_prompt(threats, is_agentic=False):
+def create_mitigations_prompt(threats, is_genai=False, is_agentic=False):
     prompt = """Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology. Your task is to provide potential mitigations for the threats identified in the threat model. It is very important that your responses are tailored to reflect the details of the threats.
+
+"""
+
+    if is_genai or is_agentic:
+        prompt += """For LLM/GENERATIVE AI threats, consider the following mitigation categories based on the OWASP Top 10 for LLM Applications 2025:
+
+1. PROMPT INJECTION DEFENSE:
+   - Implement input validation and sanitization for all user inputs
+   - Use prompt/response filtering to detect injection attempts
+   - Separate system instructions from user content with clear delimiters
+   - Consider using instruction hierarchy or privileged prompts
+
+2. SENSITIVE DATA PROTECTION:
+   - Implement PII detection and redaction in LLM inputs and outputs
+   - Use differential privacy techniques for fine-tuning
+   - Sanitize training data to remove sensitive information
+   - Apply output filtering to prevent data leakage
+
+3. SUPPLY CHAIN SECURITY:
+   - Verify model integrity with checksums and signatures
+   - Use models only from trusted sources with security audits
+   - Implement vulnerability scanning for ML dependencies
+   - Maintain an ML bill of materials (ML-BOM)
+
+4. DATA & MODEL INTEGRITY:
+   - Validate and sanitize all data used for RAG and fine-tuning
+   - Implement provenance tracking for training data
+   - Use anomaly detection to identify poisoned data
+   - Regularly evaluate model outputs for drift or degradation
+
+5. OUTPUT VALIDATION:
+   - Never trust LLM output - validate and sanitize before use
+   - Implement output encoding appropriate to the context (HTML, SQL, etc.)
+   - Use allowlists for permitted actions/commands
+   - Apply content security policies for generated content
+
+6. ACCESS CONTROL & RATE LIMITING:
+   - Implement per-user and per-session rate limits
+   - Set token/cost budgets to prevent unbounded consumption
+   - Use tiered access based on user trust level
+   - Monitor for anomalous usage patterns
+
+7. SYSTEM PROMPT PROTECTION:
+   - Avoid storing secrets or sensitive logic in system prompts
+   - Implement prompt leakage detection
+   - Use indirect references for sensitive configuration
+   - Regularly audit prompts for information exposure risks
+
+8. RAG & EMBEDDING SECURITY:
+   - Implement access controls on vector databases
+   - Validate retrieved content before injection into prompts
+   - Use tenant isolation for multi-tenant RAG systems
+   - Monitor for embedding manipulation attempts
 
 """
 

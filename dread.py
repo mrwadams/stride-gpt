@@ -70,9 +70,45 @@ def dread_json_to_markdown(dread_assessment):
 
 
 # Function to create a prompt to generate DREAD risk assessment
-def create_dread_assessment_prompt(threats, is_agentic=False):
+def create_dread_assessment_prompt(threats, is_genai=False, is_agentic=False):
     prompt = """Act as a cyber security expert with more than 20 years of experience in threat modeling using STRIDE and DREAD methodologies.
 Your task is to produce a DREAD risk assessment for the threats identified in a threat model.
+
+"""
+
+    if is_genai or is_agentic:
+        prompt += """LLM/GENERATIVE AI DREAD SCORING CONSIDERATIONS:
+When scoring threats for LLM/generative AI applications, consider these factors:
+
+DAMAGE POTENTIAL:
+- Prompt injection can lead to complete system compromise or data exfiltration
+- Training data poisoning affects all users and persists across model updates
+- Sensitive data disclosure may include PII, credentials, or proprietary information
+- Malicious output generation can cause reputational damage and legal liability
+
+REPRODUCIBILITY:
+- Prompt injection success varies with model, temperature, and context
+- Some attacks require specific phrasing or multi-turn conversations
+- RAG poisoning may need time for embeddings to propagate
+- Model behavior can be non-deterministic, making exact reproduction difficult
+
+EXPLOITABILITY:
+- Prompt injection requires minimal technical skill
+- Supply chain attacks on models/plugins require access to trusted sources
+- Training data poisoning may need access to fine-tuning pipelines
+- Some attacks are as simple as crafting malicious user input
+
+AFFECTED USERS:
+- Model-level vulnerabilities affect all users of that model instance
+- RAG/knowledge base poisoning impacts everyone querying that data
+- Per-user context isolation failures can expose cross-user data
+- Shared prompt templates multiply the blast radius
+
+DISCOVERABILITY:
+- Basic prompt injection is easily discoverable through experimentation
+- System prompt extraction is often trivial with creative prompting
+- Training data can sometimes be extracted through careful probing
+- Model capabilities and limitations are often documented or enumerable
 
 """
 

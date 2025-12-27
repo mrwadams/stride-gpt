@@ -14,13 +14,61 @@ from utils import create_reasoning_system_prompt, extract_mermaid_code, process_
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(
-    app_type, authentication, internet_facing, sensitive_data, app_input, agentic_context=None
+    app_type, authentication, internet_facing, sensitive_data, app_input, genai_context=None, agentic_context=None
 ):
     prompt = f"""APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
 INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
 APPLICATION DESCRIPTION: {app_input}
+"""
+
+    # Add GenAI attack vectors for both Generative AI and Agentic AI applications
+    if app_type in ["Generative AI application", "Agentic AI application"] and genai_context:
+        model_type = genai_context.get("model_type", "") or "Not specified"
+        features = ", ".join(genai_context.get("features", [])) or "Not specified"
+        data_sources = ", ".join(genai_context.get("data_sources", [])) or "Not specified"
+        output_handling = ", ".join(genai_context.get("output_handling", [])) or "Not specified"
+
+        prompt += f"""
+GENERATIVE AI CONTEXT:
+- LLM Model Type: {model_type}
+- GenAI Features: {features}
+- Data Sources: {data_sources}
+- Output Handling: {output_handling}
+
+LLM ATTACK VECTORS TO MODEL:
+When generating the attack tree for this LLM/generative AI application, include attack paths for the following vectors:
+
+1. PROMPT INJECTION ATTACKS:
+   - Goal: Hijack model behavior or extract sensitive data
+   - Path: Craft malicious user input -> Bypass input filters -> Override system instructions -> Exfiltrate data or perform unauthorized actions
+   - Alternative: Embed hidden instructions in documents/URLs -> Model processes content -> Instructions executed -> Goal hijack
+
+2. SENSITIVE DATA EXTRACTION:
+   - Goal: Extract training data, PII, or system prompts
+   - Path: Probe model with targeted queries -> Identify training data patterns -> Extract sensitive information
+   - Alternative: Use prompt injection to reveal system prompt -> Extract API keys or credentials embedded in prompts
+
+3. RAG/KNOWLEDGE BASE POISONING:
+   - Goal: Corrupt model responses through poisoned data
+   - Path: Identify data ingestion points -> Inject malicious content into knowledge base -> Content gets embedded -> Future queries return poisoned results
+   - Alternative: Manipulate document metadata -> Bias retrieval results -> Influence model outputs
+
+4. OUTPUT EXPLOITATION:
+   - Goal: Abuse model outputs in downstream systems
+   - Path: Trigger malicious code generation -> Output used without sanitization -> XSS/SQL injection/command injection in consuming application
+   - Alternative: Generate convincing phishing content -> Social engineering attacks -> Credential theft
+
+5. MODEL SUPPLY CHAIN:
+   - Goal: Compromise the model or its dependencies
+   - Path: Target model repository/weights -> Inject backdoors or trojans -> Deployed model contains malicious behavior
+   - Alternative: Compromise plugins/extensions -> Malicious code executes in model context -> Data theft or system compromise
+
+6. RESOURCE EXHAUSTION:
+   - Goal: Denial of service or cost amplification
+   - Path: Craft complex prompts -> Trigger expensive computations -> Exhaust API quotas or compute budgets
+   - Alternative: Recursive prompt loops -> Model generates self-referencing content -> Infinite token consumption
 """
 
     if app_type == "Agentic AI application" and agentic_context:

@@ -1326,6 +1326,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                 "Desktop application",
                 "Cloud application",
                 "IoT application",
+                "Generative AI application",
                 "Agentic AI application",
                 "Other",
             ],
@@ -1357,6 +1358,71 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             ["SSO", "MFA", "OAUTH2", "Basic", "None"],
             key="authentication",
         )
+
+        # Generative AI specific inputs (shown for both GenAI and Agentic apps)
+        if app_type in ["Generative AI application", "Agentic AI application"]:
+            st.markdown("---")
+            st.markdown("#### LLM Configuration")
+
+            llm_model_type = st.selectbox(
+                "LLM model type:",
+                [
+                    "Proprietary API (OpenAI, Anthropic, Google, etc.)",
+                    "Open-source hosted (self-managed infrastructure)",
+                    "Open-source API (Hugging Face, Replicate, etc.)",
+                    "Fine-tuned model (custom training)",
+                    "Multiple models",
+                ],
+                key="llm_model_type",
+                help="How is the LLM model deployed and accessed?",
+            )
+
+            llm_features = st.multiselect(
+                "LLM features used:",
+                [
+                    "RAG (Retrieval-Augmented Generation)",
+                    "Fine-tuning on custom data",
+                    "System prompts with instructions",
+                    "Few-shot examples in prompts",
+                    "Embeddings/vector search",
+                    "Streaming responses",
+                    "Function/tool calling",
+                    "Image/multimodal input",
+                    "Code generation",
+                ],
+                key="llm_features",
+                help="Select all LLM features the application uses.",
+            )
+
+            data_sources = st.multiselect(
+                "Data sources for LLM context:",
+                [
+                    "User-provided input only",
+                    "Internal documents/knowledge base",
+                    "External websites/APIs",
+                    "Database queries",
+                    "User-uploaded files",
+                    "Email/communication content",
+                    "Code repositories",
+                ],
+                key="data_sources",
+                help="What data sources feed into the LLM context?",
+            )
+
+            output_handling = st.multiselect(
+                "How is LLM output used?",
+                [
+                    "Displayed to users directly",
+                    "Stored in database",
+                    "Passed to downstream APIs",
+                    "Used for decision-making",
+                    "Executed as code/commands",
+                    "Sent via email/notifications",
+                    "Generates files/documents",
+                ],
+                key="output_handling",
+                help="How is the LLM's output handled by the application?",
+            )
 
         # Agentic AI specific inputs (conditionally rendered)
         if app_type == "Agentic AI application":
@@ -1438,6 +1504,16 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     if threat_model_submit_button and st.session_state.get("app_input"):
         app_input = st.session_state["app_input"]  # Retrieve from session state
 
+        # Build GenAI context if applicable (for both GenAI and Agentic apps)
+        genai_context = None
+        if app_type in ["Generative AI application", "Agentic AI application"]:
+            genai_context = {
+                "model_type": st.session_state.get("llm_model_type", ""),
+                "features": st.session_state.get("llm_features", []),
+                "data_sources": st.session_state.get("data_sources", []),
+                "output_handling": st.session_state.get("output_handling", []),
+            }
+
         # Build agentic context if applicable
         agentic_context = None
         if app_type == "Agentic AI application":
@@ -1456,6 +1532,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             internet_facing,
             sensitive_data,
             app_input,
+            genai_context=genai_context,
             agentic_context=agentic_context,
         )
 
@@ -1546,35 +1623,37 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             f"Error generating threat model. Retrying attempt {retry_count + 1}/{max_retries}..."
                         )
 
-# If the submit button is clicked and the user has not provided an application description
-if threat_model_submit_button and not st.session_state.get("app_input"):
-    st.error("Please enter your application details before submitting.")
+# Display threat model output on tab1 (must be in tab1 context to only show on that tab)
+with tab1:
+    # If the submit button is clicked and the user has not provided an application description
+    if threat_model_submit_button and not st.session_state.get("app_input"):
+        st.error("Please enter your application details before submitting.")
 
-# Display threat model from session state (persists across reruns)
-if st.session_state.get("threat_model_markdown"):
-    # Display thinking content in an expander if available
-    if (
-        "last_thinking_content" in st.session_state
-        and st.session_state["last_thinking_content"]
-        and (
-            (model_provider == "Anthropic API" and "thinking" in anthropic_model.lower())
-            or (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower())
+    # Display threat model from session state (persists across reruns)
+    if st.session_state.get("threat_model_markdown"):
+        # Display thinking content in an expander if available
+        if (
+            "last_thinking_content" in st.session_state
+            and st.session_state["last_thinking_content"]
+            and (
+                (model_provider == "Anthropic API" and "thinking" in anthropic_model.lower())
+                or (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower())
+            )
+        ):
+            thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
+            with st.expander(f"View {thinking_model}'s thinking process"):
+                st.markdown(st.session_state["last_thinking_content"])
+
+        # Display the threat model in Markdown
+        st.markdown(st.session_state["threat_model_markdown"])
+
+        # Add a button to allow the user to download the output as a Markdown file
+        st.download_button(
+            label="Download Threat Model",
+            data=st.session_state["threat_model_markdown"],
+            file_name="threat_model.md",
+            mime="text/markdown",
         )
-    ):
-        thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
-        with st.expander(f"View {thinking_model}'s thinking process"):
-            st.markdown(st.session_state["last_thinking_content"])
-
-    # Display the threat model in Markdown
-    st.markdown(st.session_state["threat_model_markdown"])
-
-    # Add a button to allow the user to download the output as a Markdown file
-    st.download_button(
-        label="Download Threat Model",
-        data=st.session_state["threat_model_markdown"],
-        file_name="threat_model.md",
-        mime="text/markdown",
-    )
 
 
 # ------------------ Attack Tree Generation ------------------ #
@@ -1605,6 +1684,16 @@ vulnerabilities and prioritising mitigation efforts.
         if attack_tree_submit_button and st.session_state.get("app_input"):
             app_input = st.session_state.get("app_input")
 
+            # Build GenAI context if applicable
+            genai_context = None
+            if st.session_state.get("app_type") in ["Generative AI application", "Agentic AI application"]:
+                genai_context = {
+                    "model_type": st.session_state.get("llm_model_type", ""),
+                    "features": st.session_state.get("llm_features", []),
+                    "data_sources": st.session_state.get("data_sources", []),
+                    "output_handling": st.session_state.get("output_handling", []),
+                }
+
             # Build agentic context if applicable
             agentic_context = None
             if st.session_state.get("app_type") == "Agentic AI application":
@@ -1623,6 +1712,7 @@ vulnerabilities and prioritising mitigation efforts.
                 internet_facing,
                 sensitive_data,
                 app_input,
+                genai_context=genai_context,
                 agentic_context=agentic_context,
             )
 
@@ -1756,10 +1846,12 @@ the security posture of the application and protect against potential attacks.
         if st.session_state.get("threat_model"):
             # Convert the threat_model data into a Markdown list
             threats_markdown = json_to_markdown(st.session_state["threat_model"], [])
-            # Check if this is an agentic application
-            is_agentic = st.session_state.get("app_type") == "Agentic AI application"
+            # Check if this is a GenAI or agentic application
+            app_type = st.session_state.get("app_type", "")
+            is_genai = app_type in ["Generative AI application", "Agentic AI application"]
+            is_agentic = app_type == "Agentic AI application"
             # Generate the prompt using the create_mitigations_prompt function
-            mitigations_prompt = create_mitigations_prompt(threats_markdown, is_agentic=is_agentic)
+            mitigations_prompt = create_mitigations_prompt(threats_markdown, is_genai=is_genai, is_agentic=is_agentic)
 
             # Clear thinking content when switching models or starting a new operation
             if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
@@ -1884,10 +1976,12 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
         if st.session_state.get("threat_model"):
             # Convert the threat_model data into a Markdown list
             threats_markdown = json_to_markdown(st.session_state["threat_model"], [])
-            # Check if this is an agentic application
-            is_agentic = st.session_state.get("app_type") == "Agentic AI application"
+            # Check if this is a GenAI or agentic application
+            app_type = st.session_state.get("app_type", "")
+            is_genai = app_type in ["Generative AI application", "Agentic AI application"]
+            is_agentic = app_type == "Agentic AI application"
             # Generate the prompt using the create_dread_assessment_prompt function
-            dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown, is_agentic=is_agentic)
+            dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown, is_genai=is_genai, is_agentic=is_agentic)
             # Clear thinking content when switching models or starting a new operation
             if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
                 st.session_state.pop("last_thinking_content", None)
@@ -2025,10 +2119,12 @@ scenarios.
         if st.session_state.get("threat_model"):
             # Convert the threat_model data into a Markdown list
             threats_markdown = json_to_markdown(st.session_state["threat_model"], [])
-            # Check if this is an agentic application
-            is_agentic = st.session_state.get("app_type") == "Agentic AI application"
+            # Check if this is a GenAI or agentic application
+            app_type = st.session_state.get("app_type", "")
+            is_genai = app_type in ["Generative AI application", "Agentic AI application"]
+            is_agentic = app_type == "Agentic AI application"
             # Generate the prompt using the create_test_cases_prompt function
-            test_cases_prompt = create_test_cases_prompt(threats_markdown, is_agentic=is_agentic)
+            test_cases_prompt = create_test_cases_prompt(threats_markdown, is_genai=is_genai, is_agentic=is_agentic)
 
             # Clear thinking content when switching models or starting a new operation
             if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():

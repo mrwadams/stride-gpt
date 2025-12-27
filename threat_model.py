@@ -17,20 +17,40 @@ from utils import create_reasoning_system_prompt, process_groq_response
 def json_to_markdown(threat_model, improvement_suggestions):
     markdown_output = "## Threat Model\n\n"
 
-    # Check if any threats have OWASP_ASI field (agentic applications)
+    # Check which OWASP fields are present
+    has_owasp_llm = any(threat.get("OWASP_LLM") for threat in threat_model)
     has_owasp_asi = any(threat.get("OWASP_ASI") for threat in threat_model)
 
-    if has_owasp_asi:
-        # Extended table with OWASP ASI column for agentic applications
+    if has_owasp_llm and has_owasp_asi:
+        # Full table with both OWASP columns (agentic applications)
+        markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP LLM | OWASP ASI |\n"
+        markdown_output += "|-------------|----------|------------------|-----------|------------|\n"
+        for threat in threat_model:
+            owasp_llm = threat.get("OWASP_LLM") or "-"
+            owasp_asi = threat.get("OWASP_ASI") or "-"
+            markdown_output += (
+                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_llm} | {owasp_asi} |\n"
+            )
+    elif has_owasp_llm:
+        # Table with OWASP LLM column only (GenAI applications)
+        markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP LLM |\n"
+        markdown_output += "|-------------|----------|------------------|------------|\n"
+        for threat in threat_model:
+            owasp_llm = threat.get("OWASP_LLM") or "-"
+            markdown_output += (
+                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_llm} |\n"
+            )
+    elif has_owasp_asi:
+        # Table with OWASP ASI column only (edge case)
         markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP ASI |\n"
         markdown_output += "|-------------|----------|------------------|------------|\n"
         for threat in threat_model:
-            owasp_asi = threat.get("OWASP_ASI", "-")
+            owasp_asi = threat.get("OWASP_ASI") or "-"
             markdown_output += (
                 f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_asi} |\n"
             )
     else:
-        # Standard table without OWASP ASI column
+        # Standard table without OWASP columns
         markdown_output += "| Threat Type | Scenario | Potential Impact |\n"
         markdown_output += "|-------------|----------|------------------|\n"
         for threat in threat_model:
@@ -43,6 +63,79 @@ def json_to_markdown(threat_model, improvement_suggestions):
         markdown_output += f"- {suggestion}\n"
 
     return markdown_output
+
+
+def create_llm_stride_prompt_section(genai_context):
+    """
+    Creates the LLM-specific section of the threat model prompt.
+    Maps OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10) to STRIDE categories.
+    """
+    if not genai_context:
+        return ""
+
+    model_type = genai_context.get("model_type", "") or "Not specified"
+    features = ", ".join(genai_context.get("features", [])) or "Not specified"
+    data_sources = ", ".join(genai_context.get("data_sources", [])) or "Not specified"
+    output_handling = ", ".join(genai_context.get("output_handling", [])) or "Not specified"
+
+    return f"""
+GENERATIVE AI / LLM CONTEXT:
+- LLM Model Type: {model_type}
+- LLM Features Used: {features}
+- Data Sources for Context: {data_sources}
+- Output Handling: {output_handling}
+
+LLM-SPECIFIC THREAT CATEGORIES (OWASP Top 10 for LLM Applications 2025):
+You MUST analyze threats from both traditional STRIDE categories AND the following LLM-specific threat categories. Map each LLM threat to its corresponding STRIDE category and include the OWASP_LLM code:
+
+SPOOFING (Traditional + LLM):
+- Traditional: Identity spoofing, credential theft
+- LLM01 (Prompt Injection): Attacker crafts inputs that override system prompts or instructions, making the LLM impersonate other entities or bypass intended behavior
+- LLM07 (System Prompt Leakage): Extraction of system prompts reveals intended identity/behavior, enabling more targeted spoofing
+
+TAMPERING (Traditional + LLM):
+- Traditional: Data modification, code injection
+- LLM01 (Prompt Injection): Direct or indirect injection that manipulates LLM behavior or outputs
+- LLM04 (Data and Model Poisoning): Malicious modification of training data, fine-tuning data, or embeddings
+- LLM08 (Vector and Embedding Weaknesses): Manipulation of RAG data or embeddings to alter retrieval results
+
+REPUDIATION (Traditional + LLM):
+- Traditional: Denial of actions, log manipulation
+- LLM09 (Misinformation): LLM generates false information that users act upon; difficult to attribute accountability
+- Lack of audit trails for LLM decision-making and content generation
+
+INFORMATION DISCLOSURE (Traditional + LLM):
+- Traditional: Data leaks, unauthorized access
+- LLM02 (Sensitive Information Disclosure): LLM reveals training data, PII, credentials, or proprietary information
+- LLM07 (System Prompt Leakage): Exposure of confidential system instructions, business logic, or secrets embedded in prompts
+- LLM08 (Vector and Embedding Weaknesses): Information leakage through embeddings or cross-tenant RAG data
+
+DENIAL OF SERVICE (Traditional + LLM):
+- Traditional: Resource exhaustion, service disruption
+- LLM10 (Unbounded Consumption): Resource exhaustion through expensive queries, long contexts, or repeated requests
+- LLM04 (Data and Model Poisoning): Model performance degradation through poisoned training data
+
+ELEVATION OF PRIVILEGE (Traditional + LLM):
+- Traditional: Privilege escalation, unauthorized access
+- LLM05 (Improper Output Handling): LLM output passed to downstream systems without validation enables command injection, XSS, SSRF
+- LLM06 (Excessive Agency): LLM granted excessive permissions or autonomy to perform actions
+- LLM03 (Supply Chain): Compromised models, plugins, or dependencies introduce backdoors or malicious capabilities
+
+CRITICAL LLM RISKS TO EVALUATE:
+1. LLM01 - Prompt Injection: Can users or external content manipulate the LLM's behavior through crafted inputs?
+2. LLM02 - Sensitive Information Disclosure: Could the LLM leak training data, PII, or secrets in its responses?
+3. LLM03 - Supply Chain: Are models, plugins, and dependencies from trusted sources with integrity verification?
+4. LLM04 - Data and Model Poisoning: Could training data, fine-tuning data, or RAG content be poisoned?
+5. LLM05 - Improper Output Handling: Is LLM output validated and sanitized before use in downstream systems?
+6. LLM06 - Excessive Agency: Does the LLM have appropriate limits on its actions and permissions?
+7. LLM07 - System Prompt Leakage: Could system prompts containing secrets or logic be extracted?
+8. LLM08 - Vector and Embedding Weaknesses: Are embeddings and RAG systems protected from manipulation and leakage?
+9. LLM09 - Misinformation: Could LLM hallucinations or false outputs cause harm if trusted?
+10. LLM10 - Unbounded Consumption: Are there limits on resource consumption to prevent DoS and cost overruns?
+
+IMPORTANT - CONFLICT RESOLUTION:
+If the GENERATIVE AI / LLM CONTEXT above conflicts with details in the APPLICATION DESCRIPTION below, treat the APPLICATION DESCRIPTION as the authoritative source of truth. Note any significant discrepancies in your improvement_suggestions.
+"""
 
 
 def create_agentic_stride_prompt_section(agentic_context):
@@ -126,9 +219,18 @@ If the AGENTIC AI CONTEXT above conflicts with details in the APPLICATION DESCRI
 
 # Function to create a prompt for generating a threat model
 def create_threat_model_prompt(
-    app_type, authentication, internet_facing, sensitive_data, app_input, agentic_context=None
+    app_type,
+    authentication,
+    internet_facing,
+    sensitive_data,
+    app_input,
+    genai_context=None,
+    agentic_context=None,
 ):
+    is_genai = app_type == "Generative AI application" and genai_context
     is_agentic = app_type == "Agentic AI application" and agentic_context
+    # Agentic apps also get LLM risks
+    include_llm_risks = is_genai or (is_agentic and genai_context)
 
     # Base prompt
     prompt = """Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to analyze the provided code summary, README content, and application description to produce a list of specific threats for the application.
@@ -137,9 +239,13 @@ Pay special attention to the README content as it often provides valuable contex
 
 """
 
-    # STRIDE guidance - different for agentic vs standard apps
+    # STRIDE guidance - different for each app type
     if is_agentic:
-        prompt += """For this AGENTIC AI APPLICATION, you must consider both traditional STRIDE threats AND agentic-specific threats from the OWASP Top 10 for Agentic Applications (ASI01-ASI10). For each STRIDE category, identify threats that are specific to AI agents including prompt injection, tool misuse, memory poisoning, and autonomous action risks.
+        prompt += """For this AGENTIC AI APPLICATION, you must consider traditional STRIDE threats, LLM-specific threats from the OWASP Top 10 for LLM Applications (LLM01-LLM10), AND agentic-specific threats from the OWASP Top 10 for Agentic Applications (ASI01-ASI10). For each STRIDE category, identify threats covering AI agent risks including prompt injection, tool misuse, memory poisoning, autonomous action risks, and LLM vulnerabilities.
+
+"""
+    elif is_genai:
+        prompt += """For this GENERATIVE AI APPLICATION, you must consider both traditional STRIDE threats AND LLM-specific threats from the OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10). For each STRIDE category, identify threats specific to LLM-powered applications including prompt injection, sensitive data disclosure, and improper output handling.
 
 """
     else:
@@ -151,7 +257,11 @@ Pay special attention to the README content as it often provides valuable contex
 
     # JSON format instructions
     if is_agentic:
-        prompt += """When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", "Potential Impact", and "OWASP_ASI" (the applicable OWASP Agentic Security Issue code, e.g., "ASI01", "ASI02", etc., or null if not applicable).
+        prompt += """When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", "Potential Impact", "OWASP_LLM" (the applicable LLM risk code, e.g., "LLM01", "LLM02", etc., or null), and "OWASP_ASI" (the applicable Agentic Security Issue code, e.g., "ASI01", "ASI02", etc., or null). A threat may have both codes if it applies to both categories.
+
+"""
+    elif is_genai:
+        prompt += """When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", "Potential Impact", and "OWASP_LLM" (the applicable OWASP LLM risk code, e.g., "LLM01", "LLM02", etc., or null if not applicable).
 
 """
     else:
@@ -178,6 +288,10 @@ INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
 """
 
+    # Add LLM context if applicable (for GenAI and Agentic apps)
+    if include_llm_risks:
+        prompt += create_llm_stride_prompt_section(genai_context)
+
     # Add agentic context if applicable
     if is_agentic:
         prompt += create_agentic_stride_prompt_section(agentic_context)
@@ -198,19 +312,22 @@ CODE SUMMARY, README CONTENT, AND APPLICATION DESCRIPTION:
           "Threat Type": "Spoofing",
           "Scenario": "An attacker injects malicious instructions into a document processed by the agent, causing it to impersonate a legitimate service when responding to users.",
           "Potential Impact": "Users may trust fraudulent communications, leading to credential theft or financial loss.",
+          "OWASP_LLM": "LLM01",
           "OWASP_ASI": "ASI01"
         },
         {
-          "Threat Type": "Tampering",
-          "Scenario": "Adversarial content in the agent's RAG database poisons its memory, causing it to provide incorrect or harmful advice in future sessions.",
-          "Potential Impact": "Persistent compromise of agent decision-making affecting all users.",
-          "OWASP_ASI": "ASI06"
+          "Threat Type": "Information Disclosure",
+          "Scenario": "The LLM reveals fragments of its system prompt containing API keys when users craft specific queries about its configuration.",
+          "Potential Impact": "Exposure of credentials enables unauthorized access to backend services.",
+          "OWASP_LLM": "LLM07",
+          "OWASP_ASI": null
         },
         {
           "Threat Type": "Elevation of Privilege",
-          "Scenario": "The agent has access to database credentials that could be exfiltrated through crafted prompt injection, allowing attackers to access backend systems directly.",
-          "Potential Impact": "Complete database compromise and data exfiltration.",
-          "OWASP_ASI": "ASI03"
+          "Scenario": "The agent's code execution capability lacks proper sandboxing, allowing generated code to access the host filesystem and escalate privileges.",
+          "Potential Impact": "Complete system compromise and lateral movement.",
+          "OWASP_LLM": "LLM05",
+          "OWASP_ASI": "ASI05"
         }
       ],
       "improvement_suggestions": [
@@ -218,6 +335,38 @@ CODE SUMMARY, README CONTENT, AND APPLICATION DESCRIPTION:
         "Describe the validation mechanisms for external tool responses.",
         "Clarify the boundaries between agent actions and human-required approvals.",
         "Detail the sandboxing mechanisms for any code execution capabilities."
+      ]
+    }
+"""
+    elif is_genai:
+        prompt += """Example of expected JSON response format for Generative AI applications:
+
+    {
+      "threat_model": [
+        {
+          "Threat Type": "Tampering",
+          "Scenario": "An attacker injects malicious instructions through user-uploaded documents that are processed by the RAG system, causing the LLM to provide misleading financial advice.",
+          "Potential Impact": "Users make poor decisions based on manipulated LLM outputs, leading to financial losses.",
+          "OWASP_LLM": "LLM01"
+        },
+        {
+          "Threat Type": "Information Disclosure",
+          "Scenario": "The LLM inadvertently reveals PII from its training data when users ask questions similar to training examples.",
+          "Potential Impact": "Privacy breach exposing customer personal information.",
+          "OWASP_LLM": "LLM02"
+        },
+        {
+          "Threat Type": "Elevation of Privilege",
+          "Scenario": "LLM output containing user-controlled content is passed to a SQL query without sanitization, enabling SQL injection.",
+          "Potential Impact": "Database compromise and unauthorized data access.",
+          "OWASP_LLM": "LLM05"
+        }
+      ],
+      "improvement_suggestions": [
+        "Describe how user inputs are validated before being sent to the LLM.",
+        "Clarify what sensitive data the LLM has access to via RAG or fine-tuning.",
+        "Detail how LLM outputs are sanitized before use in downstream systems.",
+        "Specify rate limiting and cost controls for LLM API usage."
       ]
     }
 """
