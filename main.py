@@ -1526,8 +1526,14 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                     threat_model = model_output.get("threat_model", [])
                     improvement_suggestions = model_output.get("improvement_suggestions", [])
 
-                    # Save the threat model to the session state for later use in mitigations
+                    # Save the threat model and suggestions to session state for later use
                     st.session_state["threat_model"] = threat_model
+                    st.session_state["improvement_suggestions"] = improvement_suggestions
+
+                    # Convert to Markdown and store in session state for persistent display
+                    st.session_state["threat_model_markdown"] = json_to_markdown(
+                        threat_model, improvement_suggestions
+                    )
                     break  # Exit the loop if successful
                 except Exception as e:
                     retry_count += 1
@@ -1540,36 +1546,35 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             f"Error generating threat model. Retrying attempt {retry_count + 1}/{max_retries}..."
                         )
 
-        # Convert the threat model JSON to Markdown
-        markdown_output = json_to_markdown(threat_model, improvement_suggestions)
-
-        # Display thinking content in an expander if available
-        if (
-            "last_thinking_content" in st.session_state
-            and st.session_state["last_thinking_content"]
-            and (
-                (model_provider == "Anthropic API" and "thinking" in anthropic_model.lower())
-                or (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower())
-            )
-        ):
-            thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
-            with st.expander(f"View {thinking_model}'s thinking process"):
-                st.markdown(st.session_state["last_thinking_content"])
-
-        # Display the threat model in Markdown
-        st.markdown(markdown_output)
-
-        # Add a button to allow the user to download the output as a Markdown file
-        st.download_button(
-            label="Download Threat Model",
-            data=markdown_output,
-            file_name="threat_model.md",
-            mime="text/markdown",
-        )
-
 # If the submit button is clicked and the user has not provided an application description
 if threat_model_submit_button and not st.session_state.get("app_input"):
     st.error("Please enter your application details before submitting.")
+
+# Display threat model from session state (persists across reruns)
+if st.session_state.get("threat_model_markdown"):
+    # Display thinking content in an expander if available
+    if (
+        "last_thinking_content" in st.session_state
+        and st.session_state["last_thinking_content"]
+        and (
+            (model_provider == "Anthropic API" and "thinking" in anthropic_model.lower())
+            or (model_provider == "Google AI API" and "gemini-2.5" in google_model.lower())
+        )
+    ):
+        thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
+        with st.expander(f"View {thinking_model}'s thinking process"):
+            st.markdown(st.session_state["last_thinking_content"])
+
+    # Display the threat model in Markdown
+    st.markdown(st.session_state["threat_model_markdown"])
+
+    # Add a button to allow the user to download the output as a Markdown file
+    st.download_button(
+        label="Download Threat Model",
+        data=st.session_state["threat_model_markdown"],
+        file_name="threat_model.md",
+        mime="text/markdown",
+    )
 
 
 # ------------------ Attack Tree Generation ------------------ #
