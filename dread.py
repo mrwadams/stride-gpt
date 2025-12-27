@@ -212,8 +212,8 @@ def clean_json_response(response_text):
 def get_dread_assessment(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
-    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+    # For GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Perform a DREAD risk assessment for the identified security threats.",
             approach_description="""1. For each threat in the provided threat model:
@@ -440,21 +440,18 @@ Please provide your response in JSON format with the following structure:
 def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
 
-    # Check if we're using extended thinking mode
-    is_thinking_mode = "thinking" in anthropic_model.lower()
+    # Check if we're using extended thinking mode (from checkbox in UI)
+    is_thinking_mode = st.session_state.get("use_thinking", False)
 
-    # Check if we're using Claude 3.7
-    is_claude_3_7 = "claude-3-7" in anthropic_model.lower()
-
-    # If using thinking mode, use the actual model name without the "thinking" suffix
-    actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
+    # Use the selected model
+    actual_model = anthropic_model
 
     try:
         # Configure the request based on whether thinking mode is enabled
         if is_thinking_mode:
             response = client.messages.create(
                 model=actual_model,
-                max_tokens=24000,
+                max_tokens=48000,
                 thinking={"type": "enabled", "budget_tokens": 16000},
                 system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
                 messages=[
@@ -469,7 +466,7 @@ def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):
         else:
             response = client.messages.create(
                 model=actual_model,
-                max_tokens=4096,
+                max_tokens=32768,
                 system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
                 messages=[{"role": "user", "content": prompt}],
                 timeout=300,  # 5-minute timeout

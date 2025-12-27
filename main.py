@@ -212,14 +212,14 @@ def get_input():
     return input_text
 
 
-def estimate_tokens(text, model="gpt-4o"):
+def estimate_tokens(text, model="gpt-5.2"):
     """
     Estimate the number of tokens in a text string.
     Uses tiktoken for OpenAI models, or falls back to a character-based approximation.
 
     Args:
         text: The text to estimate tokens for
-        model: The model to use for estimation (default: gpt-4o)
+        model: The model to use for estimation (default: gpt-5.2)
 
     Returns:
         Estimated token count
@@ -266,10 +266,10 @@ def analyze_github_repo(repo_url):
 
     # Get the selected model for token estimation
     model_provider = st.session_state.get("model_provider", "OpenAI API")
-    selected_model = st.session_state.get("selected_model", "gpt-4o")
+    selected_model = st.session_state.get("selected_model", "gpt-5.2")
 
     # Determine which model to use for token estimation
-    token_estimation_model = "gpt-4o"  # Default fallback
+    token_estimation_model = "gpt-5.2"  # Default fallback
     if model_provider == "OpenAI API":
         token_estimation_model = selected_model
 
@@ -600,21 +600,16 @@ load_env_variables()
 # Define token limits for specific model+provider combinations
 # Format: {"provider:model": {"default": default_value, "max": max_value}}
 model_token_limits = {
-    "OpenAI API:gpt-5": {"default": 128000, "max": 400000},
+    "OpenAI API:gpt-5.2": {"default": 128000, "max": 400000},
     "OpenAI API:gpt-5-mini": {"default": 64000, "max": 400000},
     "OpenAI API:gpt-5-nano": {"default": 64000, "max": 400000},
+    "OpenAI API:gpt-5.2-pro": {"default": 128000, "max": 400000},
+    "OpenAI API:gpt-5": {"default": 128000, "max": 400000},
     "OpenAI API:gpt-4.1": {"default": 128000, "max": 1000000},
-    "OpenAI API:gpt-4o": {"default": 64000, "max": 128000},
-    "OpenAI API:gpt-4o-mini": {"default": 64000, "max": 128000},
-    "OpenAI API:o3": {"default": 64000, "max": 200000},
-    "OpenAI API:o3-mini": {"default": 64000, "max": 200000},
-    "OpenAI API:o4-mini": {"default": 64000, "max": 200000},
     # Claude models
-    "Anthropic API:claude-opus-4-1-20250805": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-opus-4-20250514": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-sonnet-4-20250514": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-3-7-sonnet-latest": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-3-5-haiku-latest": {"default": 64000, "max": 200000},
+    "Anthropic API:claude-sonnet-4-5-20250929": {"default": 64000, "max": 200000},
+    "Anthropic API:claude-haiku-4-5-20251001": {"default": 64000, "max": 200000},
+    "Anthropic API:claude-opus-4-5-20251101": {"default": 64000, "max": 200000},
     # Mistral models
     "Mistral API:magistral-medium-latest": {"default": 32000, "max": 40000},
     "Mistral API:magistral-small-latest": {"default": 32000, "max": 40000},
@@ -671,9 +666,9 @@ def on_model_provider_change():
     # This ensures that when provider changes, we reset the model selection
     # which will trigger the on_model_selection_change callback
     if new_provider == "OpenAI API":
-        st.session_state.selected_model = "gpt-5"
+        st.session_state.selected_model = "gpt-5.2"
     elif new_provider == "Anthropic API":
-        st.session_state.selected_model = "claude-sonnet-4-20250514"
+        st.session_state.selected_model = "claude-sonnet-4-5-20250929"
     elif new_provider == "Azure OpenAI Service":
         # Use whatever the first Azure model is in your UI
         pass  # Will use the default selected in the UI
@@ -761,19 +756,16 @@ with st.sidebar:
         selected_model = st.selectbox(
             "Select the model you would like to use:",
             [
-                "gpt-5",
+                "gpt-5.2",
                 "gpt-5-mini",
                 "gpt-5-nano",
+                "gpt-5.2-pro",
+                "gpt-5",
                 "gpt-4.1",
-                "gpt-4o",
-                "gpt-4o-mini",
-                "o3",
-                "o3-mini",
-                "o4-mini",
             ],
             key="selected_model",
             on_change=on_model_selection_change,
-            help="GPT-5 series are OpenAI's latest models excelling in coding and agentic tasks. GPT-4.1 has 1M token context. o3, o3-mini, and o4-mini are reasoning models with superior reasoning capabilities.",
+            help="GPT-5.2 is the best model for coding and agentic tasks. GPT-5.2 pro produces smarter, more precise responses. GPT-5-mini and nano are faster, cost-efficient versions. GPT-4.1 is the smartest non-reasoning model with 1M token context.",
         )
 
     if model_provider == "Anthropic API":
@@ -798,16 +790,21 @@ with st.sidebar:
         anthropic_model = st.selectbox(
             "Select the model you would like to use:",
             [
-                "claude-opus-4-1-20250805",
-                "claude-opus-4-20250514",
-                "claude-sonnet-4-20250514",
-                "claude-3-7-sonnet-latest",
-                "claude-3-5-haiku-latest",
+                "claude-sonnet-4-5-20250929",
+                "claude-haiku-4-5-20251001",
+                "claude-opus-4-5-20251101",
             ],
-            index=2,  # Make claude-sonnet-4-20250514 the default
             key="selected_model",
             on_change=on_model_selection_change,
-            help="Claude 4 models are the latest generation with enhanced capabilities. Claude Sonnet 4 offers the best balance of performance and efficiency.",
+            help="Claude 4.5 models are the latest generation. Sonnet offers the best balance of performance and efficiency. Haiku is fastest and most cost-effective. Opus is the most capable.",
+        )
+
+        # Add extended thinking checkbox
+        use_thinking = st.checkbox(
+            "Enable Extended Thinking",
+            value=st.session_state.get("use_thinking", False),
+            key="use_thinking",
+            help="Extended thinking gives Claude enhanced reasoning capabilities for complex tasks. This may increase response time and token usage.",
         )
 
     if model_provider == "Azure OpenAI Service":
@@ -1163,11 +1160,11 @@ with st.sidebar:
 
     **API Rate Limits:** Free API keys have strict rate limits. Using a paid API key will speed up the process.
 
-    **Reasoning Models:** If you've selected a reasoning model (like o3, o3-mini, o4-mini, or GPT-5 series), these models take longer because they "think" before responding to provide more thorough analysis.
+    **Reasoning Models:** If you've selected a GPT-5 series model, these models take longer because they "think" before responding to provide more thorough analysis.
 
     **For Faster Results:** Choose smaller/faster models like:
     - Gemini Flash instead of Gemini Pro
-    - GPT-4o-mini instead of GPT-4o
+    - GPT-5-nano instead of GPT-5.2
     - Claude Haiku instead of Claude Sonnet
     """
     )
@@ -1216,11 +1213,11 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         if (
             (
                 model_provider == "OpenAI API"
-                and (selected_model.startswith("gpt-4") or selected_model == "o4-mini")
+                and (selected_model.startswith("gpt-4") or selected_model.startswith("gpt-5"))
             )
             or model_provider == "Azure OpenAI Service"
             or model_provider == "Google AI API"
-            or (model_provider == "Anthropic API" and selected_model.startswith("claude-3"))
+            or (model_provider == "Anthropic API" and selected_model.startswith("claude-"))
         ):
             supports_image = True
 

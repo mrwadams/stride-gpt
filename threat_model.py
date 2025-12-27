@@ -436,8 +436,8 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
         }
     ]
 
-    # If using reasoning models, use the structured system prompt approach
-    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+    # If using GPT-5 series models, use the structured system prompt approach
+    if model_name in ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Analyze the provided architecture diagram and explain it to a Security Architect.",
             approach_description="""1. Carefully examine the diagram
@@ -463,7 +463,7 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
         except Exception:
             return None
     else:
-        # For standard models (gpt-4o, etc.)
+        # For standard models (gpt-4.1, etc.)
         try:
             response = client.chat.completions.create(
                 model=model_name, messages=messages, max_tokens=8192
@@ -559,8 +559,8 @@ def get_image_analysis_anthropic(
 def get_threat_model(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For reasoning models (o1, o3, o3-mini, o4-mini) and GPT-5 series models, use a structured system prompt
-    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+    # For GPT-5 series models, use a structured system prompt
+    if model_name in ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Analyze the provided application description and generate a comprehensive threat model using the STRIDE methodology.",
             approach_description="""1. Carefully read and understand the application description
@@ -769,47 +769,28 @@ def get_threat_model_ollama(ollama_endpoint, ollama_model, prompt):
 def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
 
-    # Check if we're using Claude 3.7
-    is_claude_3_7 = "claude-3-7" in anthropic_model.lower()
+    # Check if we're using extended thinking mode (from checkbox in UI)
+    is_thinking_mode = st.session_state.get("use_thinking", False)
 
-    # Check if we're using extended thinking mode
-    is_thinking_mode = "thinking" in anthropic_model.lower()
-
-    # If using thinking mode, use the actual model name without the "thinking" suffix
-    actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
+    # Use the selected model
+    actual_model = anthropic_model
 
     try:
-        # For Claude 3.7, use a more explicit prompt structure
-        if is_claude_3_7:
-            # Add explicit JSON formatting instructions to the prompt
-            json_prompt = (
-                prompt
-                + "\n\nIMPORTANT: Your response MUST be a valid JSON object with the exact structure shown in the example above. Do not include any explanatory text, markdown formatting, or code blocks. Return only the raw JSON object."
-            )
-
-            # Configure the request based on whether thinking mode is enabled
-            if is_thinking_mode:
-                response = client.messages.create(
-                    model=actual_model,
-                    max_tokens=24000,
-                    thinking={"type": "enabled", "budget_tokens": 16000},
-                    system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
-                    messages=[{"role": "user", "content": json_prompt}],
-                    timeout=600,  # 10-minute timeout
-                )
-            else:
-                response = client.messages.create(
-                    model=actual_model,
-                    max_tokens=4096,
-                    system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
-                    messages=[{"role": "user", "content": json_prompt}],
-                    timeout=300,  # 5-minute timeout
-                )
-        else:
-            # Standard handling for other Claude models
+        # Configure the request based on whether thinking mode is enabled
+        if is_thinking_mode:
             response = client.messages.create(
                 model=actual_model,
-                max_tokens=4096,
+                max_tokens=48000,
+                thinking={"type": "enabled", "budget_tokens": 16000},
+                system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
+                messages=[{"role": "user", "content": prompt}],
+                timeout=600,  # 10-minute timeout
+            )
+        else:
+            # Standard handling for Claude models
+            response = client.messages.create(
+                model=actual_model,
+                max_tokens=32768,
                 system="You are a helpful assistant designed to output JSON. Your response must be a valid, parseable JSON object with no additional text, markdown formatting, or explanation. Do not include ```json code blocks or any other formatting - just return the raw JSON object.",
                 messages=[{"role": "user", "content": prompt}],
                 timeout=300,  # 5-minute timeout
@@ -832,13 +813,19 @@ def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
 
         # Parse the JSON response
         try:
-            # Check for and fix common JSON formatting issues
-            if is_claude_3_7:
-                # Sometimes Claude 3.7 adds trailing commas which are invalid in JSON
-                full_content = full_content.replace(",\n  ]", "\n  ]").replace(",\n]", "\n]")
+            # Strip markdown code blocks if present
+            if "```json" in full_content:
+                full_content = re.sub(r"```json\s*", "", full_content)
+                full_content = re.sub(r"```\s*$", "", full_content)
+            elif "```" in full_content:
+                full_content = re.sub(r"```\s*", "", full_content)
 
-                # Sometimes it adds comments which are invalid in JSON
-                full_content = re.sub(r"//.*?\n", "\n", full_content)
+            # Fix common JSON formatting issues (trailing commas, comments)
+            full_content = full_content.replace(",\n  ]", "\n  ]").replace(",\n]", "\n]")
+            full_content = re.sub(r"//.*?\n", "\n", full_content)
+
+            # Strip any leading/trailing whitespace
+            full_content = full_content.strip()
 
             return json.loads(full_content)
         except json.JSONDecodeError:

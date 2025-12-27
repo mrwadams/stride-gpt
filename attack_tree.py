@@ -227,8 +227,8 @@ def clean_json_response(response_text):
 def get_attack_tree(api_key, model_name, prompt):
     client = OpenAI(api_key=api_key)
 
-    # For models that support JSON output format
-    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
+    # For GPT-5 series models that support JSON output format
+    if model_name in ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"]:
         system_prompt = create_reasoning_system_prompt(
             task_description="Create a structured attack tree by analyzing potential attack paths.",
             approach_description="""Analyze the application and create an attack tree showing potential attack paths.
@@ -400,11 +400,11 @@ def get_attack_tree_ollama(ollama_endpoint, ollama_model, prompt):
 def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
 
-    # Check if we're using extended thinking mode
-    is_thinking_mode = "thinking" in anthropic_model.lower()
+    # Check if we're using extended thinking mode (from checkbox in UI)
+    is_thinking_mode = st.session_state.get("use_thinking", False)
 
-    # If using thinking mode, use the actual model name without the "thinking" suffix
-    actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
+    # Use the selected model
+    actual_model = anthropic_model
 
     # Try to get JSON output
     system_prompt = create_json_structure_prompt()
@@ -414,7 +414,7 @@ def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
         if is_thinking_mode:
             response = client.messages.create(
                 model=actual_model,
-                max_tokens=24000,
+                max_tokens=48000,
                 thinking={"type": "enabled", "budget_tokens": 16000},
                 system=system_prompt,
                 messages=[{"role": "user", "content": prompt}],
@@ -423,7 +423,7 @@ def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
         else:
             response = client.messages.create(
                 model=actual_model,
-                max_tokens=4096,
+                max_tokens=32768,
                 system=system_prompt,
                 messages=[{"role": "user", "content": prompt}],
                 timeout=300,  # 5-minute timeout
