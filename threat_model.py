@@ -1,46 +1,165 @@
-import json
-import requests
 import base64
-from anthropic import Anthropic
-from mistralai import Mistral
-from openai import OpenAI, AzureOpenAI
-import streamlit as st
+import json
 import re
 
-from google import genai as google_genai 
+import requests
+import streamlit as st
+from anthropic import Anthropic
+from google import genai as google_genai
 from groq import Groq
-from utils import process_groq_response, create_reasoning_system_prompt
+from mistralai import Mistral
+from openai import AzureOpenAI, OpenAI
 
-# Function to convert JSON to Markdown for display.    
+from utils import create_reasoning_system_prompt, process_groq_response
+
+
+# Function to convert JSON to Markdown for display.
 def json_to_markdown(threat_model, improvement_suggestions):
     markdown_output = "## Threat Model\n\n"
-    
-    # Start the markdown table with headers
-    markdown_output += "| Threat Type | Scenario | Potential Impact |\n"
-    markdown_output += "|-------------|----------|------------------|\n"
-    
-    # Fill the table rows with the threat model data
-    for threat in threat_model:
-        markdown_output += f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} |\n"
-    
+
+    # Check if any threats have OWASP_ASI field (agentic applications)
+    has_owasp_asi = any(threat.get("OWASP_ASI") for threat in threat_model)
+
+    if has_owasp_asi:
+        # Extended table with OWASP ASI column for agentic applications
+        markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP ASI |\n"
+        markdown_output += "|-------------|----------|------------------|------------|\n"
+        for threat in threat_model:
+            owasp_asi = threat.get("OWASP_ASI", "-")
+            markdown_output += (
+                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_asi} |\n"
+            )
+    else:
+        # Standard table without OWASP ASI column
+        markdown_output += "| Threat Type | Scenario | Potential Impact |\n"
+        markdown_output += "|-------------|----------|------------------|\n"
+        for threat in threat_model:
+            markdown_output += (
+                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} |\n"
+            )
+
     markdown_output += "\n\n## Improvement Suggestions\n\n"
     for suggestion in improvement_suggestions:
         markdown_output += f"- {suggestion}\n"
-    
+
     return markdown_output
 
+
+def create_agentic_stride_prompt_section(agentic_context):
+    """
+    Creates the agentic-specific section of the threat model prompt.
+    Maps OWASP ASI01-ASI10 to STRIDE categories.
+    """
+    if not agentic_context:
+        return ""
+
+    capabilities = ", ".join(agentic_context.get("capabilities", [])) or "Not specified"
+    human_oversight = agentic_context.get("human_oversight", "") or "Not specified"
+    autonomous_scope = ", ".join(agentic_context.get("autonomous_scope", [])) or "Not specified"
+    credential_access = ", ".join(agentic_context.get("credential_access", [])) or "Not specified"
+    tool_providers = agentic_context.get("tool_providers", "") or "Not specified"
+
+    return f"""
+AGENTIC AI CONTEXT:
+- Agent Capabilities: {capabilities}
+- Human Oversight Level: {human_oversight}
+- Autonomous Action Scope: {autonomous_scope}
+- Credential Access: {credential_access}
+- External Tool Providers: {tool_providers}
+
+AGENTIC-SPECIFIC THREAT CATEGORIES (OWASP Top 10 for Agentic Applications):
+You MUST analyze threats from both traditional STRIDE categories AND the following agentic-specific threat categories. Map each agentic threat to its corresponding STRIDE category and include the OWASP_ASI code:
+
+SPOOFING (Traditional + Agentic):
+- Traditional: Identity spoofing, credential theft
+- ASI07 (Insecure Inter-Agent Communication): Spoofed agent identities, fake agents joining multi-agent systems
+- ASI04 (Agentic Supply Chain Vulnerabilities): Malicious MCP servers impersonating legitimate tool providers
+- Fake tool responses injected into agent context
+
+TAMPERING (Traditional + Agentic):
+- Traditional: Data modification, code injection
+- ASI06 (Memory and Context Poisoning): RAG poisoning, manipulated agent memory/state, cross-session contamination
+- ASI01 (Agent Goal Hijack): Prompt injection via poisoned documents, emails, or user inputs that alter agent objectives
+- ASI07: Message tampering in inter-agent communication channels
+
+REPUDIATION (Traditional + Agentic):
+- Traditional: Denial of actions, log manipulation
+- ASI09 (Human-Agent Trust Exploitation): Agent actions that circumvent audit trails by exploiting user over-trust
+- Untraceable autonomous agent decisions due to insufficient logging
+- Gaps in agent decision audit logs making forensics impossible
+
+INFORMATION DISCLOSURE (Traditional + Agentic):
+- Traditional: Data leaks, unauthorized access
+- ASI06: Context window leakage exposing sensitive data from previous sessions, cross-tenant data exposure
+- ASI01: Prompt injection attacks leading to data exfiltration via crafted outputs
+- Sensitive credentials or data exposed through agent tool call logs or persistent memory
+
+DENIAL OF SERVICE (Traditional + Agentic):
+- Traditional: Resource exhaustion, service disruption
+- ASI08 (Cascading Failures): Error propagation across agent chains causing system-wide outages
+- Agent loop attacks where malicious input causes infinite reasoning cycles
+- Resource exhaustion through repeated expensive tool invocations
+
+ELEVATION OF PRIVILEGE (Traditional + Agentic):
+- Traditional: Privilege escalation, unauthorized access
+- ASI02 (Tool Misuse and Exploitation): Over-privileged tools executing destructive commands, unvalidated tool inputs
+- ASI03 (Identity and Privilege Abuse): Cached credential misuse, confused deputy attacks, cross-agent delegation abuse
+- ASI05 (Unexpected Code Execution): Unsafe eval/exec of generated code, shell injection, sandbox escape
+- ASI10 (Rogue Agents): Agents persisting beyond intended lifecycle, impersonating other agents or users
+
+CRITICAL AGENTIC RISKS TO EVALUATE:
+1. ASI01 - Agent Goal Hijack: How could adversarial inputs (documents, emails, web content) redirect the agent's objectives?
+2. ASI02 - Tool Misuse: Are tools properly scoped with least privilege? Can the agent execute dangerous commands?
+3. ASI03 - Identity/Privilege Abuse: Can the agent abuse delegated permissions or cached credentials?
+4. ASI04 - Supply Chain: Are external tool providers (MCP servers, plugins) trusted, verified, and integrity-checked?
+5. ASI05 - Code Execution: Does the agent have code execution capabilities? Are they properly sandboxed?
+6. ASI06 - Memory Poisoning: Can persistent memory be poisoned to affect future sessions or other users?
+7. ASI07 - Inter-Agent Communication: In multi-agent systems, can agents be spoofed or messages tampered with?
+8. ASI08 - Cascading Failures: How do errors propagate through agent chains? Are there circuit breakers?
+9. ASI09 - Human-Agent Trust: Can the agent exploit user over-trust to perform harmful actions without scrutiny?
+10. ASI10 - Rogue Agents: Can the agent persist beyond its intended lifecycle, impersonate users, or resist shutdown?
+
+IMPORTANT - CONFLICT RESOLUTION:
+If the AGENTIC AI CONTEXT above conflicts with details in the APPLICATION DESCRIPTION below, treat the APPLICATION DESCRIPTION as the authoritative source of truth. Note any significant discrepancies in your improvement_suggestions to help the user align their inputs.
+"""
+
+
 # Function to create a prompt for generating a threat model
-def create_threat_model_prompt(app_type, authentication, internet_facing, sensitive_data, app_input):
-    prompt = f"""
-Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to analyze the provided code summary, README content, and application description to produce a list of specific threats for the application.
+def create_threat_model_prompt(
+    app_type, authentication, internet_facing, sensitive_data, app_input, agentic_context=None
+):
+    is_agentic = app_type == "Agentic AI application" and agentic_context
+
+    # Base prompt
+    prompt = """Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to analyze the provided code summary, README content, and application description to produce a list of specific threats for the application.
 
 Pay special attention to the README content as it often provides valuable context about the project's purpose, architecture, and potential security considerations.
 
-For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege), list multiple (3 or 4) credible threats if applicable. Each threat scenario should provide a credible scenario in which the threat could occur in the context of the application. It is very important that your responses are tailored to reflect the details you are given.
+"""
 
-When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact". 
+    # STRIDE guidance - different for agentic vs standard apps
+    if is_agentic:
+        prompt += """For this AGENTIC AI APPLICATION, you must consider both traditional STRIDE threats AND agentic-specific threats from the OWASP Top 10 for Agentic Applications (ASI01-ASI10). For each STRIDE category, identify threats that are specific to AI agents including prompt injection, tool misuse, memory poisoning, and autonomous action risks.
 
-Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis. For example:
+"""
+    else:
+        prompt += """For each of the STRIDE categories (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege), list multiple (3 or 4) credible threats if applicable. """
+
+    prompt += """Each threat scenario should provide a credible scenario in which the threat could occur in the context of the application. It is very important that your responses are tailored to reflect the details you are given.
+
+"""
+
+    # JSON format instructions
+    if is_agentic:
+        prompt += """When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", "Potential Impact", and "OWASP_ASI" (the applicable OWASP Agentic Security Issue code, e.g., "ASI01", "ASI02", etc., or null if not applicable).
+
+"""
+    else:
+        prompt += """When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", and "Potential Impact".
+
+"""
+
+    prompt += """Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis. For example:
 - Missing architectural details that would help identify more specific threats
 - Unclear authentication flows that need more detail
 - Incomplete data flow descriptions
@@ -50,52 +169,98 @@ Under "improvement_suggestions", include an array of strings that suggest what a
 
 Do not provide general security recommendations - focus only on what additional information would help create a better threat model.
 
-APPLICATION TYPE: {app_type}
+"""
+
+    # Application details
+    prompt += f"""APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
 INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
+"""
+
+    # Add agentic context if applicable
+    if is_agentic:
+        prompt += create_agentic_stride_prompt_section(agentic_context)
+
+    prompt += f"""
 CODE SUMMARY, README CONTENT, AND APPLICATION DESCRIPTION:
 {app_input}
 
-Example of expected JSON response format:
-  
-    {{
+"""
+
+    # Example JSON format
+    if is_agentic:
+        prompt += """Example of expected JSON response format for Agentic AI applications:
+
+    {
       "threat_model": [
-        {{
+        {
+          "Threat Type": "Spoofing",
+          "Scenario": "An attacker injects malicious instructions into a document processed by the agent, causing it to impersonate a legitimate service when responding to users.",
+          "Potential Impact": "Users may trust fraudulent communications, leading to credential theft or financial loss.",
+          "OWASP_ASI": "ASI01"
+        },
+        {
+          "Threat Type": "Tampering",
+          "Scenario": "Adversarial content in the agent's RAG database poisons its memory, causing it to provide incorrect or harmful advice in future sessions.",
+          "Potential Impact": "Persistent compromise of agent decision-making affecting all users.",
+          "OWASP_ASI": "ASI06"
+        },
+        {
+          "Threat Type": "Elevation of Privilege",
+          "Scenario": "The agent has access to database credentials that could be exfiltrated through crafted prompt injection, allowing attackers to access backend systems directly.",
+          "Potential Impact": "Complete database compromise and data exfiltration.",
+          "OWASP_ASI": "ASI03"
+        }
+      ],
+      "improvement_suggestions": [
+        "Provide details about how agent memory/state is persisted and protected.",
+        "Describe the validation mechanisms for external tool responses.",
+        "Clarify the boundaries between agent actions and human-required approvals.",
+        "Detail the sandboxing mechanisms for any code execution capabilities."
+      ]
+    }
+"""
+    else:
+        prompt += """Example of expected JSON response format:
+
+    {
+      "threat_model": [
+        {
           "Threat Type": "Spoofing",
           "Scenario": "Example Scenario 1",
           "Potential Impact": "Example Potential Impact 1"
-        }},
-        {{
+        },
+        {
           "Threat Type": "Spoofing",
           "Scenario": "Example Scenario 2",
           "Potential Impact": "Example Potential Impact 2"
-        }},
-        // ... more threats
+        }
       ],
       "improvement_suggestions": [
         "Please provide more details about the authentication flow between components to better analyze potential authentication bypass scenarios.",
-        "Consider adding information about how sensitive data is stored and transmitted to enable more precise data exposure threat analysis.",
-        // ... more suggestions for improving the threat model input
+        "Consider adding information about how sensitive data is stored and transmitted to enable more precise data exposure threat analysis."
       ]
-    }}
+    }
 """
+
     return prompt
 
+
 def create_image_analysis_prompt():
-    prompt = """
-    You are a Senior Solution Architect tasked with explaining the following architecture diagram to 
+    return """
+    You are a Senior Solution Architect tasked with explaining the following architecture diagram to
     a Security Architect to support the threat modelling of the system.
 
     In order to complete this task you must:
 
       1. Analyse the diagram
-      2. Explain the system architecture to the Security Architect. Your explanation should cover the key 
+      2. Explain the system architecture to the Security Architect. Your explanation should cover the key
          components, their interactions, and any technologies used.
-    
-    Provide a direct explanation of the diagram in a clear, structured format, suitable for a professional 
+
+    Provide a direct explanation of the diagram in a clear, structured format, suitable for a professional
     discussion.
-    
+
     IMPORTANT INSTRUCTIONS:
      - Do not include any words before or after the explanation itself. For example, do not start your
     explanation with "The image shows..." or "The diagram shows..." just start explaining the key components
@@ -103,7 +268,7 @@ def create_image_analysis_prompt():
      - Do not infer or speculate about information that is not visible in the diagram. Only provide information that can be
     directly determined from the diagram itself.
     """
-    return prompt
+
 
 # Function to get analyse uploaded architecture diagrams.
 def get_image_analysis(api_key, model_name, prompt, base64_image):
@@ -113,18 +278,15 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
         {
             "role": "user",
             "content": [
-                {
-                    "type": "text",
-                    "text": prompt
-                },
+                {"type": "text", "text": prompt},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                }
-            ]
+                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                },
+            ],
         }
     ]
-    
+
     # If using reasoning models, use the structured system prompt approach
     if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano", "o3", "o3-mini", "o4-mini"]:
         system_prompt = create_reasoning_system_prompt(
@@ -137,44 +299,35 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
    - Key Components: List and explain each major component
    - Data Flow: How information moves through the system
    - Technologies Used: Identify technologies, frameworks, or platforms
-   - Security Considerations: Note any visible security measures"""
+   - Security Considerations: Note any visible security measures""",
         )
         # Insert system message at the beginning
         messages.insert(0, {"role": "system", "content": system_prompt})
-        
+
         # Create completion with max_completion_tokens for reasoning models
         try:
             max_tokens = 20000 if model_name.startswith("gpt-5") else 8192
             response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                max_completion_tokens=max_tokens
+                model=model_name, messages=messages, max_completion_tokens=max_tokens
             )
-            return {
-                "choices": [
-                    {"message": {"content": response.choices[0].message.content}}
-                ]
-            }
-        except Exception as e:
+            return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
+        except Exception:
             return None
     else:
         # For standard models (gpt-4o, etc.)
         try:
             response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                max_tokens=8192
+                model=model_name, messages=messages, max_tokens=8192
             )
-            return {
-                "choices": [
-                    {"message": {"content": response.choices[0].message.content}}
-                ]
-            }
-        except Exception as e:
+            return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
+        except Exception:
             return None
 
+
 # Function to get image analysis using Azure OpenAI
-def get_image_analysis_azure(api_endpoint, api_key, api_version, deployment_name, prompt, base64_image):
+def get_image_analysis_azure(
+    api_endpoint, api_key, api_version, deployment_name, prompt, base64_image
+):
     client = AzureOpenAI(
         azure_endpoint=api_endpoint,
         api_key=api_key,
@@ -188,18 +341,17 @@ def get_image_analysis_azure(api_endpoint, api_key, api_version, deployment_name
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                    },
                 ],
             }
         ],
         max_tokens=4000,
     )
 
-    return {
-        "choices": [
-            {"message": {"content": response.choices[0].message.content}}
-        ]
-    }
+    return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
 
 
 # Function to get image analysis using Google Gemini models
@@ -209,10 +361,13 @@ def get_image_analysis_google(api_key, model_name, prompt, base64_image):
 
     blob = google_types.Blob(data=base64.b64decode(base64_image), mime_type="image/jpeg")
     content = [
-        google_types.Content(role="user", parts=[
-            google_types.Part(text=prompt),
-            google_types.Part(inlineData=blob),
-        ])
+        google_types.Content(
+            role="user",
+            parts=[
+                google_types.Part(text=prompt),
+                google_types.Part(inlineData=blob),
+            ],
+        )
     ]
 
     config = google_types.GenerateContentConfig()
@@ -222,7 +377,9 @@ def get_image_analysis_google(api_key, model_name, prompt, base64_image):
 
 
 # Function to get image analysis using Anthropic Claude models
-def get_image_analysis_anthropic(api_key, model_name, prompt, base64_image, media_type="image/jpeg"):
+def get_image_analysis_anthropic(
+    api_key, model_name, prompt, base64_image, media_type="image/jpeg"
+):
     client = Anthropic(api_key=api_key)
     response = client.messages.create(
         model=model_name,
@@ -269,7 +426,7 @@ def get_threat_model(api_key, model_name, prompt):
    - Describe the specific scenario
    - Analyze the potential impact
 4. Generate improvement suggestions based on identified threats
-5. Format the output as a JSON object with 'threat_model' and 'improvement_suggestions' arrays"""
+5. Format the output as a JSON object with 'threat_model' and 'improvement_suggestions' arrays""",
         )
         # Create completion with max_completion_tokens for reasoning models
         # GPT-5 models need more tokens for reasoning + output
@@ -279,9 +436,9 @@ def get_threat_model(api_key, model_name, prompt):
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
-            max_completion_tokens=max_tokens
+            max_completion_tokens=max_tokens,
         )
     else:
         system_prompt = "You are a helpful assistant designed to output JSON."
@@ -291,228 +448,213 @@ def get_threat_model(api_key, model_name, prompt):
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
-            max_tokens=8192
+            max_tokens=8192,
         )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
     content = response.choices[0].message.content
-    
-    if not content:
-        raise ValueError(f"Empty response from model {model_name}. This may indicate the model is not available or has rate limits.")
-    
-    response_content = json.loads(content)
 
-    return response_content
+    if not content:
+        raise ValueError(
+            f"Empty response from model {model_name}. This may indicate the model is not available or has rate limits."
+        )
+
+    return json.loads(content)
 
 
 # Function to get threat model from the Azure OpenAI response.
-def get_threat_model_azure(azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt):
+def get_threat_model_azure(
+    azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt
+):
     client = AzureOpenAI(
-        azure_endpoint = azure_api_endpoint,
-        api_key = azure_api_key,
-        api_version = azure_api_version,
+        azure_endpoint=azure_api_endpoint,
+        api_key=azure_api_key,
+        api_version=azure_api_version,
     )
 
     response = client.chat.completions.create(
-        model = azure_deployment_name,
+        model=azure_deployment_name,
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
-        ]
+            {"role": "user", "content": prompt},
+        ],
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
-
-    return response_content
+    return json.loads(response.choices[0].message.content)
 
 
 # Function to get threat model from the Google response.
 def get_threat_model_google(google_api_key, google_model, prompt):
     # Create a client with the Google API key
     client = google_genai.Client(api_key=google_api_key)
-    
+
     # Set up safety settings to allow security content
     safety_settings = [
         google_genai.types.SafetySetting(
             category=google_genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
         ),
         google_genai.types.SafetySetting(
             category=google_genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
         ),
         google_genai.types.SafetySetting(
             category=google_genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
         ),
         google_genai.types.SafetySetting(
             category=google_genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE
-        )
+            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
+        ),
     ]
-    
+
     # Check if we're using a Gemini 2.5 model (which supports thinking capabilities)
     is_gemini_2_5 = "gemini-2.5" in google_model.lower()
-    
+
     try:
         from google.genai import types as google_types
+
         if is_gemini_2_5:
             config = google_types.GenerateContentConfig(
-                response_mime_type='application/json',
+                response_mime_type="application/json",
                 safety_settings=safety_settings,
-                thinking_config=google_types.ThinkingConfig(thinking_budget=1024)
+                thinking_config=google_types.ThinkingConfig(thinking_budget=1024),
             )
         else:
             config = google_types.GenerateContentConfig(
-                response_mime_type='application/json',
-                safety_settings=safety_settings
+                response_mime_type="application/json", safety_settings=safety_settings
             )
-        
+
         # Generate content using the configured settings
         response = client.models.generate_content(
-            model=google_model,
-            contents=prompt,
-            config=config
+            model=google_model, contents=prompt, config=config
         )
-        
+
         # Extract Gemini 2.5 'thinking' content if present
         thinking_content = []
-        for candidate in getattr(response, 'candidates', []):
-            content = getattr(candidate, 'content', None)
-            if content and hasattr(content, 'parts'):
+        for candidate in getattr(response, "candidates", []):
+            content = getattr(candidate, "content", None)
+            if content and hasattr(content, "parts"):
                 for part in content.parts:
-                    if hasattr(part, 'thought') and part.thought:
+                    if hasattr(part, "thought") and part.thought:
                         thinking_content.append(str(part.thought))
         if thinking_content:
             joined_thinking = "\n\n".join(thinking_content)
-            st.session_state['last_thinking_content'] = joined_thinking
-        
+            st.session_state["last_thinking_content"] = joined_thinking
+
     except Exception as e:
-        st.error(f"Error generating content with Google AI: {str(e)}")
+        st.error(f"Error generating content with Google AI: {e!s}")
         return None
-    
+
     try:
         # Parse the response text as JSON
         response_content = json.loads(response.text)
     except json.JSONDecodeError:
         st.error("Failed to parse JSON response from Google AI")
         return None
-        
+
     return response_content
+
 
 # Function to get threat model from the Mistral response.
 def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
     client = Mistral(api_key=mistral_api_key)
 
     response = client.chat.complete(
-        model = mistral_model,
+        model=mistral_model,
         response_format={"type": "json_object"},
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
+        messages=[{"role": "user", "content": prompt}],
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
+    return json.loads(response.choices[0].message.content)
 
-    return response_content
 
 # Function to get threat model from Ollama hosted LLM.
 def get_threat_model_ollama(ollama_endpoint, ollama_model, prompt):
     """
     Get threat model from Ollama hosted LLM.
-    
+
     Args:
         ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
         ollama_model (str): The name of the model to use
         prompt (str): The prompt to send to the model
-        
+
     Returns:
         dict: The parsed JSON response from the model
-        
+
     Raises:
         requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
         json.JSONDecodeError: If the response cannot be parsed as JSON
     """
-    if not ollama_endpoint.endswith('/'):
-        ollama_endpoint = ollama_endpoint + '/'
-    
+    if not ollama_endpoint.endswith("/"):
+        ollama_endpoint = ollama_endpoint + "/"
+
     url = ollama_endpoint + "api/generate"
 
     system_prompt = "You are a helpful assistant designed to output JSON."
     full_prompt = f"{system_prompt}\n\n{prompt}"
 
-    data = {
-        "model": ollama_model,
-        "prompt": full_prompt,
-        "stream": False,
-        "format": "json"
-    }
+    data = {"model": ollama_model, "prompt": full_prompt, "stream": False, "format": "json"}
 
     try:
         response = requests.post(url, json=data, timeout=60)  # Add timeout
         response.raise_for_status()  # Raise exception for bad status codes
         outer_json = response.json()
-        
+
         try:
             # Parse the JSON response from the model's response field
-            inner_json = json.loads(outer_json['response'])
-            return inner_json
+            return json.loads(outer_json["response"])
         except (json.JSONDecodeError, KeyError):
-
             raise
-            
-    except requests.exceptions.RequestException:
 
+    except requests.exceptions.RequestException:
         raise
+
 
 # Function to get threat model from the Claude response.
 def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
     client = Anthropic(api_key=anthropic_api_key)
-    
+
     # Check if we're using Claude 3.7
     is_claude_3_7 = "claude-3-7" in anthropic_model.lower()
-    
+
     # Check if we're using extended thinking mode
     is_thinking_mode = "thinking" in anthropic_model.lower()
-    
+
     # If using thinking mode, use the actual model name without the "thinking" suffix
     actual_model = "claude-3-7-sonnet-latest" if is_thinking_mode else anthropic_model
-    
+
     try:
         # For Claude 3.7, use a more explicit prompt structure
         if is_claude_3_7:
             # Add explicit JSON formatting instructions to the prompt
-            json_prompt = prompt + "\n\nIMPORTANT: Your response MUST be a valid JSON object with the exact structure shown in the example above. Do not include any explanatory text, markdown formatting, or code blocks. Return only the raw JSON object."
-            
+            json_prompt = (
+                prompt
+                + "\n\nIMPORTANT: Your response MUST be a valid JSON object with the exact structure shown in the example above. Do not include any explanatory text, markdown formatting, or code blocks. Return only the raw JSON object."
+            )
+
             # Configure the request based on whether thinking mode is enabled
             if is_thinking_mode:
                 response = client.messages.create(
                     model=actual_model,
                     max_tokens=24000,
-                    thinking={
-                        "type": "enabled",
-                        "budget_tokens": 16000
-                    },
+                    thinking={"type": "enabled", "budget_tokens": 16000},
                     system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
-                    messages=[
-                        {"role": "user", "content": json_prompt}
-                    ],
-                    timeout=600  # 10-minute timeout
+                    messages=[{"role": "user", "content": json_prompt}],
+                    timeout=600,  # 10-minute timeout
                 )
             else:
                 response = client.messages.create(
                     model=actual_model,
                     max_tokens=4096,
                     system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
-                    messages=[
-                        {"role": "user", "content": json_prompt}
-                    ],
-                    timeout=300  # 5-minute timeout
+                    messages=[{"role": "user", "content": json_prompt}],
+                    timeout=300,  # 5-minute timeout
                 )
         else:
             # Standard handling for other Claude models
@@ -520,81 +662,79 @@ def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
                 model=actual_model,
                 max_tokens=4096,
                 system="You are a helpful assistant designed to output JSON. Your response must be a valid, parseable JSON object with no additional text, markdown formatting, or explanation. Do not include ```json code blocks or any other formatting - just return the raw JSON object.",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                timeout=300  # 5-minute timeout
+                messages=[{"role": "user", "content": prompt}],
+                timeout=300,  # 5-minute timeout
             )
-        
+
         # Combine all text blocks into a single string
         if is_thinking_mode:
             # For thinking mode, we need to extract only the text content blocks
-            full_content = ''.join(block.text for block in response.content if block.type == "text")
-            
+            full_content = "".join(block.text for block in response.content if block.type == "text")
+
             # Store thinking content in session state for debugging/transparency (optional)
-            thinking_content = ''.join(block.thinking for block in response.content if block.type == "thinking")
+            thinking_content = "".join(
+                block.thinking for block in response.content if block.type == "thinking"
+            )
             if thinking_content:
-                st.session_state['last_thinking_content'] = thinking_content
+                st.session_state["last_thinking_content"] = thinking_content
         else:
             # Standard handling for regular responses
-            full_content = ''.join(block.text for block in response.content)
-        
+            full_content = "".join(block.text for block in response.content)
+
         # Parse the JSON response
         try:
             # Check for and fix common JSON formatting issues
             if is_claude_3_7:
                 # Sometimes Claude 3.7 adds trailing commas which are invalid in JSON
                 full_content = full_content.replace(",\n  ]", "\n  ]").replace(",\n]", "\n]")
-                
+
                 # Sometimes it adds comments which are invalid in JSON
-                full_content = re.sub(r'//.*?\n', '\n', full_content)
-            
-            response_content = json.loads(full_content)
-            return response_content
-        except json.JSONDecodeError as e:
+                full_content = re.sub(r"//.*?\n", "\n", full_content)
+
+            return json.loads(full_content)
+        except json.JSONDecodeError:
             # Create a fallback response
-            fallback_response = {
+            return {
                 "threat_model": [
                     {
                         "Threat Type": "Error",
                         "Scenario": "Failed to parse Claude response",
-                        "Potential Impact": "Unable to generate threat model"
+                        "Potential Impact": "Unable to generate threat model",
                     }
                 ],
                 "improvement_suggestions": [
                     "Try again - sometimes the model returns a properly formatted response on subsequent attempts",
-                    "Check the logs for detailed error information"
-                ]
+                    "Check the logs for detailed error information",
+                ],
             }
-            return fallback_response
-            
+
     except Exception as e:
         # Handle timeout and other errors
         error_message = str(e)
         st.error(f"Error with Anthropic API: {error_message}")
-        
+
         # Create a fallback response for timeout or other errors
-        fallback_response = {
+        return {
             "threat_model": [
                 {
                     "Threat Type": "Error",
                     "Scenario": f"API Error: {error_message}",
-                    "Potential Impact": "Unable to generate threat model"
+                    "Potential Impact": "Unable to generate threat model",
                 }
             ],
             "improvement_suggestions": [
                 "For complex applications, try simplifying the input or breaking it into smaller components",
                 "If you're using extended thinking mode and encountering timeouts, try the standard model instead",
-                "Consider reducing the complexity of the application description"
-            ]
+                "Consider reducing the complexity of the application description",
+            ],
         }
-        return fallback_response
+
 
 # Function to get threat model from LM Studio Server response.
 def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="not-needed"):
     client = OpenAI(
         base_url=f"{lm_studio_endpoint}/v1",
-        api_key=api_key  # Use provided API key or default to "not-needed"
+        api_key=api_key,  # Use provided API key or default to "not-needed"
     )
 
     # Define the expected response structure
@@ -612,19 +752,16 @@ def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="
                             "properties": {
                                 "Threat Type": {"type": "string"},
                                 "Scenario": {"type": "string"},
-                                "Potential Impact": {"type": "string"}
+                                "Potential Impact": {"type": "string"},
                             },
-                            "required": ["Threat Type", "Scenario", "Potential Impact"]
-                        }
+                            "required": ["Threat Type", "Scenario", "Potential Impact"],
+                        },
                     },
-                    "improvement_suggestions": {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    }
+                    "improvement_suggestions": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["threat_model", "improvement_suggestions"]
-            }
-        }
+                "required": ["threat_model", "improvement_suggestions"],
+            },
+        },
     }
 
     response = client.chat.completions.create(
@@ -632,15 +769,14 @@ def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="
         response_format=threat_model_schema,
         messages=[
             {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
         ],
         max_tokens=4000,
     )
 
     # Convert the JSON string in the 'content' field to a Python dictionary
-    response_content = json.loads(response.choices[0].message.content)
+    return json.loads(response.choices[0].message.content)
 
-    return response_content
 
 # Function to get threat model from the Groq response.
 def get_threat_model_groq(groq_api_key, groq_model, prompt):
@@ -651,17 +787,15 @@ def get_threat_model_groq(groq_api_key, groq_model, prompt):
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt}
-        ]
+            {"role": "user", "content": prompt},
+        ],
     )
 
     # Process the response using our utility function
     reasoning, response_content = process_groq_response(
-        response.choices[0].message.content,
-        groq_model,
-        expect_json=True
+        response.choices[0].message.content, groq_model, expect_json=True
     )
-    
+
     # If we got reasoning, display it in an expander in the UI
     if reasoning:
         with st.expander("View model's reasoning process", expanded=False):
