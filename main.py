@@ -19,7 +19,6 @@ from attack_tree import (
     create_attack_tree_prompt,
     get_attack_tree,
     get_attack_tree_anthropic,
-    get_attack_tree_azure,
     get_attack_tree_google,
     get_attack_tree_groq,
     get_attack_tree_lm_studio,
@@ -31,7 +30,6 @@ from dread import (
     dread_json_to_markdown,
     get_dread_assessment,
     get_dread_assessment_anthropic,
-    get_dread_assessment_azure,
     get_dread_assessment_google,
     get_dread_assessment_groq,
     get_dread_assessment_lm_studio,
@@ -42,7 +40,6 @@ from mitigations import (
     create_mitigations_prompt,
     get_mitigations,
     get_mitigations_anthropic,
-    get_mitigations_azure,
     get_mitigations_google,
     get_mitigations_groq,
     get_mitigations_lm_studio,
@@ -53,7 +50,6 @@ from test_cases import (
     create_test_cases_prompt,
     get_test_cases,
     get_test_cases_anthropic,
-    get_test_cases_azure,
     get_test_cases_google,
     get_test_cases_groq,
     get_test_cases_lm_studio,
@@ -65,11 +61,9 @@ from threat_model import (
     create_threat_model_prompt,
     get_image_analysis,
     get_image_analysis_anthropic,
-    get_image_analysis_azure,
     get_image_analysis_google,
     get_threat_model,
     get_threat_model_anthropic,
-    get_threat_model_azure,
     get_threat_model_google,
     get_threat_model_groq,
     get_threat_model_lm_studio,
@@ -559,18 +553,6 @@ def load_env_variables():
     if anthropic_api_key:
         st.session_state["anthropic_api_key"] = anthropic_api_key
 
-    azure_api_key = os.getenv("AZURE_API_KEY")
-    if azure_api_key:
-        st.session_state["azure_api_key"] = azure_api_key
-
-    azure_api_endpoint = os.getenv("AZURE_API_ENDPOINT")
-    if azure_api_endpoint:
-        st.session_state["azure_api_endpoint"] = azure_api_endpoint
-
-    azure_deployment_name = os.getenv("AZURE_DEPLOYMENT_NAME")
-    if azure_deployment_name:
-        st.session_state["azure_deployment_name"] = azure_deployment_name
-
     google_api_key = os.getenv("GOOGLE_API_KEY")
     if google_api_key:
         st.session_state["google_api_key"] = google_api_key
@@ -632,8 +614,6 @@ model_token_limits = {
     "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
     "Groq API:moonshotai/kimi-k2-instruct": {"default": 64000, "max": 128000},
     "Groq API:qwen/qwen3-32b": {"default": 64000, "max": 128000},
-    # Azure models - conservative defaults
-    "Azure OpenAI Service:default": {"default": 64000, "max": 128000},
     # Ollama and LM Studio - conservative defaults
     "Ollama:default": {"default": 8000, "max": 32000},
     "LM Studio Server:default": {"default": 8000, "max": 32000},
@@ -672,9 +652,6 @@ def on_model_provider_change():
         st.session_state.selected_model = "gpt-5.2"
     elif new_provider == "Anthropic API":
         st.session_state.selected_model = "claude-sonnet-4-5-20250929"
-    elif new_provider == "Azure OpenAI Service":
-        # Use whatever the first Azure model is in your UI
-        pass  # Will use the default selected in the UI
     elif new_provider == "Google AI API":
         st.session_state.selected_model = "gemini-3-pro-preview"
     elif new_provider == "Mistral API":
@@ -725,7 +702,6 @@ with st.sidebar:
         [
             "OpenAI API",
             "Anthropic API",
-            "Azure OpenAI Service",
             "Google AI API",
             "Mistral API",
             "Groq API",
@@ -809,48 +785,6 @@ with st.sidebar:
             key="use_thinking",
             help="Extended thinking gives Claude enhanced reasoning capabilities for complex tasks. This may increase response time and token usage.",
         )
-
-    if model_provider == "Azure OpenAI Service":
-        st.markdown(
-            """
-    1. Enter your Azure OpenAI API key, endpoint and deployment name below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-
-        # Add Azure OpenAI API key input field to the sidebar
-        azure_api_key = st.text_input(
-            "Azure OpenAI API key:",
-            value=st.session_state.get("azure_api_key", ""),
-            type="password",
-            help="You can find your Azure OpenAI API key on the [Azure portal](https://portal.azure.com/).",
-        )
-        if azure_api_key:
-            st.session_state["azure_api_key"] = azure_api_key
-
-        # Add Azure OpenAI endpoint input field to the sidebar
-        azure_api_endpoint = st.text_input(
-            "Azure OpenAI endpoint:",
-            value=st.session_state.get("azure_api_endpoint", ""),
-            help="Example endpoint: https://YOUR_RESOURCE_NAME.openai.azure.com/",
-        )
-        if azure_api_endpoint:
-            st.session_state["azure_api_endpoint"] = azure_api_endpoint
-
-        # Add Azure OpenAI deployment name input field to the sidebar
-        azure_deployment_name = st.text_input(
-            "Deployment name:",
-            value=st.session_state.get("azure_deployment_name", ""),
-        )
-        if azure_deployment_name:
-            st.session_state["azure_deployment_name"] = azure_deployment_name
-
-        st.info("Please note that you must use an 1106-preview model deployment.")
-
-        azure_api_version = "2023-12-01-preview"  # Update this as needed
-
-        st.write(f"Azure API Version: {azure_api_version}")
 
     if model_provider == "Google AI API":
         st.markdown(
@@ -1235,7 +1169,6 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                 model_provider == "OpenAI API"
                 and (selected_model.startswith("gpt-4") or selected_model.startswith("gpt-5"))
             )
-            or model_provider == "Azure OpenAI Service"
             or model_provider == "Google AI API"
             or (model_provider == "Anthropic API" and selected_model.startswith("claude-"))
         ):
@@ -1270,21 +1203,6 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             raise ValueError
                         image_analysis_output = get_image_analysis(
                             openai_api_key, selected_model, image_analysis_prompt, base64_image
-                        )
-                    elif model_provider == "Azure OpenAI Service":
-                        if not azure_api_key or not azure_api_endpoint or not azure_deployment_name:
-                            st.error(
-                                "Please provide your Azure OpenAI configuration to analyse the image."
-                            )
-                            raise ValueError
-                        azure_api_version = "2023-12-01-preview"
-                        image_analysis_output = get_image_analysis_azure(
-                            azure_api_endpoint,
-                            azure_api_key,
-                            azure_api_version,
-                            azure_deployment_name,
-                            image_analysis_prompt,
-                            base64_image,
                         )
                     elif model_provider == "Google AI API":
                         if not google_api_key:
@@ -1430,15 +1348,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             while retry_count < max_retries:
                 try:
                     # Call the relevant get_threat_model function with the generated prompt
-                    if model_provider == "Azure OpenAI Service":
-                        model_output = get_threat_model_azure(
-                            azure_api_endpoint,
-                            azure_api_key,
-                            azure_api_version,
-                            azure_deployment_name,
-                            threat_model_prompt,
-                        )
-                    elif model_provider == "OpenAI API":
+                    if model_provider == "OpenAI API":
                         model_output = get_threat_model(
                             openai_api_key, selected_model, threat_model_prompt
                         )
@@ -1584,15 +1494,7 @@ vulnerabilities and prioritising mitigation efforts.
             with st.spinner("Generating attack tree..."):
                 try:
                     # Call the relevant get_attack_tree function with the generated prompt
-                    if model_provider == "Azure OpenAI Service":
-                        mermaid_code = get_attack_tree_azure(
-                            azure_api_endpoint,
-                            azure_api_key,
-                            azure_api_version,
-                            azure_deployment_name,
-                            attack_tree_prompt,
-                        )
-                    elif model_provider == "OpenAI API":
+                    if model_provider == "OpenAI API":
                         mermaid_code = get_attack_tree(
                             openai_api_key, selected_model, attack_tree_prompt
                         )
@@ -1724,15 +1626,7 @@ the security posture of the application and protect against potential attacks.
                 while retry_count < max_retries:
                     try:
                         # Call the relevant get_mitigations function with the generated prompt
-                        if model_provider == "Azure OpenAI Service":
-                            mitigations_markdown = get_mitigations_azure(
-                                azure_api_endpoint,
-                                azure_api_key,
-                                azure_api_version,
-                                azure_deployment_name,
-                                mitigations_prompt,
-                            )
-                        elif model_provider == "OpenAI API":
+                        if model_provider == "OpenAI API":
                             mitigations_markdown = get_mitigations(
                                 openai_api_key, selected_model, mitigations_prompt
                             )
@@ -1854,15 +1748,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                 while retry_count < max_retries:
                     try:
                         # Call the relevant get_dread_assessment function with the generated prompt
-                        if model_provider == "Azure OpenAI Service":
-                            dread_assessment = get_dread_assessment_azure(
-                                azure_api_endpoint,
-                                azure_api_key,
-                                azure_api_version,
-                                azure_deployment_name,
-                                dread_assessment_prompt,
-                            )
-                        elif model_provider == "OpenAI API":
+                        if model_provider == "OpenAI API":
                             dread_assessment = get_dread_assessment(
                                 openai_api_key, selected_model, dread_assessment_prompt
                             )
@@ -1999,15 +1885,7 @@ scenarios.
                 while retry_count < max_retries:
                     try:
                         # Call to the relevant get_test_cases function with the generated prompt
-                        if model_provider == "Azure OpenAI Service":
-                            test_cases_markdown = get_test_cases_azure(
-                                azure_api_endpoint,
-                                azure_api_key,
-                                azure_api_version,
-                                azure_deployment_name,
-                                test_cases_prompt,
-                            )
-                        elif model_provider == "OpenAI API":
+                        if model_provider == "OpenAI API":
                             test_cases_markdown = get_test_cases(
                                 openai_api_key, selected_model, test_cases_prompt
                             )

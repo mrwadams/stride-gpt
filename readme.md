@@ -40,7 +40,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
 - Advanced reasoning model support (OpenAI GPT-5.2 series, Anthropic Claude 4.5 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
-- Comprehensive LLM provider support: OpenAI, Azure OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via Ollama and LM Studio Server
+- Comprehensive LLM provider support: OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via Ollama and LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
 - Environment variable support for secure configuration
@@ -217,7 +217,6 @@ Release highlights:
 
 Release highlights:
 
-- **Azure OpenAI Service Integration**: Users can now opt to use OpenAI 1106-preview models hosted on the Azure OpenAI Service, in addition to the standard OpenAI API.
 - **Docker Container Image**: To make it easier to deploy STRIDE GPT on public and private clouds, the tool is now available as a [Docker container image](https://hub.docker.com/repository/docker/mrwadams/stridegpt/general) on Docker Hub.
 
 ### Version 0.4

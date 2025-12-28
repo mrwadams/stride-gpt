@@ -7,7 +7,7 @@ from anthropic import Anthropic
 from google import genai as google_genai
 from groq import Groq
 from mistralai import Mistral
-from openai import AzureOpenAI, OpenAI
+from openai import OpenAI
 
 from utils import create_reasoning_system_prompt, extract_mermaid_code, process_groq_response
 
@@ -378,36 +378,6 @@ ONLY RESPOND WITH THE JSON STRUCTURE, NO ADDITIONAL TEXT.""",
     # Try to parse JSON response
     try:
         # Clean the response text first
-        cleaned_response = clean_json_response(response.choices[0].message.content)
-        tree_data = json.loads(cleaned_response)
-        return convert_tree_to_mermaid(tree_data)
-    except json.JSONDecodeError:
-        # Fallback: try to extract Mermaid code if JSON parsing fails
-        return extract_mermaid_code(response.choices[0].message.content)
-
-
-# Function to get attack tree from the Azure OpenAI response.
-def get_attack_tree_azure(
-    azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt
-):
-    client = AzureOpenAI(
-        azure_endpoint=azure_api_endpoint,
-        api_key=azure_api_key,
-        api_version=azure_api_version,
-    )
-
-    # Try to get JSON output
-    system_prompt = create_json_structure_prompt()
-    response = client.chat.completions.create(
-        model=azure_deployment_name,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Try to parse JSON response
-    try:
         cleaned_response = clean_json_response(response.choices[0].message.content)
         tree_data = json.loads(cleaned_response)
         return convert_tree_to_mermaid(tree_data)

@@ -4,7 +4,7 @@ from anthropic import Anthropic
 from google import genai as google_genai
 from groq import Groq
 from mistralai import Mistral
-from openai import AzureOpenAI, OpenAI
+from openai import OpenAI
 
 from utils import create_reasoning_system_prompt, process_groq_response
 
@@ -220,31 +220,6 @@ def get_mitigations(api_key, model_name, prompt):
         model=model_name,
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Access the content directly as the response will be in text format
-    return response.choices[0].message.content
-
-
-# Function to get mitigations from the Azure OpenAI response.
-def get_mitigations_azure(
-    azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt
-):
-    client = AzureOpenAI(
-        azure_endpoint=azure_api_endpoint,
-        api_key=azure_api_key,
-        api_version=azure_api_version,
-    )
-
-    response = client.chat.completions.create(
-        model=azure_deployment_name,
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that provides threat mitigation strategies in Markdown format.",
-            },
             {"role": "user", "content": prompt},
         ],
     )

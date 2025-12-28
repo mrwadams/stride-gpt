@@ -8,7 +8,7 @@ from anthropic import Anthropic
 from google import genai as google_genai
 from groq import Groq
 from mistralai import Mistral
-from openai import AzureOpenAI, OpenAI
+from openai import OpenAI
 
 from utils import create_reasoning_system_prompt, process_groq_response
 
@@ -301,34 +301,6 @@ def get_dread_assessment(api_key, model_name, prompt):
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    try:
-        dread_assessment = json.loads(response.choices[0].message.content)
-    except json.JSONDecodeError:
-        # Handle error silently
-        dread_assessment = {}
-
-    return dread_assessment
-
-
-def get_dread_assessment_azure(
-    azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt
-):
-    client = AzureOpenAI(
-        azure_endpoint=azure_api_endpoint,
-        api_key=azure_api_key,
-        api_version=azure_api_version,
-    )
-
-    response = client.chat.completions.create(
-        model=azure_deployment_name,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
             {"role": "user", "content": prompt},
         ],
     )

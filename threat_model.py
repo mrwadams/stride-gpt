@@ -8,7 +8,7 @@ from anthropic import Anthropic
 from google import genai as google_genai
 from groq import Groq
 from mistralai import Mistral
-from openai import AzureOpenAI, OpenAI
+from openai import OpenAI
 
 from utils import create_reasoning_system_prompt, process_groq_response
 
@@ -504,36 +504,6 @@ def get_image_analysis(api_key, model_name, prompt, base64_image):
             return None
 
 
-# Function to get image analysis using Azure OpenAI
-def get_image_analysis_azure(
-    api_endpoint, api_key, api_version, deployment_name, prompt, base64_image
-):
-    client = AzureOpenAI(
-        azure_endpoint=api_endpoint,
-        api_key=api_key,
-        api_version=api_version,
-    )
-
-    response = client.chat.completions.create(
-        model=deployment_name,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                    },
-                ],
-            }
-        ],
-        max_tokens=4000,
-    )
-
-    return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
-
-
 # Function to get image analysis using Google Gemini models
 def get_image_analysis_google(api_key, model_name, prompt, base64_image):
     client = google_genai.Client(api_key=api_key)
@@ -642,29 +612,6 @@ def get_threat_model(api_key, model_name, prompt):
         )
 
     return json.loads(content)
-
-
-# Function to get threat model from the Azure OpenAI response.
-def get_threat_model_azure(
-    azure_api_endpoint, azure_api_key, azure_api_version, azure_deployment_name, prompt
-):
-    client = AzureOpenAI(
-        azure_endpoint=azure_api_endpoint,
-        api_key=azure_api_key,
-        api_version=azure_api_version,
-    )
-
-    response = client.chat.completions.create(
-        model=azure_deployment_name,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    return json.loads(response.choices[0].message.content)
 
 
 # Function to get threat model from the Google response.
