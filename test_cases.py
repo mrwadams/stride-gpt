@@ -507,7 +507,7 @@ def get_test_cases_mistral(mistral_api_key, mistral_model, prompt):
 
 
 # Function to get test cases from Ollama hosted LLM.
-def get_test_cases_ollama(ollama_endpoint, ollama_model, prompt):
+def get_test_cases_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
     """
     Get test cases from Ollama hosted LLM.
 
@@ -548,7 +548,7 @@ Please provide your response in markdown format with appropriate headings and bu
     }
 
     try:
-        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response = requests.post(url, json=data, timeout=ollama_timeout)  # Add timeout
         response.raise_for_status()  # Raise exception for bad status codes
         outer_json = response.json()
 

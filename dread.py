@@ -419,7 +419,7 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
 
 
 # Function to get DREAD risk assessment from Ollama hosted LLM.
-def get_dread_assessment_ollama(ollama_endpoint, ollama_model, prompt):
+def get_dread_assessment_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
     """
     Get DREAD risk assessment from Ollama hosted LLM.
 
@@ -474,7 +474,7 @@ Please provide your response in JSON format with the following structure:
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(url, json=data, timeout=60)  # Add timeout
+            response = requests.post(url, json=data, timeout=ollama_timeout)  # Add timeout
             response.raise_for_status()  # Raise exception for bad status codes
             outer_json = response.json()
 

@@ -346,7 +346,7 @@ def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
 
 
 # Function to get mitigations from Ollama hosted LLM.
-def get_mitigations_ollama(ollama_endpoint, ollama_model, prompt):
+def get_mitigations_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
     """
     Get mitigations from Ollama hosted LLM.
 
@@ -382,7 +382,7 @@ Please provide your response in markdown format with appropriate headings and bu
     }
 
     try:
-        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response = requests.post(url, json=data, timeout=ollama_timeout)  # Add timeout
         response.raise_for_status()  # Raise exception for bad status codes
         outer_json = response.json()
 

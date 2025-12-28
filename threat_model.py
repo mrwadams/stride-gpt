@@ -760,13 +760,14 @@ def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
 
 
 # Function to get threat model from Ollama hosted LLM.
-def get_threat_model_ollama(ollama_endpoint, ollama_model, prompt):
+def get_threat_model_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
     """
     Get threat model from Ollama hosted LLM.
 
     Args:
         ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
         ollama_model (str): The name of the model to use
+        ollama_timeout (int): Timeout for the request in seconds
         prompt (str): The prompt to send to the model
 
     Returns:
@@ -787,7 +788,7 @@ def get_threat_model_ollama(ollama_endpoint, ollama_model, prompt):
     data = {"model": ollama_model, "prompt": full_prompt, "stream": False, "format": "json"}
 
     try:
-        response = requests.post(url, json=data, timeout=60)  # Add timeout
+        response = requests.post(url, json=data, timeout=ollama_timeout)  # Add timeout
         response.raise_for_status()  # Raise exception for bad status codes
         outer_json = response.json()
 
