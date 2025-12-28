@@ -1,4 +1,6 @@
-![STRIDE GPT Logo](logo.png)
+<p align="center">
+  <img src="stride-gpt-logo.png" alt="STRIDE GPT Logo" width="400">
+</p>
 
 STRIDE GPT is an AI-powered threat modelling tool that leverages Large Language Models (LLMs) to generate threat models and attack trees for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The model then generates its output based on the provided information.
 
@@ -28,13 +30,16 @@ If you find STRIDE GPT useful, please consider supporting the project:
 ## Features
 - Simple and user-friendly interface
 - Generates threat models based on the STRIDE methodology
+- **Agentic AI support**: Specialized threat modeling for agentic AI systems with OWASP Top 10 for Agentic Applications (ASI) integration
+- **Generative AI support**: Threat modeling for GenAI applications with OWASP LLM Top 10 integration
+- **Architectural pattern detection**: Automatically detects RAG pipelines, multi-agent systems, code execution environments, tool ecosystems, and more from application descriptions (inspired by [CSA MAESTRO](https://cloudsecurityalliance.org/blog/2025/02/06/agentic-ai-threat-modeling-framework-maestro))
 - Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling across all supported vision-capable models
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
 - Supports DREAD risk scoring for identified threats
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
-- Advanced reasoning model support (OpenAI GPT-5 series, Anthropic Claude 4, Mistral Magistral series)
+- Advanced reasoning model support (OpenAI GPT-5.2 series, Anthropic Claude 4.5 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
 - Comprehensive LLM provider support: OpenAI, Azure OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via Ollama and LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
@@ -69,7 +74,37 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.14.1 (latest)
+### Version 0.15 (latest)
+
+- **Agentic AI Application Support**: Added comprehensive support for threat modeling agentic AI systems with OWASP Top 10 for Agentic Applications (ASI01-ASI10) integration. Simply select "Agentic AI application" and describe your system - the LLM automatically detects architectural patterns and applies relevant threat categories. Each ASI risk is mapped to the appropriate STRIDE category for consistent threat analysis.
+
+- **Generative AI Application Support**: Added support for threat modeling GenAI applications with OWASP LLM Top 10 (LLM01-LLM10) integration. Select "Generative AI application" and describe your system to receive tailored LLM-specific threat analysis. Agentic AI applications include both LLM and ASI risk categories for comprehensive coverage.
+
+- **MAESTRO-Inspired Architectural Pattern Detection**: Enhanced agentic threat analysis with automatic detection of architectural patterns from application descriptions, inspired by the [Cloud Security Alliance MAESTRO framework](https://cloudsecurityalliance.org/blog/2025/02/06/agentic-ai-threat-modeling-framework-maestro). The LLM now identifies and applies pattern-specific threats for:
+  - **RAG/Retrieval Systems**: Vector store poisoning, embedding manipulation, cross-tenant leakage
+  - **Multi-Agent Systems**: Agent impersonation, inter-agent message tampering, cascading compromises
+  - **Code Execution Environments**: Sandbox escape, container breakout, malicious code generation
+  - **Tool/MCP Ecosystems**: Rogue tool providers, supply chain attacks, confused deputy vulnerabilities
+  - **Persistent Memory**: Memory poisoning, cross-session leakage, state manipulation
+  - **Autonomous Operations**: Rogue agent persistence, human oversight bypass, runaway loops
+
+- **Cross-Layer Threat Analysis**: Threat models now include cross-component attack chains that show how compromise in one architectural layer can enable attacks on others (e.g., RAG poisoning → agent goal hijack → tool misuse → data exfiltration).
+
+- **Enhanced Improvement Suggestions**: For agentic applications, improvement suggestions now prompt for specific architectural details such as agent framework, inter-agent communication protocols, sandbox mechanisms, and circuit breaker implementations.
+
+- **OpenAI Model Updates**: Updated to GPT-5.2 series models (gpt-5.2, gpt-5.2-pro, gpt-5-mini, gpt-5-nano, gpt-5, gpt-4.1). Removed deprecated models (gpt-4o, gpt-4o-mini, o3, o3-mini, o4-mini).
+
+- **Anthropic Claude 4.5 Models**: Updated to Claude 4.5 series (claude-sonnet-4-5, claude-haiku-4-5, claude-opus-4-5). Added "Enable Extended Thinking" checkbox for enhanced reasoning capabilities on any Claude model. Increased max tokens to 32k (standard) and 48k (thinking mode).
+
+- **Google Gemini 3 Preview**: Added Gemini 3 preview models (gemini-3-pro-preview, gemini-3-flash-preview) alongside Gemini 2.5 models. Extended thinking mode support to Gemini 3 models.
+
+- **Mistral Model Updates**: Updated to latest versioned Mistral models including Mistral Large 3, Medium 3.1, Small 3.2, Ministral 3 (8B/14B), and Magistral 1.2 (Medium/Small).
+
+- **New Project Logo**: Refreshed branding with a cleaner, minimal shield + neural network design.
+
+- **Bug Fix**: Fixed issue where threat model output would disappear after clicking the download button.
+
+### Version 0.14.1
 
 - **Security Infrastructure**: Added comprehensive automated security scanning and hardening including:
   - GitHub Actions workflows for Bandit (Python security), CodeQL (vulnerability detection), pip-audit (dependency scanning), Safety (package vulnerabilities), Gitleaks (secret detection), and Trivy (Docker image scanning)
