@@ -73,43 +73,110 @@ def create_mitigations_prompt(threats, is_genai=False, is_agentic=False):
 
 1. INPUT VALIDATION & PROMPT SECURITY:
    - Sanitize all inputs before processing by the agent
-   - Implement prompt injection detection and filtering
+   - Implement prompt injection detection and filtering (both direct and indirect)
    - Validate and sanitize content from external sources (documents, emails, web pages)
+   - Use content security scanning for ingested documents
+   - Implement input source verification and provenance tracking
 
 2. LEAST PRIVILEGE & ACCESS CONTROL:
-   - Minimize tool/function permissions to only what's necessary
+   - Minimize tool/function permissions to only what's necessary for each task
    - Use scoped, short-lived credentials instead of long-lived tokens
    - Implement per-action authorization checks
+   - Apply different permission levels based on input source trust
+   - Use capability-based security for tool access
 
 3. SANDBOXING & ISOLATION:
-   - Execute code in isolated containers with resource limits
-   - Restrict file system and network access
+   - Execute generated code in isolated containers with resource limits (CPU, memory, time)
+   - Restrict file system access to specific directories with read/write controls
+   - Limit network access to allowlisted destinations only
    - Implement process isolation for multi-tenant environments
+   - Use seccomp/AppArmor profiles to restrict system calls
 
 4. AUDIT LOGGING & OBSERVABILITY:
-   - Log all agent actions, decisions, and tool invocations
+   - Log all agent actions, decisions, and tool invocations with timestamps
    - Implement immutable audit trails for forensic analysis
-   - Monitor for anomalous agent behavior patterns
+   - Monitor for anomalous agent behavior patterns (unusual tool usage, data access patterns)
+   - Track agent decision chains for explainability
+   - Implement real-time alerting for high-risk actions
 
 5. HUMAN OVERSIGHT & APPROVAL WORKFLOWS:
-   - Require human approval for high-risk actions
+   - Require human approval for high-risk actions (financial, destructive, external communication)
    - Implement confirmation prompts for irreversible operations
-   - Provide clear visibility into agent decision-making
+   - Provide clear visibility into agent decision-making rationale
+   - Support human-in-the-loop review for sensitive data access
+   - Enable action rollback where possible
 
 6. MEMORY & CONTEXT PROTECTION:
-   - Encrypt persistent agent memory
+   - Encrypt persistent agent memory at rest and in transit
    - Validate and sanitize retrieved context before use
-   - Implement memory segmentation between users/sessions
+   - Implement memory segmentation between users/sessions/tenants
+   - Set memory retention limits and automatic expiration
+   - Scan memory contents for sensitive data leakage
 
 7. AGENT AUTHENTICATION & INTEGRITY:
    - Use cryptographic signing for inter-agent communication
-   - Verify tool provider authenticity (MCP server certificates)
+   - Verify tool provider authenticity (MCP server certificates, package signatures)
    - Implement mutual TLS for agent-to-agent communication
+   - Use agent identity attestation in multi-agent systems
+   - Validate agent configuration integrity at startup
 
 8. CIRCUIT BREAKERS & RATE LIMITING:
    - Implement loop detection to prevent infinite reasoning cycles
-   - Set resource consumption limits per request/session
-   - Add circuit breakers to halt cascading failures
+   - Set resource consumption limits per request/session (tokens, API calls, compute time)
+   - Add circuit breakers to halt cascading failures between agents
+   - Implement backoff strategies for failing operations
+   - Set hard limits on autonomous operation duration
+
+ARCHITECTURAL PATTERN-SPECIFIC MITIGATIONS:
+When analyzing threats, also consider these pattern-specific controls:
+
+FOR RAG/RETRIEVAL SYSTEMS:
+- Implement document provenance tracking and integrity verification
+- Use content classification to tag and control access to sensitive retrieved content
+- Apply tenant isolation in vector databases (separate collections/namespaces)
+- Validate retrieval results before injection into prompts
+- Monitor for embedding drift and anomalous retrieval patterns
+- Implement freshness controls to prevent stale content attacks
+
+FOR MULTI-AGENT SYSTEMS:
+- Implement agent registration and identity management
+- Use message authentication codes (MACs) for inter-agent messages
+- Apply trust boundaries between agent groups
+- Implement consensus mechanisms for critical decisions
+- Monitor for coalition attacks and emergent malicious behaviors
+- Use agent behavioral profiling to detect compromised agents
+
+FOR CODE EXECUTION ENVIRONMENTS:
+- Use ephemeral containers that are destroyed after each execution
+- Implement static analysis on generated code before execution
+- Block dangerous imports and system calls
+- Use resource quotas (CPU time, memory, disk, network)
+- Implement output sanitization for code execution results
+- Monitor for persistence attempts and sandbox escape indicators
+
+FOR TOOL/MCP ECOSYSTEMS:
+- Maintain an allowlist of approved tool providers with version pinning
+- Implement tool response validation and sanitization
+- Use tool-specific rate limits and quotas
+- Monitor for unusual tool invocation patterns
+- Validate tool parameter bounds before invocation
+- Implement tool capability attestation
+
+FOR PERSISTENT MEMORY SYSTEMS:
+- Implement memory content classification and access controls
+- Use differential privacy for shared memory contexts
+- Apply memory poisoning detection (anomaly detection on stored content)
+- Implement memory versioning with rollback capability
+- Set per-user memory quotas and isolation
+- Scan memory for credential and PII exposure
+
+CROSS-LAYER MITIGATIONS:
+Consider controls that address attack chains spanning multiple components:
+- Implement defense-in-depth with controls at each architectural layer
+- Use correlation of events across layers for advanced threat detection
+- Apply blast radius limiting to contain breaches to single components
+- Implement graceful degradation when components fail
+- Use zero-trust principles between all architectural components
 
 """
 

@@ -94,6 +94,7 @@ your responses are tailored to reflect the details of the threats.
    - Test with adversarial prompts attempting to override system instructions
    - Test with documents/inputs containing hidden instructions
    - Test boundary between user content and system prompts
+   - Test indirect injection via external data sources (URLs, APIs, databases)
    Example:
    ```gherkin
    Scenario: Agent resists prompt injection via malicious document
@@ -108,6 +109,7 @@ your responses are tailored to reflect the details of the threats.
    - Verify tools cannot exceed their intended scope
    - Test tool chaining for privilege escalation
    - Validate input sanitization for tool parameters
+   - Test parameter injection attacks
    Example:
    ```gherkin
    Scenario: Agent tool respects file system boundaries
@@ -115,24 +117,39 @@ your responses are tailored to reflect the details of the threats.
      When the agent attempts to read /etc/passwd via tool invocation
      Then the operation should be denied
      And an audit log entry should be created
+
+   Scenario: Agent tool validates parameters against injection
+     Given the agent can execute shell commands in a sandbox
+     When a user provides input containing "; rm -rf /"
+     Then the agent should sanitize the input before execution
+     And the malicious command should not be executed
    ```
 
 3. MEMORY/CONTEXT INTEGRITY TESTING:
    - Test for cross-session information leakage
    - Verify memory retrieval validates source authenticity
    - Test context isolation between users
+   - Test memory poisoning resistance
    Example:
    ```gherkin
    Scenario: Agent memory is isolated between users
      Given User A has stored sensitive project details in agent memory
      When User B queries the agent about similar topics
      Then User B should not receive any information from User A's context
+
+   Scenario: Agent resists memory poisoning attacks
+     Given the agent has long-term memory enabled
+     When a malicious user attempts to inject false information into memory
+     And the false information contradicts established facts
+     Then the agent should validate information before storage
+     And conflicting information should be flagged for review
    ```
 
 4. AGENT BEHAVIOR BOUNDARY TESTING:
    - Test loop detection mechanisms
    - Verify human approval workflows are enforced
    - Test rate limiting and circuit breakers
+   - Test autonomous operation limits
    Example:
    ```gherkin
    Scenario: Agent halts on suspected infinite loop
@@ -140,12 +157,163 @@ your responses are tailored to reflect the details of the threats.
      When the agent detects more than 10 consecutive similar actions
      Then the agent should pause execution
      And the agent should request human intervention
+
+   Scenario: High-risk actions require human approval
+     Given the agent has permission to modify production systems
+     When the agent attempts to execute a destructive operation
+     Then the agent should pause and request human approval
+     And the operation should not proceed without explicit confirmation
    ```
 
 5. INTER-AGENT SECURITY TESTING (if multi-agent):
    - Test agent authentication mechanisms
    - Verify message integrity in multi-agent systems
    - Test for agent impersonation vulnerabilities
+   - Test cascading failure containment
+   Example:
+   ```gherkin
+   Scenario: Multi-agent system validates agent identity
+     Given Agent A is communicating with Agent B
+     When a malicious actor attempts to impersonate Agent A
+     Then Agent B should verify the message signature
+     And messages from unverified sources should be rejected
+
+   Scenario: Cascading failures are contained
+     Given Agent A depends on Agent B for data processing
+     When Agent B fails or returns errors repeatedly
+     Then Agent A should activate circuit breaker after threshold
+     And Agent A should not propagate failures to downstream agents
+   ```
+
+ARCHITECTURAL PATTERN-SPECIFIC TEST CASES:
+Analyze the application description and include test cases for detected patterns:
+
+FOR RAG/RETRIEVAL SYSTEMS (if detected):
+```gherkin
+Scenario: RAG system resists document poisoning
+  Given the knowledge base accepts user-uploaded documents
+  When a document containing adversarial content is uploaded
+  Then the content should be scanned before indexing
+  And malicious patterns should be quarantined or rejected
+
+Scenario: RAG respects access controls on retrieval
+  Given documents have different access levels (public, confidential, restricted)
+  When a user queries the system
+  Then only documents matching user's access level should be retrieved
+  And restricted documents should never appear in responses to unauthorized users
+
+Scenario: RAG tenant isolation is enforced
+  Given Company A and Company B share the RAG infrastructure
+  When Company A queries topics related to Company B's documents
+  Then no content from Company B's namespace should be retrieved
+```
+
+FOR CODE EXECUTION ENVIRONMENTS (if detected):
+```gherkin
+Scenario: Generated code is validated before execution
+  Given the agent can generate and execute code
+  When the agent generates code containing system calls
+  Then the code should be analyzed against a security policy
+  And dangerous operations should be blocked before execution
+
+Scenario: Code execution sandbox contains resource exhaustion
+  Given code runs in an isolated sandbox
+  When generated code attempts to consume excessive resources
+  Then resource limits should terminate the process
+  And the host system should remain unaffected
+
+Scenario: Sandbox prevents filesystem escape
+  Given the sandbox has a virtual filesystem
+  When generated code attempts directory traversal (../)
+  Then access should be denied
+  And the attempt should be logged as a security event
+```
+
+FOR TOOL/MCP ECOSYSTEMS (if detected):
+```gherkin
+Scenario: MCP server responses are validated
+  Given the agent uses external MCP servers for tools
+  When an MCP server returns unexpected or malformed data
+  Then the agent should validate the response schema
+  And malformed responses should not be processed
+
+Scenario: Tool provider authenticity is verified
+  Given the agent connects to registered tool providers
+  When a connection is attempted to an unregistered provider
+  Then the connection should be rejected
+  And a security alert should be generated
+
+Scenario: Tool chaining respects cumulative permissions
+  Given the agent has access to read and write tools
+  When a task attempts to chain tools to exceed individual permissions
+  Then the cumulative action should be evaluated against policy
+  And unauthorized permission escalation should be blocked
+```
+
+FOR PERSISTENT MEMORY SYSTEMS (if detected):
+```gherkin
+Scenario: Sensitive data is not persisted in memory
+  Given the agent processes requests containing credentials
+  When the interaction completes
+  Then credentials should not be stored in long-term memory
+  And memory should be scanned for sensitive data patterns
+
+Scenario: Memory expiration is enforced
+  Given memory entries have defined retention periods
+  When the retention period expires
+  Then the memory entry should be automatically deleted
+  And the deletion should be logged for compliance
+
+Scenario: Memory access is authenticated
+  Given memory is partitioned by user identity
+  When an agent retrieves memory
+  Then the current user context should be validated
+  And only authorized memory segments should be accessible
+```
+
+FOR AUTONOMOUS OPERATIONS (if detected):
+```gherkin
+Scenario: Autonomous operations respect time boundaries
+  Given the agent has scheduled autonomous tasks
+  When a task runs outside approved maintenance windows
+  Then high-impact operations should be deferred
+  And the operator should be notified
+
+Scenario: Autonomous agent can be emergency stopped
+  Given the agent is performing autonomous operations
+  When an operator issues an emergency stop command
+  Then all pending actions should be immediately halted
+  And the agent should enter a safe state
+
+Scenario: Autonomous decisions are auditable
+  Given the agent makes autonomous decisions
+  When a decision leads to a significant action
+  Then the decision rationale should be logged
+  And the log should include input data and reasoning chain
+```
+
+CROSS-COMPONENT INTEGRATION TESTS:
+Include test cases that verify security across component boundaries:
+
+```gherkin
+Scenario: RAG poisoning does not lead to tool misuse
+  Given the agent uses RAG for context and has access to tools
+  When poisoned content is retrieved from the knowledge base
+  Then the agent should not execute tool commands from retrieved content
+  And tool invocations should be validated against the original user request
+
+Scenario: Memory poisoning does not affect other users' sessions
+  Given User A successfully poisons their own memory context
+  When User B starts a new session
+  Then User B's agent should have clean, isolated memory
+  And User A's poisoned content should not affect User B
+
+Scenario: Multi-agent failure does not expose sensitive data
+  Given Agent A fails while processing sensitive data
+  When the failure propagates to Agent B
+  Then error messages should not contain sensitive data
+  And Agent B should handle the failure gracefully without data leakage
+```
 
 """
 

@@ -141,7 +141,8 @@ If the GENERATIVE AI / LLM CONTEXT above conflicts with details in the APPLICATI
 def create_agentic_stride_prompt_section(agentic_context):
     """
     Creates the agentic-specific section of the threat model prompt.
-    Maps OWASP ASI01-ASI10 to STRIDE categories.
+    Maps OWASP ASI01-ASI10 to STRIDE categories and incorporates
+    architectural layer analysis for comprehensive threat coverage.
     """
     if not agentic_context:
         return ""
@@ -160,13 +161,54 @@ AGENTIC AI CONTEXT:
 - Credential Access: {credential_access}
 - External Tool Providers: {tool_providers}
 
+ARCHITECTURAL PATTERN DETECTION:
+Before generating threats, analyze the application description to detect which architectural patterns are present. For each pattern detected, you MUST include threats specific to that pattern:
+
+1. RAG / RETRIEVAL SYSTEMS: Look for mentions of RAG, retrieval, vector databases, embeddings, knowledge bases, document ingestion, Pinecone, Weaviate, ChromaDB, FAISS, or similar. If detected:
+   - Include vector store poisoning threats (malicious documents injected into knowledge base)
+   - Include embedding manipulation threats (adversarial content designed to surface in retrieval)
+   - Include cross-tenant data leakage if multi-tenant RAG is implied
+   - Include stale/poisoned index threats if incremental updates are mentioned
+
+2. MULTI-AGENT SYSTEMS: Look for mentions of multiple agents, agent orchestration, agent-to-agent communication, CrewAI, AutoGen, LangGraph, swarms, hierarchical agents, or similar. If detected:
+   - Include agent impersonation threats (malicious agent posing as trusted agent)
+   - Include inter-agent message tampering threats
+   - Include malicious agent injection into the ecosystem
+   - Include goal conflicts and unintended emergent behaviors
+   - Include cascading failure propagation across agent chains
+
+3. CODE EXECUTION / SANDBOXING: Look for mentions of code generation, code execution, REPL, interpreter, sandbox, Docker, containers, or executing generated code. If detected:
+   - Include sandbox escape threats
+   - Include container breakout if containerized
+   - Include resource exhaustion via generated code (fork bombs, infinite loops)
+   - Include filesystem/network access beyond intended scope
+   - Include malicious dependency installation if package installation is possible
+
+4. TOOL/PLUGIN ECOSYSTEMS: Look for mentions of MCP servers, plugins, tools, function calling, external APIs, or third-party integrations. If detected:
+   - Include malicious tool provider threats (tool returning poisoned data)
+   - Include tool impersonation (fake tool masquerading as legitimate)
+   - Include supply chain attacks via compromised tool packages
+   - Include confused deputy attacks (agent tricked into misusing legitimate tools)
+
+5. PERSISTENT MEMORY / STATE: Look for mentions of memory, conversation history, session persistence, long-term memory, memory stores, or context carried across sessions. If detected:
+   - Include memory poisoning threats (past interactions corrupting future behavior)
+   - Include cross-session data leakage
+   - Include memory extraction attacks (retrieving other users' context)
+   - Include state manipulation to alter agent personality/goals over time
+
+6. FINE-TUNED / CUSTOM MODELS: Look for mentions of fine-tuning, custom training, LoRA, adapters, or proprietary models. If detected:
+   - Include training data poisoning threats
+   - Include backdoor trigger injection during fine-tuning
+   - Include model supply chain threats (compromised base model or training pipeline)
+   - Include intellectual property extraction from fine-tuned model
+
 AGENTIC-SPECIFIC THREAT CATEGORIES (OWASP Top 10 for Agentic Applications):
 You MUST analyze threats from both traditional STRIDE categories AND the following agentic-specific threat categories. Map each agentic threat to its corresponding STRIDE category and include the OWASP_ASI code:
 
 SPOOFING (Traditional + Agentic):
 - Traditional: Identity spoofing, credential theft
 - ASI07 (Insecure Inter-Agent Communication): Spoofed agent identities, fake agents joining multi-agent systems
-- ASI04 (Agentic Supply Chain Vulnerabilities): Malicious MCP servers impersonating legitimate tool providers
+- ASI04 (Agentic Supply Chain Vulnerabilities): Malicious MCP servers or tool providers impersonating legitimate ones
 - Fake tool responses injected into agent context
 
 TAMPERING (Traditional + Agentic):
@@ -191,7 +233,7 @@ DENIAL OF SERVICE (Traditional + Agentic):
 - Traditional: Resource exhaustion, service disruption
 - ASI08 (Cascading Failures): Error propagation across agent chains causing system-wide outages
 - Agent loop attacks where malicious input causes infinite reasoning cycles
-- Resource exhaustion through repeated expensive tool invocations
+- Resource exhaustion through repeated expensive tool invocations or runaway code execution
 
 ELEVATION OF PRIVILEGE (Traditional + Agentic):
 - Traditional: Privilege escalation, unauthorized access
@@ -199,6 +241,15 @@ ELEVATION OF PRIVILEGE (Traditional + Agentic):
 - ASI03 (Identity and Privilege Abuse): Cached credential misuse, confused deputy attacks, cross-agent delegation abuse
 - ASI05 (Unexpected Code Execution): Unsafe eval/exec of generated code, shell injection, sandbox escape
 - ASI10 (Rogue Agents): Agents persisting beyond intended lifecycle, impersonating other agents or users
+
+CROSS-LAYER THREAT ANALYSIS:
+For each threat identified, consider how it could cascade across system boundaries:
+- How could a data poisoning attack (in retrieval/RAG) affect agent decision-making and tool usage?
+- How could a compromised tool provider affect the foundation model's outputs or agent memory?
+- How could an agent ecosystem attack (multi-agent manipulation) lead to infrastructure compromise?
+- How could observability gaps hide attack progression across components?
+
+Include at least 2-3 threats that explicitly describe cross-component attack chains where applicable.
 
 CRITICAL AGENTIC RISKS TO EVALUATE:
 1. ASI01 - Agent Goal Hijack: How could adversarial inputs (documents, emails, web content) redirect the agent's objectives?
@@ -269,7 +320,25 @@ Pay special attention to the README content as it often provides valuable contex
 
 """
 
-    prompt += """Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis. For example:
+    if is_agentic:
+        prompt += """Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis.
+
+For AGENTIC AI applications, specifically look for and suggest clarification on:
+- Agent framework/orchestration details (e.g., LangChain, CrewAI, AutoGen, custom) if not specified
+- RAG pipeline architecture if retrieval is mentioned but vector store details are missing
+- Sandbox/isolation mechanisms if code execution is mentioned
+- Inter-agent communication protocols if multi-agent is mentioned but coordination method is unclear
+- Memory persistence mechanisms if long-running agents are implied
+- Tool validation and output sanitization approaches
+- Circuit breaker and rate limiting implementations for agent loops
+- Audit logging coverage for agent decisions and tool invocations
+- Human escalation paths and approval workflows
+
+Do not provide general security recommendations - focus only on what additional information would help create a better threat model.
+
+"""
+    else:
+        prompt += """Under "improvement_suggestions", include an array of strings that suggest what additional information or details the user could provide to make the threat model more comprehensive and accurate in the next iteration. Focus on identifying gaps in the provided application description that, if filled, would enable a more detailed and precise threat analysis. For example:
 - Missing architectural details that would help identify more specific threats
 - Unclear authentication flows that need more detail
 - Incomplete data flow descriptions

@@ -121,30 +121,85 @@ DAMAGE POTENTIAL:
 - Memory/context poisoning can affect all future sessions and users
 - Credential exfiltration may grant persistent access to multiple systems
 - Autonomous actions may cause irreversible damage before detection
+- Multi-agent compromises can have exponential blast radius
+- Infrastructure-level attacks (sandbox escape, container breakout) enable lateral movement
 
 REPRODUCIBILITY:
 - Agent behaviors may be probabilistic and context-dependent
-- Prompt injection success depends on specific input formatting
-- Memory poisoning effects may manifest inconsistently
+- Prompt injection success depends on specific input formatting and model state
+- Memory poisoning effects may manifest inconsistently across sessions
 - Multi-step attacks through agent chains may be harder to reproduce exactly
+- RAG-based attacks depend on embedding similarity and retrieval ranking
+- Tool exploitation may require specific parameter combinations
 
 EXPLOITABILITY:
 - Prompt injection attacks require low technical skill but specific knowledge of agent behavior
 - Tool misuse often exploits configuration gaps rather than code vulnerabilities
 - Supply chain attacks (malicious MCP servers) require access to trusted repositories
 - Context poisoning may require patience but little technical sophistication
+- Code execution exploits vary: simple prompt tricks vs. advanced sandbox escapes
+- Multi-agent attacks may require understanding of agent communication protocols
 
 AFFECTED USERS:
 - Multi-agent systems can amplify impact across all connected agents and their users
 - Shared memory/RAG databases affect all users of that knowledge base
 - Credential abuse may affect all systems accessible with those credentials
 - Agent-to-agent communication attacks can cascade across entire agent ecosystems
+- Foundation model compromises affect every application using that model
+- Infrastructure attacks may impact all tenants in shared environments
 
 DISCOVERABILITY:
 - Prompt injection vulnerabilities are easily discoverable through normal interaction
-- Agent decision logs may reveal exploitable patterns
+- Agent decision logs may reveal exploitable patterns and tool permissions
 - Tool permissions and capabilities are often documented or easily enumerated
 - Memory contents may leak through carefully crafted queries
+- Framework vulnerabilities are often published in CVE databases
+- Agent behavior patterns can be profiled through systematic probing
+
+ARCHITECTURAL PATTERN-SPECIFIC SCORING ADJUSTMENTS:
+When analyzing threats, adjust DREAD scores based on detected patterns:
+
+FOR RAG/RETRIEVAL SYSTEMS:
+- Damage Potential: +1-2 if RAG serves multiple users (poisoning affects everyone)
+- Reproducibility: -1 if retrieval is non-deterministic (harder to reproduce exactly)
+- Affected Users: +2-3 if shared knowledge base across users/tenants
+- Discoverability: +1 if document upload is user-accessible (easy to test poisoning)
+
+FOR MULTI-AGENT SYSTEMS:
+- Damage Potential: +2-3 for cascading/amplification effects across agent chains
+- Reproducibility: -1-2 for complex multi-agent interactions (harder to reproduce)
+- Affected Users: +2 for ecosystem-wide attacks affecting all connected agents
+- Discoverability: +1 if agent communication patterns are observable
+
+FOR CODE EXECUTION ENVIRONMENTS:
+- Damage Potential: +3 if sandbox escape is possible (full system compromise)
+- Exploitability: Variable based on sandbox strength (-2 for strong isolation, +2 for weak)
+- Affected Users: +2-3 if shared infrastructure (affects co-tenants)
+- Discoverability: -1 for sophisticated sandbox escapes (requires expertise to find)
+
+FOR TOOL/MCP ECOSYSTEMS:
+- Damage Potential: +1-2 based on tool permissions (higher for write/execute tools)
+- Reproducibility: +1 if tool behavior is deterministic
+- Exploitability: +2 if tools accept unvalidated parameters
+- Discoverability: +2 if tool list and capabilities are enumerable
+
+FOR PERSISTENT MEMORY SYSTEMS:
+- Damage Potential: +2 if memory affects future sessions (persistent compromise)
+- Reproducibility: -1 if memory retrieval is similarity-based (less predictable)
+- Affected Users: +2-3 if memory is shared across users
+- Discoverability: +1 if memory contents can be queried directly
+
+FOR AUTONOMOUS OPERATIONS:
+- Damage Potential: +2-3 if actions are irreversible before human review
+- Exploitability: +1 if human oversight is minimal or can be bypassed
+- Affected Users: Based on scope of autonomous actions
+- Discoverability: -1 if attack occurs during low-monitoring periods
+
+CROSS-LAYER THREAT SCORING:
+For threats that span multiple architectural components, consider cumulative risk:
+- If a threat enables follow-on attacks, score Damage Potential for the full attack chain
+- If exploitation requires multiple steps across components, adjust Reproducibility accordingly
+- If compromise propagates to shared infrastructure, increase Affected Users significantly
 
 """
 
