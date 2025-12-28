@@ -76,9 +76,9 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ### Version 0.15 (latest)
 
-- **Agentic AI Application Support**: Added comprehensive support for threat modeling agentic AI systems with OWASP Top 10 for Agentic Applications (ASI01-ASI10) integration. Includes conditional inputs for agent capabilities, human oversight level, autonomous action scope, credential access, and external tool providers (MCP servers). Each ASI risk is mapped to the appropriate STRIDE category for consistent threat analysis.
+- **Agentic AI Application Support**: Added comprehensive support for threat modeling agentic AI systems with OWASP Top 10 for Agentic Applications (ASI01-ASI10) integration. Simply select "Agentic AI application" and describe your system - the LLM automatically detects architectural patterns and applies relevant threat categories. Each ASI risk is mapped to the appropriate STRIDE category for consistent threat analysis.
 
-- **Generative AI Application Support**: Added support for threat modeling GenAI applications with OWASP LLM Top 10 (LLM01-LLM10) integration. Includes conditional inputs for model type, GenAI features, data sources, and output handling. Agentic AI applications now include both LLM and ASI risk categories for comprehensive coverage.
+- **Generative AI Application Support**: Added support for threat modeling GenAI applications with OWASP LLM Top 10 (LLM01-LLM10) integration. Select "Generative AI application" and describe your system to receive tailored LLM-specific threat analysis. Agentic AI applications include both LLM and ASI risk categories for comprehensive coverage.
 
 - **MAESTRO-Inspired Architectural Pattern Detection**: Enhanced agentic threat analysis with automatic detection of architectural patterns from application descriptions, inspired by the [Cloud Security Alliance MAESTRO framework](https://cloudsecurityalliance.org/blog/2025/02/06/agentic-ai-threat-modeling-framework-maestro). The LLM now identifies and applies pattern-specific threats for:
   - **RAG/Retrieval Systems**: Vector store poisoning, embedding manipulation, cross-tenant leakage

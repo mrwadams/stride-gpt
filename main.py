@@ -1366,140 +1366,29 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             key="authentication",
         )
 
-        # Generative AI specific inputs (shown for both GenAI and Agentic apps)
-        if app_type in ["Generative AI application", "Agentic AI application"]:
+        # Show guidance for GenAI/Agentic applications
+        if app_type == "Generative AI application":
             st.markdown("---")
-            st.markdown("#### LLM Configuration")
-
-            llm_model_type = st.selectbox(
-                "LLM model type:",
-                [
-                    "Proprietary API (OpenAI, Anthropic, Google, etc.)",
-                    "Open-source hosted (self-managed infrastructure)",
-                    "Open-source API (Hugging Face, Replicate, etc.)",
-                    "Fine-tuned model (custom training)",
-                    "Multiple models",
-                ],
-                key="llm_model_type",
-                help="How is the LLM model deployed and accessed?",
+            st.info(
+                """**For better threat coverage, include in your description:**
+- LLM provider and model (e.g., OpenAI GPT-5, Claude, fine-tuned Llama)
+- Features used (RAG, function calling, code generation, embeddings)
+- Data sources (documents, databases, APIs, user uploads)
+- How outputs are used (displayed, stored, executed, sent externally)"""
             )
 
-            llm_features = st.multiselect(
-                "LLM features used:",
-                [
-                    "RAG (Retrieval-Augmented Generation)",
-                    "Fine-tuning on custom data",
-                    "System prompts with instructions",
-                    "Few-shot examples in prompts",
-                    "Embeddings/vector search",
-                    "Streaming responses",
-                    "Function/tool calling",
-                    "Image/multimodal input",
-                    "Code generation",
-                ],
-                key="llm_features",
-                help="Select all LLM features the application uses.",
-            )
-
-            data_sources = st.multiselect(
-                "Data sources for LLM context:",
-                [
-                    "User-provided input only",
-                    "Internal documents/knowledge base",
-                    "External websites/APIs",
-                    "Database queries",
-                    "User-uploaded files",
-                    "Email/communication content",
-                    "Code repositories",
-                ],
-                key="data_sources",
-                help="What data sources feed into the LLM context?",
-            )
-
-            output_handling = st.multiselect(
-                "How is LLM output used?",
-                [
-                    "Displayed to users directly",
-                    "Stored in database",
-                    "Passed to downstream APIs",
-                    "Used for decision-making",
-                    "Executed as code/commands",
-                    "Sent via email/notifications",
-                    "Generates files/documents",
-                ],
-                key="output_handling",
-                help="How is the LLM's output handled by the application?",
-            )
-
-        # Agentic AI specific inputs (conditionally rendered)
         if app_type == "Agentic AI application":
             st.markdown("---")
-            st.markdown("#### Agent Configuration")
-
-            agent_capabilities = st.multiselect(
-                "Select agent capabilities:",
-                [
-                    "Tool/Function calling",
-                    "Code execution",
-                    "Memory persistence (long-term)",
-                    "Multi-agent communication",
-                    "Web browsing/scraping",
-                    "File system access",
-                    "Database access",
-                    "API integration",
-                    "Credential/secret management",
-                ],
-                key="agent_capabilities",
-                help="Select all capabilities that the AI agent possesses.",
-            )
-
-            st.markdown("#### Trust Boundaries")
-
-            human_oversight_level = st.selectbox(
-                "Human oversight level:",
-                [
-                    "Human-in-the-loop (approval required for all actions)",
-                    "Human-on-the-loop (monitoring with intervention capability)",
-                    "Human-out-of-the-loop (fully autonomous)",
-                ],
-                key="human_oversight_level",
-                help="Level of human oversight for agent actions.",
-            )
-
-            autonomous_action_scope = st.multiselect(
-                "Autonomous action scope:",
-                [
-                    "Read-only operations",
-                    "Create/modify internal data",
-                    "External API calls",
-                    "Financial transactions",
-                    "User communication",
-                    "System configuration changes",
-                    "Code deployment",
-                ],
-                key="autonomous_action_scope",
-                help="What actions can the agent perform autonomously?",
-            )
-
-            credential_access = st.multiselect(
-                "Credential/secret access:",
-                [
-                    "No direct credential access",
-                    "Read-only API keys",
-                    "OAuth tokens (user-scoped)",
-                    "Service account credentials",
-                    "Database credentials",
-                    "Admin/privileged credentials",
-                ],
-                key="credential_access",
-                help="What types of credentials can the agent access?",
-            )
-
-            tool_providers = st.text_area(
-                "External tool providers (MCP servers, plugins, etc.):",
-                placeholder="e.g., GitHub MCP, Slack MCP, custom internal tools...",
-                key="tool_providers",
-                help="List any external tool providers or MCP servers the agent connects to.",
+            st.info(
+                """**For better threat coverage, include in your description:**
+- Agent framework (LangChain, CrewAI, AutoGen, custom)
+- Agent capabilities (tool use, code execution, web browsing, file access)
+- Multi-agent details if applicable (orchestration, communication)
+- Memory/state persistence mechanisms
+- Human oversight level (approval required, monitoring only, fully autonomous)
+- Tools and integrations (MCP servers, APIs, databases)
+- Credential access (OAuth tokens, API keys, service accounts)
+- Autonomous action scope (what can it do without approval?)"""
             )
 
     # ------------------ Threat Model Generation ------------------ #
@@ -1511,27 +1400,6 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     if threat_model_submit_button and st.session_state.get("app_input"):
         app_input = st.session_state["app_input"]  # Retrieve from session state
 
-        # Build GenAI context if applicable (for both GenAI and Agentic apps)
-        genai_context = None
-        if app_type in ["Generative AI application", "Agentic AI application"]:
-            genai_context = {
-                "model_type": st.session_state.get("llm_model_type", ""),
-                "features": st.session_state.get("llm_features", []),
-                "data_sources": st.session_state.get("data_sources", []),
-                "output_handling": st.session_state.get("output_handling", []),
-            }
-
-        # Build agentic context if applicable
-        agentic_context = None
-        if app_type == "Agentic AI application":
-            agentic_context = {
-                "capabilities": st.session_state.get("agent_capabilities", []),
-                "human_oversight": st.session_state.get("human_oversight_level", ""),
-                "autonomous_scope": st.session_state.get("autonomous_action_scope", []),
-                "credential_access": st.session_state.get("credential_access", []),
-                "tool_providers": st.session_state.get("tool_providers", ""),
-            }
-
         # Generate the prompt using the create_prompt function
         threat_model_prompt = create_threat_model_prompt(
             app_type,
@@ -1539,8 +1407,6 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             internet_facing,
             sensitive_data,
             app_input,
-            genai_context=genai_context,
-            agentic_context=agentic_context,
         )
 
         # Clear thinking content when switching models or starting a new operation
@@ -1691,27 +1557,6 @@ vulnerabilities and prioritising mitigation efforts.
         if attack_tree_submit_button and st.session_state.get("app_input"):
             app_input = st.session_state.get("app_input")
 
-            # Build GenAI context if applicable
-            genai_context = None
-            if st.session_state.get("app_type") in ["Generative AI application", "Agentic AI application"]:
-                genai_context = {
-                    "model_type": st.session_state.get("llm_model_type", ""),
-                    "features": st.session_state.get("llm_features", []),
-                    "data_sources": st.session_state.get("data_sources", []),
-                    "output_handling": st.session_state.get("output_handling", []),
-                }
-
-            # Build agentic context if applicable
-            agentic_context = None
-            if st.session_state.get("app_type") == "Agentic AI application":
-                agentic_context = {
-                    "capabilities": st.session_state.get("agent_capabilities", []),
-                    "human_oversight": st.session_state.get("human_oversight_level", ""),
-                    "autonomous_scope": st.session_state.get("autonomous_action_scope", []),
-                    "credential_access": st.session_state.get("credential_access", []),
-                    "tool_providers": st.session_state.get("tool_providers", ""),
-                }
-
             # Generate the prompt using the create_attack_tree_prompt function
             attack_tree_prompt = create_attack_tree_prompt(
                 app_type,
@@ -1719,8 +1564,6 @@ vulnerabilities and prioritising mitigation efforts.
                 internet_facing,
                 sensitive_data,
                 app_input,
-                genai_context=genai_context,
-                agentic_context=agentic_context,
             )
 
             # Clear thinking content when switching models or starting a new operation

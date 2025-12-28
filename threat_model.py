@@ -65,26 +65,12 @@ def json_to_markdown(threat_model, improvement_suggestions):
     return markdown_output
 
 
-def create_llm_stride_prompt_section(genai_context):
+def create_llm_stride_prompt_section():
     """
     Creates the LLM-specific section of the threat model prompt.
     Maps OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10) to STRIDE categories.
     """
-    if not genai_context:
-        return ""
-
-    model_type = genai_context.get("model_type", "") or "Not specified"
-    features = ", ".join(genai_context.get("features", [])) or "Not specified"
-    data_sources = ", ".join(genai_context.get("data_sources", [])) or "Not specified"
-    output_handling = ", ".join(genai_context.get("output_handling", [])) or "Not specified"
-
-    return f"""
-GENERATIVE AI / LLM CONTEXT:
-- LLM Model Type: {model_type}
-- LLM Features Used: {features}
-- Data Sources for Context: {data_sources}
-- Output Handling: {output_handling}
-
+    return """
 LLM-SPECIFIC THREAT CATEGORIES (OWASP Top 10 for LLM Applications 2025):
 You MUST analyze threats from both traditional STRIDE categories AND the following LLM-specific threat categories. Map each LLM threat to its corresponding STRIDE category and include the OWASP_LLM code:
 
@@ -132,35 +118,16 @@ CRITICAL LLM RISKS TO EVALUATE:
 8. LLM08 - Vector and Embedding Weaknesses: Are embeddings and RAG systems protected from manipulation and leakage?
 9. LLM09 - Misinformation: Could LLM hallucinations or false outputs cause harm if trusted?
 10. LLM10 - Unbounded Consumption: Are there limits on resource consumption to prevent DoS and cost overruns?
-
-IMPORTANT - CONFLICT RESOLUTION:
-If the GENERATIVE AI / LLM CONTEXT above conflicts with details in the APPLICATION DESCRIPTION below, treat the APPLICATION DESCRIPTION as the authoritative source of truth. Note any significant discrepancies in your improvement_suggestions.
 """
 
 
-def create_agentic_stride_prompt_section(agentic_context):
+def create_agentic_stride_prompt_section():
     """
     Creates the agentic-specific section of the threat model prompt.
     Maps OWASP ASI01-ASI10 to STRIDE categories and incorporates
     architectural layer analysis for comprehensive threat coverage.
     """
-    if not agentic_context:
-        return ""
-
-    capabilities = ", ".join(agentic_context.get("capabilities", [])) or "Not specified"
-    human_oversight = agentic_context.get("human_oversight", "") or "Not specified"
-    autonomous_scope = ", ".join(agentic_context.get("autonomous_scope", [])) or "Not specified"
-    credential_access = ", ".join(agentic_context.get("credential_access", [])) or "Not specified"
-    tool_providers = agentic_context.get("tool_providers", "") or "Not specified"
-
-    return f"""
-AGENTIC AI CONTEXT:
-- Agent Capabilities: {capabilities}
-- Human Oversight Level: {human_oversight}
-- Autonomous Action Scope: {autonomous_scope}
-- Credential Access: {credential_access}
-- External Tool Providers: {tool_providers}
-
+    return """
 ARCHITECTURAL PATTERN DETECTION:
 Before generating threats, analyze the application description to detect which architectural patterns are present. For each pattern detected, you MUST include threats specific to that pattern:
 
@@ -262,9 +229,6 @@ CRITICAL AGENTIC RISKS TO EVALUATE:
 8. ASI08 - Cascading Failures: How do errors propagate through agent chains? Are there circuit breakers?
 9. ASI09 - Human-Agent Trust: Can the agent exploit user over-trust to perform harmful actions without scrutiny?
 10. ASI10 - Rogue Agents: Can the agent persist beyond its intended lifecycle, impersonate users, or resist shutdown?
-
-IMPORTANT - CONFLICT RESOLUTION:
-If the AGENTIC AI CONTEXT above conflicts with details in the APPLICATION DESCRIPTION below, treat the APPLICATION DESCRIPTION as the authoritative source of truth. Note any significant discrepancies in your improvement_suggestions to help the user align their inputs.
 """
 
 
@@ -275,13 +239,11 @@ def create_threat_model_prompt(
     internet_facing,
     sensitive_data,
     app_input,
-    genai_context=None,
-    agentic_context=None,
 ):
-    is_genai = app_type == "Generative AI application" and genai_context
-    is_agentic = app_type == "Agentic AI application" and agentic_context
+    is_genai = app_type == "Generative AI application"
+    is_agentic = app_type == "Agentic AI application"
     # Agentic apps also get LLM risks
-    include_llm_risks = is_genai or (is_agentic and genai_context)
+    include_llm_risks = is_genai or is_agentic
 
     # Base prompt
     prompt = """Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology to produce comprehensive threat models for a wide range of applications. Your task is to analyze the provided code summary, README content, and application description to produce a list of specific threats for the application.
@@ -357,13 +319,13 @@ INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
 """
 
-    # Add LLM context if applicable (for GenAI and Agentic apps)
+    # Add LLM threat categories if applicable (for GenAI and Agentic apps)
     if include_llm_risks:
-        prompt += create_llm_stride_prompt_section(genai_context)
+        prompt += create_llm_stride_prompt_section()
 
-    # Add agentic context if applicable
+    # Add agentic threat categories if applicable
     if is_agentic:
-        prompt += create_agentic_stride_prompt_section(agentic_context)
+        prompt += create_agentic_stride_prompt_section()
 
     prompt += f"""
 CODE SUMMARY, README CONTENT, AND APPLICATION DESCRIPTION:

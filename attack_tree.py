@@ -14,7 +14,7 @@ from utils import create_reasoning_system_prompt, extract_mermaid_code, process_
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(
-    app_type, authentication, internet_facing, sensitive_data, app_input, genai_context=None, agentic_context=None
+    app_type, authentication, internet_facing, sensitive_data, app_input
 ):
     prompt = f"""APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
@@ -24,19 +24,8 @@ APPLICATION DESCRIPTION: {app_input}
 """
 
     # Add GenAI attack vectors for both Generative AI and Agentic AI applications
-    if app_type in ["Generative AI application", "Agentic AI application"] and genai_context:
-        model_type = genai_context.get("model_type", "") or "Not specified"
-        features = ", ".join(genai_context.get("features", [])) or "Not specified"
-        data_sources = ", ".join(genai_context.get("data_sources", [])) or "Not specified"
-        output_handling = ", ".join(genai_context.get("output_handling", [])) or "Not specified"
-
-        prompt += f"""
-GENERATIVE AI CONTEXT:
-- LLM Model Type: {model_type}
-- GenAI Features: {features}
-- Data Sources: {data_sources}
-- Output Handling: {output_handling}
-
+    if app_type in ["Generative AI application", "Agentic AI application"]:
+        prompt += """
 LLM ATTACK VECTORS TO MODEL:
 When generating the attack tree for this LLM/generative AI application, include attack paths for the following vectors:
 
@@ -71,21 +60,8 @@ When generating the attack tree for this LLM/generative AI application, include 
    - Alternative: Recursive prompt loops -> Model generates self-referencing content -> Infinite token consumption
 """
 
-    if app_type == "Agentic AI application" and agentic_context:
-        capabilities = ", ".join(agentic_context.get("capabilities", [])) or "Not specified"
-        human_oversight = agentic_context.get("human_oversight", "") or "Not specified"
-        autonomous_scope = ", ".join(agentic_context.get("autonomous_scope", [])) or "Not specified"
-        credential_access = ", ".join(agentic_context.get("credential_access", [])) or "Not specified"
-        tool_providers = agentic_context.get("tool_providers", "") or "Not specified"
-
-        prompt += f"""
-AGENTIC AI CONTEXT:
-- Agent Capabilities: {capabilities}
-- Human Oversight Level: {human_oversight}
-- Autonomous Action Scope: {autonomous_scope}
-- Credential Access: {credential_access}
-- External Tool Providers: {tool_providers}
-
+    if app_type == "Agentic AI application":
+        prompt += """
 ARCHITECTURAL PATTERN DETECTION FOR ATTACK TREES:
 Analyze the application description to detect architectural patterns. For each pattern detected, include specific attack paths:
 
