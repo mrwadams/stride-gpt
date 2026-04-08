@@ -1,7 +1,9 @@
 anthropic
 google-genai
+litellm>=1.40
 mistralai>=1.0.0
 openai
+pydantic>=2.0
 pyGithub
 streamlit>=1.40
 python-dotenv

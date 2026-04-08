@@ -1,16 +1,7 @@
-import base64
-import json
-import re
-
-import requests
 import streamlit as st
-from anthropic import Anthropic
-from google import genai as google_genai
-from groq import Groq
-from mistralai import Mistral
-from openai import OpenAI
 
-from utils import create_reasoning_system_prompt, process_groq_response
+from stride_gpt.core.schemas import LLMConfig
+from stride_gpt.core.threat_model import analyze_image, generate_threat_model
 
 
 # Function to convert JSON to Markdown for display.
@@ -452,473 +443,94 @@ def create_image_analysis_prompt():
 
 # Function to get analyse uploaded architecture diagrams.
 def get_image_analysis(api_key, model_name, prompt, base64_image):
-    client = OpenAI(api_key=api_key)
-
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                },
-            ],
-        }
-    ]
-
-    # If using GPT-5 series models, use the structured system prompt approach
-    if model_name in ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"]:
-        system_prompt = create_reasoning_system_prompt(
-            task_description="Analyze the provided architecture diagram and explain it to a Security Architect.",
-            approach_description="""1. Carefully examine the diagram
-2. Identify all components and their relationships
-3. Note any technologies, protocols, or security measures shown
-4. Create a clear, structured explanation with these sections:
-   - Overall Architecture: Brief overview of the system
-   - Key Components: List and explain each major component
-   - Data Flow: How information moves through the system
-   - Technologies Used: Identify technologies, frameworks, or platforms
-   - Security Considerations: Note any visible security measures""",
-        )
-        # Insert system message at the beginning
-        messages.insert(0, {"role": "system", "content": system_prompt})
-
-        # Create completion with max_completion_tokens for reasoning models
-        try:
-            max_tokens = 20000 if model_name.startswith("gpt-5") else 8192
-            response = client.chat.completions.create(
-                model=model_name, messages=messages, max_completion_tokens=max_tokens
-            )
-            return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
-        except Exception:
-            return None
-    else:
-        # For standard models (gpt-4.1, etc.)
-        try:
-            response = client.chat.completions.create(
-                model=model_name, messages=messages, max_tokens=8192
-            )
-            return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
-        except Exception:
-            return None
+    config = LLMConfig(provider="OpenAI API", model_name=model_name, api_key=api_key)
+    response = analyze_image(config, base64_image)
+    return {"choices": [{"message": {"content": response.content}}]}
 
 
 # Function to get image analysis using Google Gemini models
 def get_image_analysis_google(api_key, model_name, prompt, base64_image):
-    client = google_genai.Client(api_key=api_key)
-    from google.genai import types as google_types
-
-    blob = google_types.Blob(data=base64.b64decode(base64_image), mime_type="image/jpeg")
-    content = [
-        google_types.Content(
-            role="user",
-            parts=[
-                google_types.Part(text=prompt),
-                google_types.Part(inlineData=blob),
-            ],
-        )
-    ]
-
-    config = google_types.GenerateContentConfig()
-    response = client.models.generate_content(model=model_name, contents=content, config=config)
-
-    return {"choices": [{"message": {"content": response.text}}]}
+    config = LLMConfig(provider="Google AI API", model_name=model_name, api_key=api_key)
+    response = analyze_image(config, base64_image)
+    return {"choices": [{"message": {"content": response.content}}]}
 
 
 # Function to get image analysis using Anthropic Claude models
 def get_image_analysis_anthropic(
     api_key, model_name, prompt, base64_image, media_type="image/jpeg"
 ):
-    client = Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model=model_name,
-        max_tokens=4000,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64_image,
-                        },
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
-    )
-
-    text = "".join(block.text for block in response.content if getattr(block, "text", None))
-    return {"choices": [{"message": {"content": text}}]}
+    config = LLMConfig(provider="Anthropic API", model_name=model_name, api_key=api_key)
+    response = analyze_image(config, base64_image, media_type=media_type)
+    return {"choices": [{"message": {"content": response.content}}]}
 
 
 # Function to get threat model from the GPT response.
 def get_threat_model(api_key, model_name, prompt):
-    client = OpenAI(api_key=api_key)
-
-    # For GPT-5 series models, use a structured system prompt
-    if model_name in ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"]:
-        system_prompt = create_reasoning_system_prompt(
-            task_description="Analyze the provided application description and generate a comprehensive threat model using the STRIDE methodology.",
-            approach_description="""1. Carefully read and understand the application description
-2. For each component and data flow:
-   - Identify potential Spoofing threats
-   - Identify potential Tampering threats
-   - Identify potential Repudiation threats
-   - Identify potential Information Disclosure threats
-   - Identify potential Denial of Service threats
-   - Identify potential Elevation of Privilege threats
-3. For each identified threat:
-   - Describe the specific scenario
-   - Analyze the potential impact
-4. Generate improvement suggestions based on identified threats
-5. Format the output as a JSON object with 'threat_model' and 'improvement_suggestions' arrays""",
-        )
-        # Create completion with max_completion_tokens for reasoning models
-        # GPT-5 models need more tokens for reasoning + output
-        max_tokens = 20000 if model_name.startswith("gpt-5") else 8192
-        response = client.chat.completions.create(
-            model=model_name,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            max_completion_tokens=max_tokens,
-        )
-    else:
-        system_prompt = "You are a helpful assistant designed to output JSON."
-        # Create completion with max_tokens for other models
-        response = client.chat.completions.create(
-            model=model_name,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=8192,
-        )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    content = response.choices[0].message.content
-
-    if not content:
-        raise ValueError(
-            f"Empty response from model {model_name}. This may indicate the model is not available or has rate limits."
-        )
-
-    return json.loads(content)
+    config = LLMConfig(provider="OpenAI API", model_name=model_name, api_key=api_key)
+    result, _response = generate_threat_model(config, prompt)
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 
 
 # Function to get threat model from the Google response.
 def get_threat_model_google(google_api_key, google_model, prompt):
-    # Create a client with the Google API key
-    client = google_genai.Client(api_key=google_api_key)
-
-    # Set up safety settings to allow security content
-    safety_settings = [
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-    ]
-
-    # Check if we're using a Gemini 2.5+ model (which supports thinking capabilities)
-    is_gemini_thinking = "gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()
-
-    try:
-        from google.genai import types as google_types
-
-        if is_gemini_thinking:
-            config = google_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                safety_settings=safety_settings,
-                thinking_config=google_types.ThinkingConfig(thinking_budget=1024),
-            )
-        else:
-            config = google_types.GenerateContentConfig(
-                response_mime_type="application/json", safety_settings=safety_settings
-            )
-
-        # Generate content using the configured settings
-        response = client.models.generate_content(
-            model=google_model, contents=prompt, config=config
-        )
-
-        # Extract text and thinking content from response parts
-        text_content = []
-        thinking_content = []
-        for candidate in getattr(response, "candidates", []):
-            content = getattr(candidate, "content", None)
-            if content and hasattr(content, "parts"):
-                for part in content.parts:
-                    if hasattr(part, "thought") and part.thought:
-                        thinking_content.append(str(part.thought))
-                    elif hasattr(part, "text") and part.text:
-                        text_content.append(part.text)
-        if thinking_content:
-            joined_thinking = "\n\n".join(thinking_content)
-            st.session_state["last_thinking_content"] = joined_thinking
-
-        response_text = "".join(text_content)
-
-    except Exception as e:
-        st.error(f"Error generating content with Google AI: {e!s}")
-        return None
-
-    try:
-        # Parse the response text as JSON
-        response_content = json.loads(response_text)
-    except json.JSONDecodeError:
-        st.error("Failed to parse JSON response from Google AI")
-        return None
-
-    return response_content
+    config = LLMConfig(provider="Google AI API", model_name=google_model, api_key=google_api_key)
+    result, response = generate_threat_model(config, prompt)
+    if response.thinking:
+        st.session_state["last_thinking_content"] = response.thinking
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 
 
 # Function to get threat model from the Mistral response.
 def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
-    client = Mistral(api_key=mistral_api_key)
-
-    response = client.chat.complete(
-        model=mistral_model,
-        response_format={"type": "json_object"},
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    return json.loads(response.choices[0].message.content)
+    config = LLMConfig(provider="Mistral API", model_name=mistral_model, api_key=mistral_api_key)
+    result, _response = generate_threat_model(config, prompt)
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 
 
 # Function to get threat model from Ollama hosted LLM.
 def get_threat_model_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
-    """
-    Get threat model from Ollama hosted LLM.
-
-    Args:
-        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
-        ollama_model (str): The name of the model to use
-        ollama_timeout (int): Timeout for the request in seconds
-        prompt (str): The prompt to send to the model
-
-    Returns:
-        dict: The parsed JSON response from the model
-
-    Raises:
-        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
-        json.JSONDecodeError: If the response cannot be parsed as JSON
-    """
-    if not ollama_endpoint.endswith("/"):
-        ollama_endpoint = ollama_endpoint + "/"
-
-    url = ollama_endpoint + "api/generate"
-
-    system_prompt = "You are a helpful assistant designed to output JSON."
-    full_prompt = f"{system_prompt}\n\n{prompt}"
-
-    data = {"model": ollama_model, "prompt": full_prompt, "stream": False, "format": "json"}
-
-    try:
-        response = requests.post(url, json=data, timeout=ollama_timeout)  # Add timeout
-        response.raise_for_status()  # Raise exception for bad status codes
-        outer_json = response.json()
-
-        try:
-            # Parse the JSON response from the model's response field
-            return json.loads(outer_json["response"])
-        except (json.JSONDecodeError, KeyError):
-            raise
-
-    except requests.exceptions.RequestException:
-        raise
+    config = LLMConfig(
+        provider="Ollama",
+        model_name=ollama_model,
+        api_key="",
+        api_base=ollama_endpoint,
+        timeout=ollama_timeout,
+    )
+    result, _response = generate_threat_model(config, prompt)
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 
 
 # Function to get threat model from the Claude response.
 def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
-    client = Anthropic(api_key=anthropic_api_key)
-
-    # Check if we're using extended thinking mode (from checkbox in UI)
-    is_thinking_mode = st.session_state.get("use_thinking", False)
-
-    # Use the selected model
-    actual_model = anthropic_model
-
-    try:
-        # Configure the request based on whether thinking mode is enabled
-        if is_thinking_mode:
-            response = client.messages.create(
-                model=actual_model,
-                max_tokens=48000,
-                thinking={"type": "enabled", "budget_tokens": 16000},
-                system="You are a JSON-generating assistant. You must ONLY output valid, parseable JSON with no additional text or formatting.",
-                messages=[{"role": "user", "content": prompt}],
-                timeout=600,  # 10-minute timeout
-            )
-        else:
-            # Standard handling for Claude models
-            response = client.messages.create(
-                model=actual_model,
-                max_tokens=32768,
-                system="You are a helpful assistant designed to output JSON. Your response must be a valid, parseable JSON object with no additional text, markdown formatting, or explanation. Do not include ```json code blocks or any other formatting - just return the raw JSON object.",
-                messages=[{"role": "user", "content": prompt}],
-                timeout=300,  # 5-minute timeout
-            )
-
-        # Combine all text blocks into a single string
-        if is_thinking_mode:
-            # For thinking mode, we need to extract only the text content blocks
-            full_content = "".join(block.text for block in response.content if block.type == "text")
-
-            # Store thinking content in session state for debugging/transparency (optional)
-            thinking_content = "".join(
-                block.thinking for block in response.content if block.type == "thinking"
-            )
-            if thinking_content:
-                st.session_state["last_thinking_content"] = thinking_content
-        else:
-            # Standard handling for regular responses
-            full_content = "".join(block.text for block in response.content)
-
-        # Parse the JSON response
-        try:
-            # Strip markdown code blocks if present
-            if "```json" in full_content:
-                full_content = re.sub(r"```json\s*", "", full_content)
-                full_content = re.sub(r"```\s*$", "", full_content)
-            elif "```" in full_content:
-                full_content = re.sub(r"```\s*", "", full_content)
-
-            # Fix common JSON formatting issues (trailing commas, comments)
-            full_content = full_content.replace(",\n  ]", "\n  ]").replace(",\n]", "\n]")
-            full_content = re.sub(r"//.*?\n", "\n", full_content)
-
-            # Strip any leading/trailing whitespace
-            full_content = full_content.strip()
-
-            return json.loads(full_content)
-        except json.JSONDecodeError:
-            # Create a fallback response
-            return {
-                "threat_model": [
-                    {
-                        "Threat Type": "Error",
-                        "Scenario": "Failed to parse Claude response",
-                        "Potential Impact": "Unable to generate threat model",
-                    }
-                ],
-                "improvement_suggestions": [
-                    "Try again - sometimes the model returns a properly formatted response on subsequent attempts",
-                    "Check the logs for detailed error information",
-                ],
-            }
-
-    except Exception as e:
-        # Handle timeout and other errors
-        error_message = str(e)
-        st.error(f"Error with Anthropic API: {error_message}")
-
-        # Create a fallback response for timeout or other errors
-        return {
-            "threat_model": [
-                {
-                    "Threat Type": "Error",
-                    "Scenario": f"API Error: {error_message}",
-                    "Potential Impact": "Unable to generate threat model",
-                }
-            ],
-            "improvement_suggestions": [
-                "For complex applications, try simplifying the input or breaking it into smaller components",
-                "If you're using extended thinking mode and encountering timeouts, try the standard model instead",
-                "Consider reducing the complexity of the application description",
-            ],
-        }
+    config = LLMConfig(
+        provider="Anthropic API",
+        model_name=anthropic_model,
+        api_key=anthropic_api_key,
+        use_thinking=st.session_state.get("use_thinking", False),
+    )
+    result, response = generate_threat_model(config, prompt)
+    if response.thinking:
+        st.session_state["last_thinking_content"] = response.thinking
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 
 
 # Function to get threat model from LM Studio Server response.
 def get_threat_model_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="not-needed"):
-    client = OpenAI(
-        base_url=f"{lm_studio_endpoint}/v1",
-        api_key=api_key,  # Use provided API key or default to "not-needed"
+    config = LLMConfig(
+        provider="LM Studio Server",
+        model_name=model_name,
+        api_key=api_key,
+        api_base=lm_studio_endpoint,
     )
-
-    # Define the expected response structure
-    threat_model_schema = {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "threat_model_response",
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "threat_model": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "Threat Type": {"type": "string"},
-                                "Scenario": {"type": "string"},
-                                "Potential Impact": {"type": "string"},
-                            },
-                            "required": ["Threat Type", "Scenario", "Potential Impact"],
-                        },
-                    },
-                    "improvement_suggestions": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["threat_model", "improvement_suggestions"],
-            },
-        },
-    }
-
-    response = client.chat.completions.create(
-        model=model_name,
-        response_format=threat_model_schema,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=4000,
-    )
-
-    # Convert the JSON string in the 'content' field to a Python dictionary
-    return json.loads(response.choices[0].message.content)
+    result, _response = generate_threat_model(config, prompt)
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 
 
 # Function to get threat model from the Groq response.
 def get_threat_model_groq(groq_api_key, groq_model, prompt):
-    client = Groq(api_key=groq_api_key)
-
-    response = client.chat.completions.create(
-        model=groq_model,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Process the response using our utility function
-    reasoning, response_content = process_groq_response(
-        response.choices[0].message.content, groq_model, expect_json=True
-    )
-
-    # If we got reasoning, display it in an expander in the UI
-    if reasoning:
+    config = LLMConfig(provider="Groq API", model_name=groq_model, api_key=groq_api_key)
+    result, response = generate_threat_model(config, prompt)
+    if response.reasoning:
         with st.expander("View model's reasoning process", expanded=False):
-            st.write(reasoning)
-
-    return response_content
+            st.write(response.reasoning)
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}

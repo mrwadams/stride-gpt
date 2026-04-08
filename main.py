@@ -74,6 +74,178 @@ from threat_model import (
 
 # ------------------ Helper Functions ------------------ #
 
+GUIDED_DESCRIPTION_FIELDS = [
+    {
+        "key": "guided_purpose",
+        "label": "1) What does this application do and what are the core user actions?",
+        "placeholder": "Example: Customers upload invoices, approvers review them, finance exports payments.",
+    },
+    {
+        "key": "guided_users",
+        "label": "2) Who are the primary users and what access levels do they have?",
+        "placeholder": "Example: End users, support admins, finance admins, service accounts.",
+    },
+    {
+        "key": "guided_components",
+        "label": "3) What are the key components and technologies?",
+        "placeholder": "Example: React frontend, FastAPI backend, PostgreSQL, Redis, S3.",
+    },
+    {
+        "key": "guided_data",
+        "label": "4) What sensitive data is processed or stored?",
+        "placeholder": "Example: PII, payment details, API tokens, uploaded files.",
+    },
+    {
+        "key": "guided_flows",
+        "label": "5) How does data flow through the system?",
+        "placeholder": "Example: Browser -> API -> queue -> worker -> database -> analytics system.",
+    },
+    {
+        "key": "guided_integrations",
+        "label": "6) Which external systems or third-party services are integrated?",
+        "placeholder": "Example: Okta, Stripe, GitHub, Slack, cloud object storage.",
+    },
+    {
+        "key": "guided_auth",
+        "label": "7) How are authentication and authorization handled?",
+        "placeholder": "Example: SSO with MFA, RBAC roles, scoped API tokens.",
+    },
+    {
+        "key": "guided_trust_boundaries",
+        "label": "8) What trust boundaries or internet-facing entry points exist?",
+        "placeholder": "Example: Public API gateway, admin portal, private VPC services.",
+    },
+    {
+        "key": "guided_deployment",
+        "label": "9) Where is the application deployed and operated?",
+        "placeholder": "Example: AWS ECS in two regions, managed PostgreSQL, private subnets.",
+    },
+    {
+        "key": "guided_controls",
+        "label": "10) What security controls already exist?",
+        "placeholder": "Example: WAF, rate limits, encryption, audit logging, secrets manager.",
+    },
+]
+
+GUIDED_REQUIRED_FIELD_KEYS = [
+    "guided_purpose",
+    "guided_components",
+    "guided_data",
+    "guided_flows",
+    "guided_auth",
+    "guided_trust_boundaries",
+]
+
+
+def build_guided_description_draft():
+    """Build a structured application description from guided inputs."""
+
+    def clean(value):
+        stripped = value.strip()
+        return stripped if stripped else "Not provided yet."
+
+    lines = [
+        "Guided Application Description Draft",
+        "",
+        f"Application Type: {st.session_state.get('app_type', 'Web application')}",
+        "",
+        "Application Overview",
+        f"- Purpose and core user actions: {clean(st.session_state.get('guided_purpose', ''))}",
+        f"- User types and access levels: {clean(st.session_state.get('guided_users', ''))}",
+        "",
+        "Architecture and Data Flows",
+        f"- Key components and technologies: {clean(st.session_state.get('guided_components', ''))}",
+        f"- Sensitive data handled: {clean(st.session_state.get('guided_data', ''))}",
+        f"- Data flow summary: {clean(st.session_state.get('guided_flows', ''))}",
+        "",
+        "Security Context",
+        f"- Authentication and authorization approach: {clean(st.session_state.get('guided_auth', ''))}",
+        f"- Trust boundaries and exposed entry points: {clean(st.session_state.get('guided_trust_boundaries', ''))}",
+        f"- Deployment model: {clean(st.session_state.get('guided_deployment', ''))}",
+        f"- Existing security controls: {clean(st.session_state.get('guided_controls', ''))}",
+        f"- External integrations: {clean(st.session_state.get('guided_integrations', ''))}",
+    ]
+    return "\n".join(lines)
+
+
+def clear_guided_description_answers():
+    """Reset all guided description answers."""
+    for field in GUIDED_DESCRIPTION_FIELDS:
+        st.session_state[field["key"]] = ""
+    st.session_state.pop("guided_description_draft", None)
+
+
+def render_guided_description_builder():
+    """Render helper UI to guide users toward high-quality app descriptions."""
+    with st.expander("Need help writing your app description?", expanded=False):
+        st.caption(
+            "Answer these prompts to generate a structured draft you can insert into the main description field."
+        )
+
+        for field in GUIDED_DESCRIPTION_FIELDS:
+            st.text_area(
+                label=field["label"],
+                value=st.session_state.get(field["key"], ""),
+                key=field["key"],
+                placeholder=field["placeholder"],
+                height=80,
+            )
+
+        completed_sections = sum(
+            1
+            for key in GUIDED_REQUIRED_FIELD_KEYS
+            if st.session_state.get(key, "").strip()
+        )
+        completion_ratio = completed_sections / len(GUIDED_REQUIRED_FIELD_KEYS)
+        st.progress(completion_ratio)
+        st.caption(
+            f"Guided coverage: {completed_sections}/{len(GUIDED_REQUIRED_FIELD_KEYS)} core sections completed."
+        )
+
+        missing_sections = [
+            field["label"].split(") ", 1)[1]
+            for field in GUIDED_DESCRIPTION_FIELDS
+            if field["key"] in GUIDED_REQUIRED_FIELD_KEYS
+            and not st.session_state.get(field["key"], "").strip()
+        ]
+        if missing_sections:
+            st.info("To improve quality, add details for: " + ", ".join(missing_sections))
+
+        insert_mode = st.radio(
+            "How should the draft be applied to the description?",
+            options=["Replace current description", "Append to current description"],
+            key="guided_insert_mode",
+            horizontal=True,
+        )
+
+        action_col1, action_col2, action_col3 = st.columns([1, 1, 1])
+        with action_col1:
+            if st.button("Generate Guided Draft"):
+                st.session_state["guided_description_draft"] = build_guided_description_draft()
+        with action_col2:
+            if st.button("Apply Guided Draft"):
+                draft = st.session_state.get("guided_description_draft", "").strip()
+                if not draft:
+                    draft = build_guided_description_draft()
+                    st.session_state["guided_description_draft"] = draft
+
+                existing_description = st.session_state.get("app_input", "").strip()
+                if insert_mode == "Replace current description" or not existing_description:
+                    st.session_state["app_input"] = draft
+                    st.session_state["_sync_app_desc"] = True
+                elif draft not in existing_description:
+                    st.session_state["app_input"] = existing_description + "\n\n" + draft
+                    st.session_state["_sync_app_desc"] = True
+        with action_col3:
+            st.button(
+                "Clear Guided Answers",
+                on_click=clear_guided_description_answers,
+            )
+
+        if st.session_state.get("guided_description_draft"):
+            st.markdown("##### Guided Draft Preview")
+            st.code(st.session_state["guided_description_draft"], language="markdown")
+
 
 # Function to get available models from LM Studio Server
 def get_lm_studio_models(endpoint, api_key="not-needed"):
@@ -191,10 +363,19 @@ def get_input():
                 st.session_state["app_input"] = (
                     system_description + "\n\n" + st.session_state.get("app_input", "")
                 )
+                st.session_state["_sync_app_desc"] = True
+
+    render_guided_description_builder()
+
+    # Sync app_input → app_desc only on explicit external updates (GitHub, image, guided draft).
+    # Never overwrite the widget key based on stale app_input — that clears user text.
+    if st.session_state.pop("_sync_app_desc", False):
+        st.session_state["app_desc"] = st.session_state.get("app_input", "")
+    elif "app_desc" not in st.session_state:
+        st.session_state["app_desc"] = st.session_state.get("app_input", "")
 
     input_text = st.text_area(
         label="Describe the application to be modelled",
-        value=st.session_state.get("app_input", ""),
         placeholder="Enter your application details...",
         height=300,
         key="app_desc",
@@ -1235,6 +1416,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         ]
                         st.session_state.image_analysis_content = image_analysis_content
                         st.session_state["app_input"] = image_analysis_content
+                        st.session_state["_sync_app_desc"] = True
                     else:
                         st.error(
                             "Failed to analyze the image. Please check the API key and try again."

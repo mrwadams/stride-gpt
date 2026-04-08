@@ -1,15 +1,10 @@
 import json
 import re
 
-import requests
 import streamlit as st
-from anthropic import Anthropic
-from google import genai as google_genai
-from groq import Groq
-from mistralai import Mistral
-from openai import OpenAI
 
-from utils import create_reasoning_system_prompt, extract_mermaid_code, process_groq_response
+from stride_gpt.core.attack_tree import generate_attack_tree
+from stride_gpt.core.schemas import LLMConfig
 
 
 # Function to create a prompt to generate an attack tree
@@ -311,295 +306,6 @@ def clean_json_response(response_text):
     return response_text.strip()
 
 
-# Function to get attack tree from the GPT response.
-def get_attack_tree(api_key, model_name, prompt):
-    client = OpenAI(api_key=api_key)
-
-    # For GPT-5 series models that support JSON output format
-    if model_name in ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"]:
-        system_prompt = create_reasoning_system_prompt(
-            task_description="Create a structured attack tree by analyzing potential attack paths.",
-            approach_description="""Analyze the application and create an attack tree showing potential attack paths.
-
-Rules:
-- Use simple alphanumeric IDs (A1, A2, B1, etc.)
-- Make labels clear and descriptive
-- Include all attack paths and sub-paths
-- Maintain proper parent-child relationships
-- Ensure proper JSON structure
-
-Example format:
-{
-    "nodes": [
-        {
-            "id": "A1",
-            "label": "Compromise Application",
-            "children": [
-                {
-                    "id": "B1",
-                    "label": "Exploit Authentication Vulnerabilities",
-                    "children": [
-                        {
-                            "id": "C1",
-                            "label": "Brute Force Credentials",
-                            "children": []
-                        }
-                    ]
-                }
-            ]
-        }
-    ]
-}
-
-ONLY RESPOND WITH THE JSON STRUCTURE, NO ADDITIONAL TEXT.""",
-        )
-
-        response = client.chat.completions.create(
-            model=model_name,
-            response_format=create_attack_tree_schema(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            max_completion_tokens=20000 if model_name.startswith("gpt-5") else 8192,
-        )
-    else:
-        # For other models, try to get JSON output without format parameter
-        system_prompt = create_json_structure_prompt()
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=8192,
-        )
-
-    # Try to parse JSON response
-    try:
-        # Clean the response text first
-        cleaned_response = clean_json_response(response.choices[0].message.content)
-        tree_data = json.loads(cleaned_response)
-        return convert_tree_to_mermaid(tree_data)
-    except json.JSONDecodeError:
-        # Fallback: try to extract Mermaid code if JSON parsing fails
-        return extract_mermaid_code(response.choices[0].message.content)
-
-
-# Function to get attack tree from the Mistral model's response.
-def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
-    client = Mistral(api_key=mistral_api_key)
-
-    # Try to get JSON output
-    system_prompt = create_json_structure_prompt()
-    response = client.chat.complete(
-        model=mistral_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Try to parse JSON response
-    try:
-        cleaned_response = clean_json_response(response.choices[0].message.content)
-        tree_data = json.loads(cleaned_response)
-        return convert_tree_to_mermaid(tree_data)
-    except json.JSONDecodeError:
-        # Fallback: try to extract Mermaid code if JSON parsing fails
-        return extract_mermaid_code(response.choices[0].message.content)
-
-
-# Function to get attack tree from Ollama hosted LLM.
-def get_attack_tree_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
-    """
-    Get attack tree from Ollama hosted LLM.
-
-    Args:
-        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
-        ollama_model (str): The name of the model to use
-        prompt (str): The prompt to send to the model
-
-    Returns:
-        dict: The parsed JSON response from the model
-
-    Raises:
-        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
-        json.JSONDecodeError: If the response cannot be parsed as JSON
-    """
-    if not ollama_endpoint.endswith("/"):
-        ollama_endpoint = ollama_endpoint + "/"
-
-    url = ollama_endpoint + "api/generate"
-
-    system_prompt = "You are a helpful assistant designed to output JSON."
-    full_prompt = f"{system_prompt}\n\n{prompt}"
-
-    data = {"model": ollama_model, "prompt": full_prompt, "stream": False, "format": "json"}
-
-    try:
-        response = requests.post(url, json=data, timeout=ollama_timeout)  # Add timeout
-        response.raise_for_status()  # Raise exception for bad status codes
-        outer_json = response.json()
-
-        try:
-            # Parse the JSON response from the model's response field
-            return json.loads(outer_json["response"])
-        except (json.JSONDecodeError, KeyError):
-            # Handle error without printing debug info
-            raise
-
-    except requests.exceptions.RequestException:
-        # Handle error without printing debug info
-        raise
-
-
-# Function to get attack tree from Anthropic's Claude model.
-def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
-    client = Anthropic(api_key=anthropic_api_key)
-
-    # Check if we're using extended thinking mode (from checkbox in UI)
-    is_thinking_mode = st.session_state.get("use_thinking", False)
-
-    # Use the selected model
-    actual_model = anthropic_model
-
-    # Try to get JSON output
-    system_prompt = create_json_structure_prompt()
-
-    try:
-        # Configure the request based on whether thinking mode is enabled
-        if is_thinking_mode:
-            response = client.messages.create(
-                model=actual_model,
-                max_tokens=48000,
-                thinking={"type": "enabled", "budget_tokens": 16000},
-                system=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                timeout=600,  # 10-minute timeout
-            )
-        else:
-            response = client.messages.create(
-                model=actual_model,
-                max_tokens=32768,
-                system=system_prompt,
-                messages=[{"role": "user", "content": prompt}],
-                timeout=300,  # 5-minute timeout
-            )
-
-        # Try to parse JSON response
-        try:
-            if is_thinking_mode:
-                # For thinking mode, we need to extract only the text content blocks
-                text_content = "".join(
-                    block.text for block in response.content if block.type == "text"
-                )
-
-                # Store thinking content in session state for debugging/transparency (optional)
-                thinking_content = "".join(
-                    block.thinking for block in response.content if block.type == "thinking"
-                )
-                if thinking_content:
-                    st.session_state["last_thinking_content"] = thinking_content
-
-                cleaned_response = clean_json_response(text_content)
-            else:
-                cleaned_response = clean_json_response(response.content[0].text)
-
-            tree_data = json.loads(cleaned_response)
-            return convert_tree_to_mermaid(tree_data)
-        except (json.JSONDecodeError, IndexError, AttributeError):
-            # Fallback: try to extract Mermaid code if JSON parsing fails
-            if is_thinking_mode:
-                text_content = "".join(
-                    block.text for block in response.content if block.type == "text"
-                )
-                return extract_mermaid_code(text_content)
-            return extract_mermaid_code(response.content[0].text)
-    except Exception as e:
-        # Handle timeout and other errors
-        error_message = str(e)
-        st.error(f"Error with Anthropic API: {error_message}")
-
-        # Create a fallback response for timeout or other errors
-        return """
-graph TD
-    A[Error Generating Attack Tree] --> B[API Error]
-    B --> C["{error_message}"]
-    A --> D[Suggestions]
-    D --> E[Try simplifying the input]
-    D --> F[Try standard model instead of thinking mode]
-    D --> G[Break down complex applications]
-        """.replace(
-            "{error_message}", error_message.replace('"', "'")
-        )
-
-
-# Function to get attack tree from LM Studio Server response.
-def get_attack_tree_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="not-needed"):
-    client = OpenAI(
-        base_url=f"{lm_studio_endpoint}/v1",
-        api_key=api_key,  # Use provided API key or default to "not-needed"
-    )
-
-    # Try to get JSON output
-    system_prompt = create_json_structure_prompt()
-    response = client.chat.completions.create(
-        model=model_name,
-        response_format=create_attack_tree_schema_lm_studio(),  # Use LM Studio specific schema
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Try to parse JSON response
-    try:
-        cleaned_response = clean_json_response(response.choices[0].message.content)
-        tree_data = json.loads(cleaned_response)
-        return convert_tree_to_mermaid(tree_data)
-    except json.JSONDecodeError:
-        # Fallback: try to extract Mermaid code if JSON parsing fails
-        return extract_mermaid_code(response.choices[0].message.content)
-
-
-# Function to get attack tree from the Groq model's response.
-def get_attack_tree_groq(groq_api_key, groq_model, prompt):
-    client = Groq(api_key=groq_api_key)
-
-    # Try to get JSON output
-    system_prompt = create_json_structure_prompt()
-    response = client.chat.completions.create(
-        model=groq_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-
-    # Process the response using our utility function
-    reasoning, content = process_groq_response(
-        response.choices[0].message.content, groq_model, expect_json=True
-    )
-
-    # If we got reasoning, display it in an expander in the UI
-    if reasoning:
-        with st.expander("View model's reasoning process", expanded=False):
-            st.write(reasoning)
-
-    # Try to parse JSON response
-    try:
-        if isinstance(content, dict):  # If already parsed by process_groq_response
-            tree_data = content
-        else:
-            cleaned_response = clean_json_response(content)
-            tree_data = json.loads(cleaned_response)
-        return convert_tree_to_mermaid(tree_data)
-    except (json.JSONDecodeError, TypeError):
-        # Fallback: try to extract Mermaid code if JSON parsing fails
-        return extract_mermaid_code(content)
-
-
 def create_attack_tree_schema():
     """
     Creates a JSON schema for attack tree structure.
@@ -719,61 +425,80 @@ def create_attack_tree_schema_lm_studio():
     }
 
 
+# Function to get attack tree from the GPT response.
+def get_attack_tree(api_key, model_name, prompt):
+    config = LLMConfig(provider="OpenAI API", model_name=model_name, api_key=api_key)
+    mermaid, _response = generate_attack_tree(config, prompt)
+    return mermaid
+
+
+# Function to get attack tree from the Mistral model's response.
+def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
+    config = LLMConfig(provider="Mistral API", model_name=mistral_model, api_key=mistral_api_key)
+    mermaid, _response = generate_attack_tree(config, prompt)
+    return mermaid
+
+
+# Function to get attack tree from Ollama hosted LLM.
+def get_attack_tree_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
+    config = LLMConfig(
+        provider="Ollama",
+        model_name=ollama_model,
+        api_key="",
+        api_base=ollama_endpoint,
+        timeout=ollama_timeout,
+        response_format="json",
+    )
+    mermaid, response = generate_attack_tree(config, prompt)
+    # Ollama originally returned parsed JSON dict; try to parse mermaid back to dict
+    # but if the core already converted to mermaid, try to get raw JSON from response
+    try:
+        cleaned = clean_json_response(response.content)
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, TypeError):
+        return mermaid
+
+
+# Function to get attack tree from Anthropic's Claude model.
+def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
+    config = LLMConfig(
+        provider="Anthropic API",
+        model_name=anthropic_model,
+        api_key=anthropic_api_key,
+        use_thinking=st.session_state.get("use_thinking", False),
+    )
+    mermaid, response = generate_attack_tree(config, prompt)
+    if response.thinking:
+        st.session_state["last_thinking_content"] = response.thinking
+    return mermaid
+
+
+# Function to get attack tree from LM Studio Server response.
+def get_attack_tree_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="not-needed"):
+    config = LLMConfig(
+        provider="LM Studio Server",
+        model_name=model_name,
+        api_key=api_key,
+        api_base=lm_studio_endpoint,
+    )
+    mermaid, _response = generate_attack_tree(config, prompt)
+    return mermaid
+
+
+# Function to get attack tree from the Groq model's response.
+def get_attack_tree_groq(groq_api_key, groq_model, prompt):
+    config = LLMConfig(provider="Groq API", model_name=groq_model, api_key=groq_api_key)
+    mermaid, response = generate_attack_tree(config, prompt)
+    if response.reasoning:
+        with st.expander("View model's reasoning process", expanded=False):
+            st.write(response.reasoning)
+    return mermaid
+
+
 # Function to get attack tree from the Google model's response.
 def get_attack_tree_google(google_api_key, google_model, prompt):
-    """
-    Generate an attack tree using the Gemini API (Google AI) as per official documentation:
-    https://ai.google.dev/gemini-api/docs/text-generation
-    """
-    import json
-
-    import streamlit as st
-
-    client = google_genai.Client(api_key=google_api_key)
-    system_instruction = create_json_structure_prompt()
-
-    try:
-        try:
-            from google.genai import types as google_types
-
-            response = client.models.generate_content(
-                model=google_model,
-                contents=[prompt],
-                config=google_types.GenerateContentConfig(system_instruction=system_instruction),
-            )
-        except Exception:
-            # Fallback: just prepend system instruction to prompt
-            response = client.models.generate_content(
-                model=google_model, contents=[f"{system_instruction}\n\n{prompt}"]
-            )
-    except Exception as e:
-        st.error(f"Error generating attack tree with Google AI: {e!s}")
-        return (
-            'graph TD\n    A[Error Generating Attack Tree] --> B[API Error]\n    B --> C["Error: '
-            + str(e).replace('"', "'")
-            + "]"
-        )
-
-    # Extract text and thinking content from response parts
-    text_content = []
-    thinking_content = []
-    for candidate in getattr(response, "candidates", []):
-        content = getattr(candidate, "content", None)
-        if content and hasattr(content, "parts"):
-            for part in content.parts:
-                if hasattr(part, "thought") and part.thought:
-                    thinking_content.append(str(part.thought))
-                elif hasattr(part, "text") and part.text:
-                    text_content.append(part.text)
-    if thinking_content:
-        joined_thinking = "\n\n".join(thinking_content)
-        st.session_state["last_thinking_content"] = joined_thinking
-
-    response_text = "".join(text_content)
-
-    try:
-        cleaned_response = clean_json_response(response_text)
-        tree_data = json.loads(cleaned_response)
-        return convert_tree_to_mermaid(tree_data)
-    except (json.JSONDecodeError, AttributeError):
-        return extract_mermaid_code(response_text)
+    config = LLMConfig(provider="Google AI API", model_name=google_model, api_key=google_api_key)
+    mermaid, response = generate_attack_tree(config, prompt)
+    if response.thinking:
+        st.session_state["last_thinking_content"] = response.thinking
+    return mermaid
