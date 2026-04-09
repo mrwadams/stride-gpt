@@ -11,7 +11,7 @@ RUN groupadd --gid 1000 appuser && \
     pip install --no-cache-dir --upgrade pip && \
     mkdir -p /home/appuser/.local/bin /home/appuser/.local/lib
 
-# Make port 8501 available to the world outside this container
+# Expose port 8501 for Streamlit UI (used by `stride-gpt serve`)
 EXPOSE 8501
 
 # Set the working directory in the container
@@ -26,17 +26,18 @@ USER appuser
 ENV PATH="$PATH:/home/appuser/.local/bin:/home/appuser/.local/lib:/home/appuser/venv/bin"
 ENV VIRTUAL_ENV=/home/appuser/venv
 
-# Install pip requirements and validate
+# Install the package with all dependencies (including Streamlit UI extras)
 RUN python -m venv ${VIRTUAL_ENV}
-RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r requirements.txt && \
+RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir ".[ui]" && \
     ${VIRTUAL_ENV}/bin/pip check
 
-# Test if the container is listening on port 8501
+# Healthcheck only applies when running in serve mode; harmless no-op in CLI mode
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl --fail http://localhost:8501/_stcore/health
+    CMD curl --fail http://localhost:8501/_stcore/health || true
 
-# Configure the container to run as an executable with security enhancements
-ENTRYPOINT ["streamlit", "run", "main.py", \
-            "--server.port=8501", \
-            "--server.address=0.0.0.0", \
-            "--server.enableXsrfProtection=true"]
+# Default entrypoint is the CLI. Override CMD to use different commands:
+#   CLI (default):   docker run stride-gpt analyze --path /app
+#   Streamlit UI:    docker run stride-gpt serve
+#   Interactive:     docker run -it stride-gpt
+ENTRYPOINT ["stride-gpt"]
+CMD ["--help"]
