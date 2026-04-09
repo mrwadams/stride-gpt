@@ -9,7 +9,7 @@ import litellm
 from google import genai as google_genai
 from google.genai import types as google_types
 
-from stride_gpt.core.schemas import LLMConfig, LLMResponse
+from stride_gpt.core.schemas import LLMConfig, LLMResponse, ToolCallResult
 
 # Suppress LiteLLM's verbose logging
 litellm.suppress_debug_info = True
@@ -33,6 +33,15 @@ def call_llm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
     if config.provider == "Google AI API":
         return _call_google(config, messages)
     return _call_litellm(config, messages)
+
+
+def call_llm_with_tools(
+    config: LLMConfig, messages: list[dict], tools: list[dict]
+) -> LLMResponse:
+    """Call an LLM with tool definitions. Returns response with optional tool_calls."""
+    if config.provider == "Google AI API":
+        return _call_google_with_tools(config, messages, tools)
+    return _call_litellm_with_tools(config, messages, tools)
 
 
 def call_llm_with_image(
@@ -159,6 +168,105 @@ def _call_google_with_image(
     return LLMResponse(content=text, thinking=thinking, model=config.model_name)
 
 
+def _call_google_with_tools(
+    config: LLMConfig, messages: list[dict], tools: list[dict]
+) -> LLMResponse:
+    """Call Google Gemini with tool definitions."""
+    import json as _json
+
+    client = google_genai.Client(api_key=config.api_key)
+    safety = _google_safety_settings()
+
+    system_instruction = None
+    contents: list[google_types.Content] = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_instruction = msg["content"]
+        elif msg["role"] == "user":
+            contents.append(
+                google_types.Content(
+                    role="user", parts=[google_types.Part(text=msg["content"])]
+                )
+            )
+        elif msg["role"] == "assistant":
+            contents.append(
+                google_types.Content(
+                    role="model", parts=[google_types.Part(text=msg["content"])]
+                )
+            )
+        elif msg["role"] == "tool":
+            contents.append(
+                google_types.Content(
+                    role="user",
+                    parts=[
+                        google_types.Part(
+                            function_response=google_types.FunctionResponse(
+                                name=msg.get("name", "tool"),
+                                response={"result": msg["content"]},
+                            )
+                        )
+                    ],
+                )
+            )
+
+    # Convert OpenAI tool format to Google function declarations
+    google_tools = []
+    for tool in tools:
+        func = tool["function"]
+        params = func.get("parameters", {})
+        # Strip unsupported fields for Google
+        clean_params = {
+            k: v for k, v in params.items() if k in ("type", "properties", "required")
+        }
+        google_tools.append(
+            google_types.FunctionDeclaration(
+                name=func["name"],
+                description=func.get("description", ""),
+                parameters=clean_params or None,
+            )
+        )
+
+    config_kwargs: dict = {
+        "safety_settings": safety,
+        "tools": [google_types.Tool(function_declarations=google_tools)],
+    }
+    if system_instruction:
+        config_kwargs["system_instruction"] = system_instruction
+
+    gen_config = google_types.GenerateContentConfig(**config_kwargs)
+    response = client.models.generate_content(
+        model=config.model_name,
+        contents=contents,
+        config=gen_config,
+    )
+
+    # Extract text and tool calls from response
+    text_parts: list[str] = []
+    tool_calls: list[ToolCallResult] = []
+    for candidate in getattr(response, "candidates", []):
+        content = getattr(candidate, "content", None)
+        if content and hasattr(content, "parts"):
+            for part in content.parts:
+                if hasattr(part, "function_call") and part.function_call:
+                    fc = part.function_call
+                    args = dict(fc.args) if fc.args else {}
+                    tool_calls.append(
+                        ToolCallResult(
+                            id=f"google_{fc.name}_{len(tool_calls)}",
+                            function_name=fc.name,
+                            arguments=args,
+                        )
+                    )
+                elif hasattr(part, "text") and part.text:
+                    text_parts.append(part.text)
+
+    return LLMResponse(
+        content="".join(text_parts),
+        model=config.model_name,
+        tool_calls=tool_calls or None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # LiteLLM path (OpenAI, Anthropic, Mistral, Groq, Ollama, LM Studio)
 # ---------------------------------------------------------------------------
@@ -253,6 +361,40 @@ def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
         thinking=thinking,
         reasoning=reasoning,
         model=config.model_name,
+    )
+
+
+def _call_litellm_with_tools(
+    config: LLMConfig, messages: list[dict], tools: list[dict]
+) -> LLMResponse:
+    """Call LLM with tool definitions via LiteLLM."""
+    import json as _json
+
+    kwargs = _build_litellm_kwargs(config)
+    # Don't send JSON response_format when using tools — the model decides the format
+    kwargs.pop("response_format", None)
+    response = litellm.completion(messages=messages, tools=tools, **kwargs)
+
+    message = response.choices[0].message
+    content = message.content or ""
+
+    tool_calls = None
+    if message.tool_calls:
+        tool_calls = [
+            ToolCallResult(
+                id=tc.id,
+                function_name=tc.function.name,
+                arguments=_json.loads(tc.function.arguments)
+                if isinstance(tc.function.arguments, str)
+                else tc.function.arguments,
+            )
+            for tc in message.tool_calls
+        ]
+
+    return LLMResponse(
+        content=content,
+        model=config.model_name,
+        tool_calls=tool_calls,
     )
 
 

@@ -8,6 +8,9 @@ requires-python = ">=3.12"
 dependencies = [
     "litellm>=1.40",
     "pydantic>=2.0",
+    "python-dotenv>=1.0",
+    "typer>=0.15",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]

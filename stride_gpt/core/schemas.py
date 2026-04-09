@@ -22,6 +22,15 @@ class LLMConfig(BaseModel):
 
 
 @dataclass
+class ToolCallResult:
+    """A single tool call extracted from an LLM response."""
+
+    id: str
+    function_name: str
+    arguments: dict[str, Any]
+
+
+@dataclass
 class LLMResponse:
     """Normalized response from any LLM provider."""
 
@@ -29,6 +38,7 @@ class LLMResponse:
     thinking: str | None = None  # Extended thinking (Anthropic/Google)
     reasoning: str | None = None  # <think> tag reasoning (Groq/DeepSeek)
     model: str = ""  # Model that actually responded
+    tool_calls: list[ToolCallResult] | None = None
 
 
 @dataclass
@@ -37,3 +47,43 @@ class ThreatModelOutput:
 
     threat_model: list[dict[str, Any]] = field(default_factory=list)
     improvement_suggestions: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Agent schemas
+# ---------------------------------------------------------------------------
+
+
+class Subsystem(BaseModel):
+    """A subsystem identified for STRIDE analysis."""
+
+    name: str
+    description: str
+    key_files: list[str]
+    focus_areas: list[str]
+
+
+class AnalysisPlan(BaseModel):
+    """Structured plan for agentic codebase analysis."""
+
+    target_path: str
+    overall_description: str
+    subsystems: list[Subsystem]
+
+
+class SubsystemFinding(BaseModel):
+    """Threat findings for a single subsystem."""
+
+    subsystem: str
+    threats: list[dict[str, Any]]
+    improvement_suggestions: list[str] = []
+    files_analyzed: list[str] = []
+
+
+class AnalysisReport(BaseModel):
+    """Complete analysis report from an agentic run."""
+
+    plan: AnalysisPlan
+    findings: list[SubsystemFinding]
+    cross_cutting_threats: list[dict[str, Any]] = []
+    metadata: dict[str, Any] = {}
