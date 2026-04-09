@@ -279,12 +279,13 @@ Start by reading the key files. Use grep to find security-relevant patterns like
             return _retry_as_json(config, messages, subsystem_name, call_counts)
 
     # Hit limits — ask model to summarize what it has so far
-    messages.append({
+    clean_msgs = _strip_tool_calls(messages)
+    clean_msgs.append({
         "role": "user",
         "content": "You've reached the tool call limit. Please provide your STRIDE threat analysis now based on what you've gathered so far. Respond with the JSON format specified.",
     })
     json_config = config.model_copy(update={"response_format": "json"})
-    response = call_llm(json_config, messages)
+    response = call_llm(json_config, clean_msgs)
     call_counts["llm"] = llm_calls + 1
     call_counts["tool"] = tool_calls
     finding = _parse_subsystem_finding(subsystem_name, response.content)
@@ -348,12 +349,13 @@ def _retry_as_json(
     call_counts: dict[str, int],
 ) -> SubsystemFinding:
     """Retry the final analysis with forced JSON output."""
-    messages.append({
+    clean_msgs = _strip_tool_calls(messages)
+    clean_msgs.append({
         "role": "user",
         "content": "Please respond with ONLY a valid JSON object in the format specified in your instructions. No other text.",
     })
     json_config = config.model_copy(update={"response_format": "json"})
-    response = call_llm(json_config, messages)
+    response = call_llm(json_config, clean_msgs)
     call_counts["llm"] = call_counts.get("llm", 0) + 1
 
     finding = _parse_subsystem_finding(subsystem_name, response.content)
@@ -392,6 +394,25 @@ def _synthesize(config: LLMConfig, findings: list[SubsystemFinding]) -> list[dic
         return data.get("cross_cutting_threats", [])
     except json.JSONDecodeError:
         return []
+
+
+def _strip_tool_calls(messages: list[dict]) -> list[dict]:
+    """Return a copy of messages with tool-call artifacts removed.
+
+    Anthropic (and some other providers) reject messages containing
+    tool_calls unless the request also includes a tools parameter.
+    When we switch from tool-use to a plain call_llm, we need to
+    clean these out.
+    """
+    cleaned: list[dict] = []
+    for msg in messages:
+        if msg.get("role") == "tool":
+            continue
+        if "tool_calls" in msg:
+            cleaned.append({"role": msg["role"], "content": msg.get("content", "")})
+        else:
+            cleaned.append(msg)
+    return cleaned
 
 
 def _brief_args(args: dict) -> str:
