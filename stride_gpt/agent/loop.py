@@ -383,17 +383,34 @@ def _synthesize(config: LLMConfig, findings: list[SubsystemFinding]) -> list[dic
     )
 
     json_config = config.model_copy(update={"response_format": "json"})
-    messages = [
+    messages: list[dict] = [
         {"role": "system", "content": SYNTHESIS_PROMPT},
         {"role": "user", "content": f"Per-subsystem findings:\n{findings_summary}"},
     ]
     response = call_llm(json_config, messages)
 
-    try:
-        data = json.loads(response.content)
-        return data.get("cross_cutting_threats", [])
-    except json.JSONDecodeError:
+    data = _try_parse_json(response.content)
+
+    # If that failed, try extracting embedded JSON
+    if data is None:
+        start = response.content.find("{")
+        end = response.content.rfind("}")
+        if start != -1 and end > start:
+            data = _try_parse_json(response.content[start : end + 1])
+
+    # Still failed — retry with explicit instruction
+    if data is None:
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({
+            "role": "user",
+            "content": "Please respond with ONLY a valid JSON object in the format specified. No other text.",
+        })
+        response = call_llm(json_config, messages)
+        data = _try_parse_json(response.content)
+
+    if data is None:
         return []
+    return data.get("cross_cutting_threats", [])
 
 
 def _strip_tool_calls(messages: list[dict]) -> list[dict]:
