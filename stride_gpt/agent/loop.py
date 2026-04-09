@@ -183,6 +183,8 @@ def run_analysis(
         findings=findings,
         cross_cutting_threats=cross_cutting,
         metadata={
+            "model": config.model_name,
+            "provider": config.provider,
             "llm_calls": llm_calls,
             "tool_calls": tool_calls,
             "subsystems_analyzed": len(findings),

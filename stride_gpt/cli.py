@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
+from rich.table import Table
 
 from stride_gpt.config import (
     config_to_llm_config,
@@ -48,6 +49,7 @@ HELP_TEXT = """
 [bold]Commands:[/bold]
   [cyan]/analyze[/cyan] [path]        Analyze a codebase for STRIDE threats
   [cyan]/quick[/cyan]               Quick threat model from a text description
+  [cyan]/reports[/cyan]              List previous analysis reports
   [cyan]/config[/cyan]              View or change settings
   [cyan]/serve[/cyan]               Launch the Streamlit web UI
   [cyan]/help[/cyan]                Show this help
@@ -58,6 +60,9 @@ HELP_TEXT = """
   [dim]/analyze ./my-app[/dim]       Analyze a specific path
   [dim]/analyze . -o report.md[/dim] Save report to file
   [dim]/quick -i desc.txt[/dim]      Quick model from file
+  [dim]/reports[/dim]               List recent reports
+  [dim]/reports 1[/dim]             View report #1
+  [dim]/reports 1 -o r.md[/dim]     Export report #1 to file
 """
 
 
@@ -122,6 +127,10 @@ def interactive(ctx: typer.Context) -> None:
             args = user_input[len("/quick"):].strip()
             _handle_quick(config, args)
 
+        elif user_input.startswith("/reports"):
+            args = user_input[len("/reports"):].strip()
+            _handle_reports(args)
+
         elif user_input == "/serve":
             _handle_serve()
 
@@ -149,7 +158,7 @@ def _handle_config(config: dict) -> None:
 def _handle_analyze(config: dict, args_str: str) -> None:
     """Run agentic analysis from interactive session."""
     from stride_gpt.agent.loop import run_analysis
-    from stride_gpt.agent.report import render_json, render_markdown, render_sarif
+    from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
 
     # Parse inline args
     parts = args_str.split() if args_str else ["."]
@@ -206,6 +215,11 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         console=console,
     )
 
+    # Auto-save (skip cancelled runs)
+    saved_path = None
+    if report.metadata.get("status") != "cancelled":
+        saved_path = save_report(report)
+
     # Render
     if output_format == OutputFormat.markdown:
         rendered = render_markdown(report)
@@ -217,6 +231,103 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     if output_path:
         output_path.write_text(rendered)
         console.print(f"\n[green]Report written to {output_path}[/green]")
+    else:
+        console.print()
+        if output_format == OutputFormat.markdown:
+            console.print(Markdown(rendered))
+        else:
+            console.print(rendered)
+
+    if saved_path:
+        console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+        console.print("[dim]View previous reports with /reports[/dim]")
+
+
+def _handle_reports(args_str: str) -> None:
+    """List or view previous analysis reports."""
+    from stride_gpt.agent.report import (
+        list_reports,
+        load_report,
+        render_markdown_from_json,
+        render_sarif_from_json,
+    )
+
+    parts = args_str.split() if args_str else []
+
+    if not parts:
+        # List mode
+        reports = list_reports(limit=10)
+        if not reports:
+            console.print("[dim]No saved reports found.[/dim]")
+            return
+
+        table = Table(title="Recent Reports", box=None, padding=(0, 2))
+        table.add_column("#", style="bold", width=3)
+        table.add_column("Date", width=20)
+        table.add_column("Target", style="cyan")
+        table.add_column("Threats", justify="right")
+        table.add_column("Model", style="dim")
+
+        for idx, _path, summary in reports:
+            date_str = summary["generated_at"][:19].replace("T", " ") if summary["generated_at"] else "?"
+            table.add_row(
+                str(idx),
+                date_str,
+                Path(summary["target"]).name if summary["target"] else "?",
+                str(summary["threat_count"]),
+                summary.get("model", ""),
+            )
+
+        console.print()
+        console.print(table)
+        console.print()
+        console.print("[dim]View a report: /reports <number>[/dim]")
+        return
+
+    # View/export mode — first arg is the report number
+    try:
+        report_idx = int(parts[0])
+    except ValueError:
+        console.print(f"[red]Invalid report number: {parts[0]}[/red]")
+        return
+
+    reports = list_reports(limit=max(report_idx, 10))
+    match = [r for r in reports if r[0] == report_idx]
+    if not match:
+        console.print(f"[red]Report #{report_idx} not found.[/red]")
+        return
+
+    _, report_path, _ = match[0]
+    data = load_report(report_path)
+
+    # Parse optional flags
+    output_path = None
+    output_format = OutputFormat.markdown
+    i = 1
+    while i < len(parts):
+        if parts[i] in ("-o", "--output") and i + 1 < len(parts):
+            output_path = Path(parts[i + 1])
+            i += 2
+        elif parts[i] in ("-f", "--format") and i + 1 < len(parts):
+            try:
+                output_format = OutputFormat(parts[i + 1])
+            except ValueError:
+                console.print(f"[red]Invalid format: {parts[i + 1]}. Use markdown, json, or sarif.[/red]")
+                return
+            i += 2
+        else:
+            i += 1
+
+    if output_format == OutputFormat.markdown:
+        rendered = render_markdown_from_json(data)
+    elif output_format == OutputFormat.json:
+        rendered = json.dumps(data, indent=2)
+    else:
+        rendered = json.dumps(render_sarif_from_json(data), indent=2)
+
+    if output_path:
+        output_path.write_text(rendered)
+        console.print(f"[green]Report exported to {output_path}[/green]")
     else:
         console.print()
         if output_format == OutputFormat.markdown:
@@ -362,7 +473,7 @@ def analyze(
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""
     from stride_gpt.agent.loop import run_analysis
-    from stride_gpt.agent.report import render_json, render_markdown, render_sarif
+    from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
     from stride_gpt.core.schemas import LLMConfig
 
     llm_config = _build_config(model, api_key, api_base)
@@ -391,6 +502,11 @@ def analyze(
         console=console,
     )
 
+    # Auto-save
+    saved_path = None
+    if report.metadata.get("status") != "cancelled":
+        saved_path = save_report(report)
+
     if output_format == OutputFormat.markdown:
         rendered = render_markdown(report)
     elif output_format == OutputFormat.json:
@@ -407,6 +523,10 @@ def analyze(
             console.print(Markdown(rendered))
         else:
             console.print(rendered)
+
+    if saved_path:
+        console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+        console.print("[dim]View previous reports with: stride-gpt reports[/dim]")
 
 
 @app.command()
@@ -457,6 +577,77 @@ def quick(
     else:
         console.print()
         console.print(Markdown(markdown))
+
+
+@app.command()
+def reports(
+    number: Annotated[Optional[int], typer.Argument(help="Report number to view.")] = None,
+    output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Export report to file.")] = None,
+    output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
+    limit: Annotated[int, typer.Option("-n", "--limit", help="Number of reports to list.")] = 10,
+) -> None:
+    """List or view previous analysis reports."""
+    from stride_gpt.agent.report import (
+        list_reports,
+        load_report,
+        render_markdown_from_json,
+        render_sarif_from_json,
+    )
+
+    if number is None:
+        # List mode
+        report_list = list_reports(limit=limit)
+        if not report_list:
+            console.print("[dim]No saved reports found.[/dim]")
+            raise typer.Exit(0)
+
+        table = Table(title="Recent Reports", box=None, padding=(0, 2))
+        table.add_column("#", style="bold", width=3)
+        table.add_column("Date", width=20)
+        table.add_column("Target", style="cyan")
+        table.add_column("Threats", justify="right")
+        table.add_column("Model", style="dim")
+
+        for idx, _path, summary in report_list:
+            date_str = summary["generated_at"][:19].replace("T", " ") if summary["generated_at"] else "?"
+            table.add_row(
+                str(idx),
+                date_str,
+                Path(summary["target"]).name if summary["target"] else "?",
+                str(summary["threat_count"]),
+                summary.get("model", ""),
+            )
+
+        console.print()
+        console.print(table)
+        return
+
+    # View/export mode
+    report_list = list_reports(limit=max(number, 10))
+    match = [r for r in report_list if r[0] == number]
+    if not match:
+        console.print(f"[red]Report #{number} not found.[/red]")
+        raise typer.Exit(1)
+
+    _, report_path, _ = match[0]
+    data = load_report(report_path)
+
+    if output_format == OutputFormat.markdown:
+        rendered = render_markdown_from_json(data)
+    elif output_format == OutputFormat.json:
+        rendered = json.dumps(data, indent=2)
+    else:
+        rendered = json.dumps(render_sarif_from_json(data), indent=2)
+
+    if output:
+        output.write_text(rendered)
+        console.print(f"[green]Report exported to {output}[/green]")
+    else:
+        console.print()
+        if output_format == OutputFormat.markdown:
+            console.print(Markdown(rendered))
+        else:
+            console.print(rendered)
 
 
 @app.command()

@@ -13,6 +13,7 @@ from rich.table import Table
 
 CONFIG_DIR = Path.home() / ".stride-gpt"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+REPORTS_DIR = CONFIG_DIR / "reports"
 
 # Provider catalog: provider name → {models, needs_api_key, needs_api_base}
 PROVIDERS: dict[str, dict[str, Any]] = {
