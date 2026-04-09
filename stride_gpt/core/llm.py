@@ -1,13 +1,11 @@
-"""Unified LLM interface. LiteLLM for most providers, Google SDK direct for Gemini."""
+"""Unified LLM interface. All providers routed through LiteLLM."""
 
 from __future__ import annotations
 
-import base64
+import json as _json
 import re
 
 import litellm
-from google import genai as google_genai
-from google.genai import types as google_types
 
 from stride_gpt.core.schemas import LLMConfig, LLMResponse, ToolCallResult
 
@@ -18,6 +16,7 @@ litellm.suppress_debug_info = True
 PROVIDER_PREFIXES: dict[str, str] = {
     "OpenAI API": "",
     "Anthropic API": "anthropic/",
+    "Google AI API": "gemini/",
     "Mistral API": "mistral/",
     "Groq API": "groq/",
     "Ollama": "ollama/",
@@ -27,11 +26,23 @@ PROVIDER_PREFIXES: dict[str, str] = {
 # GPT-5 series models that use max_completion_tokens instead of max_tokens
 GPT5_MODELS = {"gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"}
 
+# Gemini safety settings — allow security-related content generation
+GEMINI_SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
+
+
+def _is_gemini_thinking(model_name: str) -> bool:
+    """Gemini 2.5+ and 3+ support thinking capabilities."""
+    lower = model_name.lower()
+    return "gemini-2.5" in lower or "gemini-3" in lower
+
 
 def call_llm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
-    """Call an LLM with the given messages. Dispatches to Google SDK or LiteLLM."""
-    if config.provider == "Google AI API":
-        return _call_google(config, messages)
+    """Call an LLM with the given messages."""
     return _call_litellm(config, messages)
 
 
@@ -39,8 +50,6 @@ def call_llm_with_tools(
     config: LLMConfig, messages: list[dict], tools: list[dict]
 ) -> LLMResponse:
     """Call an LLM with tool definitions. Returns response with optional tool_calls."""
-    if config.provider == "Google AI API":
-        return _call_google_with_tools(config, messages, tools)
     return _call_litellm_with_tools(config, messages, tools)
 
 
@@ -51,224 +60,11 @@ def call_llm_with_image(
     media_type: str = "image/jpeg",
 ) -> LLMResponse:
     """Call an LLM with an image for analysis."""
-    if config.provider == "Google AI API":
-        return _call_google_with_image(config, prompt, base64_image, media_type)
     return _call_litellm_with_image(config, prompt, base64_image, media_type)
 
 
 # ---------------------------------------------------------------------------
-# Google SDK direct path (ThinkingConfig + safety settings not in LiteLLM)
-# ---------------------------------------------------------------------------
-
-
-def _google_safety_settings() -> list[google_genai.types.SafetySetting]:
-    """Safety settings allowing security content generation."""
-    return [
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        google_genai.types.SafetySetting(
-            category=google_genai.types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold=google_genai.types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-    ]
-
-
-def _is_gemini_thinking(model_name: str) -> bool:
-    """Gemini 2.5+ and 3+ support thinking capabilities."""
-    lower = model_name.lower()
-    return "gemini-2.5" in lower or "gemini-3" in lower
-
-
-def _extract_google_response(response) -> tuple[str, str | None]:
-    """Extract text and thinking content from a Google API response."""
-    text_parts: list[str] = []
-    thinking_parts: list[str] = []
-    for candidate in getattr(response, "candidates", []):
-        content = getattr(candidate, "content", None)
-        if content and hasattr(content, "parts"):
-            for part in content.parts:
-                if hasattr(part, "thought") and part.thought:
-                    thinking_parts.append(str(part.thought))
-                elif hasattr(part, "text") and part.text:
-                    text_parts.append(part.text)
-    thinking = "\n\n".join(thinking_parts) if thinking_parts else None
-    return "".join(text_parts), thinking
-
-
-def _call_google(config: LLMConfig, messages: list[dict]) -> LLMResponse:
-    """Call Google Gemini directly via the google-genai SDK."""
-    client = google_genai.Client(api_key=config.api_key)
-    safety = _google_safety_settings()
-
-    # Extract system instruction and user content from messages
-    system_instruction = None
-    user_content = None
-    for msg in messages:
-        if msg["role"] == "system":
-            system_instruction = msg["content"]
-        elif msg["role"] == "user":
-            user_content = msg["content"]
-    if user_content is None:
-        user_content = messages[-1]["content"] if messages else ""
-
-    # Build config
-    config_kwargs: dict = {"safety_settings": safety}
-    if system_instruction:
-        config_kwargs["system_instruction"] = system_instruction
-    if config.response_format == "json":
-        config_kwargs["response_mime_type"] = "application/json"
-    if _is_gemini_thinking(config.model_name):
-        config_kwargs["thinking_config"] = google_types.ThinkingConfig(thinking_budget=1024)
-
-    gen_config = google_types.GenerateContentConfig(**config_kwargs)
-    response = client.models.generate_content(
-        model=config.model_name,
-        contents=user_content,
-        config=gen_config,
-    )
-    text, thinking = _extract_google_response(response)
-    return LLMResponse(content=text, thinking=thinking, model=config.model_name)
-
-
-def _call_google_with_image(
-    config: LLMConfig,
-    prompt: str,
-    base64_image: str,
-    media_type: str,
-) -> LLMResponse:
-    """Call Google Gemini with an image."""
-    client = google_genai.Client(api_key=config.api_key)
-    blob = google_types.Blob(data=base64.b64decode(base64_image), mime_type=media_type)
-    content = [
-        google_types.Content(
-            role="user",
-            parts=[
-                google_types.Part(text=prompt),
-                google_types.Part(inline_data=blob),
-            ],
-        )
-    ]
-    gen_config = google_types.GenerateContentConfig()
-    response = client.models.generate_content(
-        model=config.model_name,
-        contents=content,
-        config=gen_config,
-    )
-    text, thinking = _extract_google_response(response)
-    return LLMResponse(content=text, thinking=thinking, model=config.model_name)
-
-
-def _call_google_with_tools(
-    config: LLMConfig, messages: list[dict], tools: list[dict]
-) -> LLMResponse:
-    """Call Google Gemini with tool definitions."""
-    import json as _json
-
-    client = google_genai.Client(api_key=config.api_key)
-    safety = _google_safety_settings()
-
-    system_instruction = None
-    contents: list[google_types.Content] = []
-    for msg in messages:
-        if msg["role"] == "system":
-            system_instruction = msg["content"]
-        elif msg["role"] == "user":
-            contents.append(
-                google_types.Content(
-                    role="user", parts=[google_types.Part(text=msg["content"])]
-                )
-            )
-        elif msg["role"] == "assistant":
-            contents.append(
-                google_types.Content(
-                    role="model", parts=[google_types.Part(text=msg["content"])]
-                )
-            )
-        elif msg["role"] == "tool":
-            contents.append(
-                google_types.Content(
-                    role="user",
-                    parts=[
-                        google_types.Part(
-                            function_response=google_types.FunctionResponse(
-                                name=msg.get("name", "tool"),
-                                response={"result": msg["content"]},
-                            )
-                        )
-                    ],
-                )
-            )
-
-    # Convert OpenAI tool format to Google function declarations
-    google_tools = []
-    for tool in tools:
-        func = tool["function"]
-        params = func.get("parameters", {})
-        # Strip unsupported fields for Google
-        clean_params = {
-            k: v for k, v in params.items() if k in ("type", "properties", "required")
-        }
-        google_tools.append(
-            google_types.FunctionDeclaration(
-                name=func["name"],
-                description=func.get("description", ""),
-                parameters=clean_params or None,
-            )
-        )
-
-    config_kwargs: dict = {
-        "safety_settings": safety,
-        "tools": [google_types.Tool(function_declarations=google_tools)],
-    }
-    if system_instruction:
-        config_kwargs["system_instruction"] = system_instruction
-
-    gen_config = google_types.GenerateContentConfig(**config_kwargs)
-    response = client.models.generate_content(
-        model=config.model_name,
-        contents=contents,
-        config=gen_config,
-    )
-
-    # Extract text and tool calls from response
-    text_parts: list[str] = []
-    tool_calls: list[ToolCallResult] = []
-    for candidate in getattr(response, "candidates", []):
-        content = getattr(candidate, "content", None)
-        if content and hasattr(content, "parts"):
-            for part in content.parts:
-                if hasattr(part, "function_call") and part.function_call:
-                    fc = part.function_call
-                    args = dict(fc.args) if fc.args else {}
-                    tool_calls.append(
-                        ToolCallResult(
-                            id=f"google_{fc.name}_{len(tool_calls)}",
-                            function_name=fc.name,
-                            arguments=args,
-                        )
-                    )
-                elif hasattr(part, "text") and part.text:
-                    text_parts.append(part.text)
-
-    return LLMResponse(
-        content="".join(text_parts),
-        model=config.model_name,
-        tool_calls=tool_calls or None,
-    )
-
-
-# ---------------------------------------------------------------------------
-# LiteLLM path (OpenAI, Anthropic, Mistral, Groq, Ollama, LM Studio)
+# LiteLLM path (all providers)
 # ---------------------------------------------------------------------------
 
 
@@ -293,29 +89,40 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     if config.response_format == "json":
         kwargs["response_format"] = {"type": "json_object"}
 
-    # Anthropic extended thinking
-    if config.provider == "Anthropic API" and config.use_thinking:
+    # --- Google AI API specifics ---
+    if config.provider == "Google AI API":
+        kwargs["safety_settings"] = GEMINI_SAFETY_SETTINGS
+        if _is_gemini_thinking(config.model_name):
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": 1024}
+
+    # --- Anthropic ---
+    elif config.provider == "Anthropic API" and config.use_thinking:
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16000}
         kwargs["max_tokens"] = 48000
         kwargs["timeout"] = config.timeout or 600
     elif config.provider == "Anthropic API":
         kwargs["max_tokens"] = config.max_tokens or 32768
         kwargs["timeout"] = config.timeout or 300
+
     # GPT-5 series: max_completion_tokens instead of max_tokens
     elif config.model_name in GPT5_MODELS:
         kwargs["max_completion_tokens"] = config.max_tokens or 20000
+
     # LM Studio: conservative default
     elif config.provider == "LM Studio Server":
         kwargs["max_tokens"] = config.max_tokens or 4000
+
     # Ollama: pass timeout and default max_tokens
     elif config.provider == "Ollama":
         if config.timeout:
             kwargs["timeout"] = config.timeout
         kwargs["max_tokens"] = config.max_tokens or 8192
+
     # Groq / Mistral: original code never set max_tokens — let the API decide
     elif config.provider in ("Groq API", "Mistral API"):
         if config.max_tokens:
             kwargs["max_tokens"] = config.max_tokens
+
     # Other providers: only set if explicitly provided
     elif config.max_tokens:
         kwargs["max_tokens"] = config.max_tokens
@@ -323,14 +130,28 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     return kwargs
 
 
+def _extract_thinking(config: LLMConfig, response) -> tuple[str | None, str | None]:
+    """Extract thinking/reasoning content from a response based on provider."""
+    thinking = None
+    reasoning = None
+
+    if config.provider == "Anthropic API" and config.use_thinking:
+        thinking = _extract_anthropic_thinking(response)
+    elif config.provider == "Google AI API" and _is_gemini_thinking(config.model_name):
+        thinking = _extract_gemini_thinking(response)
+    elif config.provider == "Groq API":
+        # Groq/DeepSeek reasoning is extracted from content, handled separately
+        pass
+
+    return thinking, reasoning
+
+
 def _extract_anthropic_thinking(response) -> str | None:
     """Extract thinking content from an Anthropic response via LiteLLM."""
     thinking_parts: list[str] = []
-    # LiteLLM may expose Anthropic thinking blocks in the response
     choices = getattr(response, "choices", [])
     if choices:
         message = choices[0].message
-        # Check for thinking blocks in the raw response
         thinking_blocks = getattr(message, "thinking_blocks", None)
         if thinking_blocks:
             thinking_parts.extend(
@@ -339,19 +160,34 @@ def _extract_anthropic_thinking(response) -> str | None:
     return "\n\n".join(thinking_parts) if thinking_parts else None
 
 
+def _extract_gemini_thinking(response) -> str | None:
+    """Extract thinking content from a Gemini response via LiteLLM."""
+    # LiteLLM exposes Gemini thinking as thought parts in the response
+    thinking_parts: list[str] = []
+    choices = getattr(response, "choices", [])
+    if choices:
+        message = choices[0].message
+        # LiteLLM may include thinking in provider_specific_fields or similar
+        thinking_blocks = getattr(message, "thinking_blocks", None)
+        if thinking_blocks:
+            thinking_parts.extend(
+                block.thinking for block in thinking_blocks if hasattr(block, "thinking")
+            )
+        # Also check for thought in provider-specific response data
+        provider_specific = getattr(message, "provider_specific_fields", None)
+        if provider_specific and "thinking" in provider_specific:
+            thinking_parts.append(str(provider_specific["thinking"]))
+    return "\n\n".join(thinking_parts) if thinking_parts else None
+
+
 def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
-    """Call LLM via LiteLLM (supports OpenAI, Anthropic, Mistral, Groq, Ollama, LM Studio)."""
+    """Call LLM via LiteLLM (all providers)."""
     kwargs = _build_litellm_kwargs(config)
     response = litellm.completion(messages=messages, **kwargs)
 
     content = response.choices[0].message.content or ""
 
-    # Extract thinking/reasoning based on provider
-    thinking = None
-    reasoning = None
-
-    if config.provider == "Anthropic API" and config.use_thinking:
-        thinking = _extract_anthropic_thinking(response)
+    thinking, reasoning = _extract_thinking(config, response)
 
     if config.provider == "Groq API":
         reasoning, content = extract_deepseek_reasoning(content)
@@ -368,8 +204,6 @@ def _call_litellm_with_tools(
     config: LLMConfig, messages: list[dict], tools: list[dict]
 ) -> LLMResponse:
     """Call LLM with tool definitions via LiteLLM."""
-    import json as _json
-
     kwargs = _build_litellm_kwargs(config)
     # Don't send JSON response_format when using tools — the model decides the format
     kwargs.pop("response_format", None)
@@ -391,8 +225,11 @@ def _call_litellm_with_tools(
             for tc in message.tool_calls
         ]
 
+    thinking, _ = _extract_thinking(config, response)
+
     return LLMResponse(
         content=content,
+        thinking=thinking,
         model=config.model_name,
         tool_calls=tool_calls,
     )
@@ -440,7 +277,8 @@ def _call_litellm_with_image(
 
     response = litellm.completion(messages=messages, **kwargs)
     content = response.choices[0].message.content or ""
-    return LLMResponse(content=content, model=config.model_name)
+    thinking, _ = _extract_thinking(config, response)
+    return LLMResponse(content=content, thinking=thinking, model=config.model_name)
 
 
 # ---------------------------------------------------------------------------
@@ -471,8 +309,6 @@ def process_groq_response(
     Returns:
         Tuple of (reasoning, processed_output).
     """
-    import json
-
     reasoning = None
     final_output = response_text
 
@@ -481,8 +317,8 @@ def process_groq_response(
 
     if expect_json:
         try:
-            processed_output = json.loads(final_output)
-        except json.JSONDecodeError:
+            processed_output = _json.loads(final_output)
+        except _json.JSONDecodeError:
             processed_output = final_output
     elif "graph " in final_output:
         from stride_gpt.core.attack_tree import extract_mermaid_code

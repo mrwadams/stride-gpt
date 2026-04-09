@@ -8,7 +8,6 @@ from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.status import Status
 
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.planner import create_plan, format_plan_for_display
@@ -74,8 +73,8 @@ def run_analysis(
     config: LLMConfig,
     target_path: Path,
     *,
-    max_llm_calls: int = 25,
-    max_tool_calls: int = 50,
+    max_llm_calls: int = 100,
+    max_tool_calls: int = 200,
     auto_approve: bool = False,
     console: Console | None = None,
 ) -> AnalysisReport:
@@ -119,13 +118,20 @@ def run_analysis(
     console.print(Panel("[bold]Phase 2: Analyzing Subsystems[/bold]", style="blue"))
     findings: list[SubsystemFinding] = []
 
+    num_subsystems = len(plan.subsystems)
+
     for i, subsystem in enumerate(plan.subsystems, 1):
-        if llm_calls >= max_llm_calls or tool_calls >= max_tool_calls:
+        if llm_calls >= max_llm_calls - 1 or tool_calls >= max_tool_calls:
             console.print(
                 f"[yellow]Reached call limits (LLM: {llm_calls}/{max_llm_calls}, "
                 f"Tools: {tool_calls}/{max_tool_calls}). Stopping early.[/yellow]"
             )
             break
+
+        # Split remaining budget evenly across remaining subsystems
+        remaining = num_subsystems - (i - 1)
+        sub_llm_budget = max(2, (max_llm_calls - llm_calls - 1) // remaining)
+        sub_tool_budget = max(4, (max_tool_calls - tool_calls) // remaining)
 
         console.print(
             f"\n[bold cyan]({i}/{len(plan.subsystems)}) Analyzing: {subsystem.name}[/bold cyan]"
@@ -133,6 +139,7 @@ def run_analysis(
         console.print(f"  {subsystem.description}")
 
         try:
+            sub_counts: dict[str, int] = {"llm": 0, "tool": 0}
             finding = _analyze_subsystem(
                 config=config,
                 target_path=target_path,
@@ -141,13 +148,13 @@ def run_analysis(
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
                 ctx=ctx,
-                max_llm_calls=max_llm_calls - llm_calls,
-                max_tool_calls=max_tool_calls - tool_calls,
+                max_llm_calls=sub_llm_budget,
+                max_tool_calls=sub_tool_budget,
                 console=console,
-                call_counts={"llm": 0, "tool": 0},
+                call_counts=sub_counts,
             )
-            llm_calls += finding.metadata.pop("_llm_calls", 0) if hasattr(finding, "metadata") else 0
-            tool_calls += finding.metadata.pop("_tool_calls", 0) if hasattr(finding, "metadata") else 0
+            llm_calls += sub_counts["llm"]
+            tool_calls += sub_counts["tool"]
             findings.append(finding)
             console.print(
                 f"  [green]Found {len(finding.threats)} threats in {subsystem.name}[/green]"
@@ -263,47 +270,98 @@ Start by reading the key files. Use grep to find security-relevant patterns like
             # No tool calls — the model is done analyzing
             call_counts["llm"] = llm_calls
             call_counts["tool"] = tool_calls
-            return _parse_subsystem_finding(subsystem_name, response.content)
+            finding = _parse_subsystem_finding(subsystem_name, response.content)
+            if finding is not None:
+                return finding
+            # JSON parse failed — retry with forced JSON output
+            return _retry_as_json(config, messages, subsystem_name, call_counts)
 
     # Hit limits — ask model to summarize what it has so far
     messages.append({
         "role": "user",
         "content": "You've reached the tool call limit. Please provide your STRIDE threat analysis now based on what you've gathered so far. Respond with the JSON format specified.",
     })
-    response = call_llm(config, messages)
+    json_config = config.model_copy(update={"response_format": "json"})
+    response = call_llm(json_config, messages)
     call_counts["llm"] = llm_calls + 1
     call_counts["tool"] = tool_calls
-    return _parse_subsystem_finding(subsystem_name, response.content)
+    finding = _parse_subsystem_finding(subsystem_name, response.content)
+    if finding is not None:
+        return finding
+    return SubsystemFinding(
+        subsystem=subsystem_name,
+        threats=[],
+        improvement_suggestions=["Failed to parse model response as JSON"],
+    )
 
 
-def _parse_subsystem_finding(subsystem_name: str, content: str) -> SubsystemFinding:
-    """Parse an LLM response into a SubsystemFinding."""
+def _parse_subsystem_finding(subsystem_name: str, content: str) -> SubsystemFinding | None:
+    """Parse an LLM response into a SubsystemFinding.
+
+    Returns None if JSON cannot be extracted, signaling the caller to retry.
+    """
     cleaned = content.strip()
+
+    # Strip markdown code fences
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3]
         cleaned = cleaned.strip()
 
+    # Try parsing as-is first
+    data = _try_parse_json(cleaned)
+
+    # If that failed, try to find a JSON object embedded in free-text
+    if data is None:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end > start:
+            data = _try_parse_json(content[start : end + 1])
+
+    if data is None:
+        return None
+
+    return SubsystemFinding(
+        subsystem=subsystem_name,
+        threats=data.get("threats", []),
+        improvement_suggestions=data.get("improvement_suggestions", []),
+        files_analyzed=data.get("files_analyzed", []),
+    )
+
+
+def _try_parse_json(text: str) -> dict | None:
+    """Try to parse text as JSON, returning None on failure."""
     try:
-        data = json.loads(cleaned)
-        return SubsystemFinding(
-            subsystem=subsystem_name,
-            threats=data.get("threats", []),
-            improvement_suggestions=data.get("improvement_suggestions", []),
-            files_analyzed=data.get("files_analyzed", []),
-        )
-    except json.JSONDecodeError:
-        # If the response isn't valid JSON, wrap the text as a single finding
-        return SubsystemFinding(
-            subsystem=subsystem_name,
-            threats=[{
-                "Threat Type": "Analysis",
-                "Scenario": content[:500],
-                "Potential Impact": "See scenario for details",
-            }],
-            improvement_suggestions=["Model returned non-JSON response — consider retrying"],
-        )
+        data = json.loads(text)
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+def _retry_as_json(
+    config: LLMConfig,
+    messages: list[dict],
+    subsystem_name: str,
+    call_counts: dict[str, int],
+) -> SubsystemFinding:
+    """Retry the final analysis with forced JSON output."""
+    messages.append({
+        "role": "user",
+        "content": "Please respond with ONLY a valid JSON object in the format specified in your instructions. No other text.",
+    })
+    json_config = config.model_copy(update={"response_format": "json"})
+    response = call_llm(json_config, messages)
+    call_counts["llm"] = call_counts.get("llm", 0) + 1
+
+    finding = _parse_subsystem_finding(subsystem_name, response.content)
+    if finding is not None:
+        return finding
+    return SubsystemFinding(
+        subsystem=subsystem_name,
+        threats=[],
+        improvement_suggestions=["Failed to parse model response as JSON after retry"],
+    )
 
 
 def _synthesize(config: LLMConfig, findings: list[SubsystemFinding]) -> list[dict[str, Any]]:

@@ -356,8 +356,8 @@ def analyze(
     api_base: Annotated[Optional[str], typer.Option(help="Custom API base URL.")] = None,
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
-    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls.")] = 25,
-    max_tool_calls: Annotated[int, typer.Option(help="Max tool executions.")] = 50,
+    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls.")] = 100,
+    max_tool_calls: Annotated[int, typer.Option(help="Max tool executions.")] = 200,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""

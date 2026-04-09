@@ -1,5 +1,4 @@
 anthropic
-google-genai
 litellm>=1.40
 mistralai>=1.0.0
 openai

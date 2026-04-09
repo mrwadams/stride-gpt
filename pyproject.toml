@@ -16,7 +16,6 @@ dependencies = [
 [project.optional-dependencies]
 ui = [
     "anthropic",
-    "google-genai",
     "groq",
     "mistralai>=1.0.0",
     "openai",
