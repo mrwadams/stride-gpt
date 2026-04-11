@@ -97,10 +97,17 @@ def interactive(ctx: typer.Context) -> None:
         console.print(f"  Type [cyan]/help[/cyan] for commands, [cyan]/config[/cyan] to change settings.")
     console.print()
 
+    # Build interactive prompt session with tab completion, history, status line.
+    # The session reads `config` lazily so the bottom toolbar reflects /config changes.
+    from stride_gpt.prompt import build_session
+
+    config_box = {"value": config}
+    session = build_session(lambda: config_box["value"])
+
     # Input loop
     while True:
         try:
-            user_input = console.input("[bold green]stride-gpt>[/bold green] ").strip()
+            user_input = session.prompt().strip()
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]Goodbye.[/dim]")
             break
@@ -118,6 +125,7 @@ def interactive(ctx: typer.Context) -> None:
         elif user_input == "/config":
             _handle_config(config)
             config = load_config() or config
+            config_box["value"] = config
 
         elif user_input.startswith("/analyze"):
             args = user_input[len("/analyze"):].strip()
