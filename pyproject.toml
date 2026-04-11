@@ -32,6 +32,10 @@ stride-gpt = "stride_gpt.cli:main"
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
 [tool.black]
 line-length = 100
 target-version = ['py312']
