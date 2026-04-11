@@ -78,26 +78,33 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
     ]
     response = call_llm(json_config, messages)
 
-    return _parse_plan(response.content, str(target_path))
+    data = _extract_plan_json(response.content)
 
+    # Retry once with explicit JSON-only instruction if first attempt failed
+    if data is None:
+        retry_messages = messages + [
+            {"role": "assistant", "content": response.content},
+            {
+                "role": "user",
+                "content": (
+                    "Your previous response was not valid JSON. Respond with ONLY a "
+                    "valid JSON object matching the schema in your instructions. "
+                    "No prose, no markdown fences, no commentary."
+                ),
+            },
+        ]
+        retry_response = call_llm(json_config, retry_messages)
+        data = _extract_plan_json(retry_response.content)
 
-def _parse_plan(content: str, target_path: str) -> AnalysisPlan:
-    """Parse LLM response into an AnalysisPlan."""
-    # Strip markdown code fences if present
-    cleaned = content.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-
-    try:
-        data = json.loads(cleaned)
-    except json.JSONDecodeError:
-        # Fallback: single generic subsystem
+    if data is None:
+        # Stash the raw response for debugging
+        raw = (response.content or "")[:500].replace("\n", " ")
         return AnalysisPlan(
-            target_path=target_path,
-            overall_description="Unable to parse plan — analyzing entire codebase as one unit.",
+            target_path=str(target_path),
+            overall_description=(
+                f"Unable to parse plan — analyzing entire codebase as one unit. "
+                f"Raw response started with: {raw!r}"
+            ),
             subsystems=[
                 Subsystem(
                     name="Full Codebase",
@@ -108,14 +115,59 @@ def _parse_plan(content: str, target_path: str) -> AnalysisPlan:
             ],
         )
 
+    return _build_plan(data, str(target_path))
+
+
+def _extract_plan_json(content: str) -> dict | None:
+    """Extract a JSON object from an LLM response, robust to extra text/fences.
+
+    Returns the parsed dict or None if no valid JSON object can be found.
+    """
+    if not content:
+        return None
+
+    cleaned = content.strip()
+
+    # Strip markdown code fences if present
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+
+    # Try parsing as-is first
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: find embedded JSON object via first { to last }
+    start = content.find("{")
+    end = content.rfind("}")
+    if start != -1 and end > start:
+        try:
+            data = json.loads(content[start : end + 1])
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
+def _build_plan(data: dict, target_path: str) -> AnalysisPlan:
+    """Build an AnalysisPlan from a parsed dict."""
     subsystems = [
         Subsystem(
-            name=s["name"],
+            name=s.get("name", "Unnamed"),
             description=s.get("description", ""),
             key_files=s.get("key_files", []),
             focus_areas=s.get("focus_areas", []),
         )
         for s in data.get("subsystems", [])
+        if isinstance(s, dict)
     ]
 
     return AnalysisPlan(
