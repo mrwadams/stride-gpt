@@ -28,7 +28,9 @@ If you find STRIDE GPT useful, please consider supporting the project:
 </a>
 
 ## Features
-- Simple and user-friendly interface
+- **Agentic codebase analysis**: Point the CLI at a codebase and get an autonomous, deep STRIDE threat model — the agent plans, explores, and synthesizes findings across subsystems
+- **CLI and interactive REPL**: Full-featured terminal experience with tab completion, history, and real-time progress — no browser required
+- Simple and user-friendly Streamlit web interface
 - Generates threat models based on the STRIDE methodology
 - **Agentic AI support**: Specialized threat modeling for agentic AI systems with OWASP Top 10 for Agentic Applications (ASI) integration
 - **Generative AI support**: Threat modeling for GenAI applications with OWASP LLM Top 10 integration
@@ -39,12 +41,12 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Supports DREAD risk scoring for identified threats
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
+- Multiple output formats: Markdown, JSON, and SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs)
 - Advanced reasoning model support (OpenAI GPT-5.2 series, Anthropic Claude 4.5 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
-- Comprehensive LLM provider support: OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via Ollama and LM Studio Server
+- Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via Ollama and LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
 - Environment variable support for secure configuration
-- Downloadable outputs in Markdown format for all generated content
 
 ## Enterprise Deployment
 
@@ -56,13 +58,6 @@ Want to customize STRIDE-GPT for your organization? Check out our comprehensive 
 - 📊 Get context-aware, actionable threat models specific to your environment
 
 The guide includes step-by-step instructions, code examples, and deployment patterns for organizations looking to scale AI-powered threat modeling across their teams.
-
-## Roadmap
-- [x] Add support for multi-modal threat modelling
-- [x] Autogenerate application descriptions based on README files in GitHub repositories
-- [ ] Customisable and exportable reports (e.g. PDF, Word) that include the generated threat model, attack tree, and mitigations
-- [ ] Add a helper tool to guide users to create effective application descriptions before generating threat models
-- [ ] Update UI to support multiple languages
 
 ## Talk at Open Security Summit
 
@@ -256,85 +251,120 @@ Release highlights:
 
 ## Installation
 
-### Option 1: Cloning the Repository
+### Option 1: pip (CLI only)
 
-1. Clone this repository:
+```bash
+pip install stride-gpt
+```
+
+This installs the `stride-gpt` command with everything needed for CLI and agentic analysis. To also install the Streamlit web UI:
+
+```bash
+pip install stride-gpt[ui]
+```
+
+### Option 2: From source
+
+1. Clone and install:
 
     ```bash
     git clone https://github.com/mrwadams/stride-gpt.git
-    ```
-
-2. Change to the cloned repository directory:
-
-    ```bash
     cd stride-gpt
+    pip install -e ".[ui]"
     ```
 
-3. Install the required Python packages:
+2. (Optional) Set up environment variables:
 
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4. Set up environment variables:
-   
-   a. Copy the `.env.example` file to a new file named `.env`:
-   ```
+   ```bash
    cp .env.example .env
    ```
-   
-   b. Edit the `.env` file to add your API keys and/or endpoint URLs:
-   ```
-   GITHUB_API_KEY=your_actual_github_api_key
-   OPENAI_API_KEY=your_actual_openai_api_key
-   ANTHROPIC_API_KEY=your_actual_anthropic_api_key
-   AZURE_API_KEY=your_actual_azure_api_key
-   AZURE_API_ENDPOINT=your_actual_azure_endpoint
-   AZURE_DEPLOYMENT_NAME=your_actual_azure_deployment_name
-   GOOGLE_API_KEY=your_actual_google_api_key
-   MISTRAL_API_KEY=your_actual_mistral_api_key
-   OLLAMA_ENDPOINT=http://localhost:11434
-   LM_STUDIO_ENDPOINT=http://localhost:1234
-   ```
 
-### Option 2: Using Docker Container
+   Edit `.env` to add your API keys — or configure them later via `stride-gpt config` or the Streamlit UI.
 
-1. Pull the Docker image from Docker Hub:
+### Option 3: Docker
 
-    ```bash
-    docker pull mrwadams/stridegpt:latest
-    ```
+```bash
+docker pull mrwadams/stridegpt:latest
+```
 
-2. Create a `.env` file with your API keys as described in step 4 of Option 1.
+The container runs the CLI by default. To launch the Streamlit UI instead, use `stride-gpt serve`.
 
 ## Usage
 
-### Option 1: Running the Streamlit App Locally
+### CLI
 
-1. Run the Streamlit app:
+**Agentic codebase analysis** — the agent autonomously explores a codebase, plans its analysis, and produces a STRIDE threat model:
 
-    ```bash
-    streamlit run main.py
-    ```
+```bash
+# Analyze the current directory
+stride-gpt analyze .
 
-2. Open the app in your web browser using the provided URL.
+# Specify a model and auto-approve the analysis plan
+stride-gpt analyze ./my-app --model anthropic/claude-sonnet-4-5 -y
 
-3. Follow the steps in the Streamlit interface to use STRIDE GPT.
+# Export as JSON or SARIF
+stride-gpt analyze . -o report.json -f json
+stride-gpt analyze . -o report.sarif -f sarif
+```
 
-### Option 2: Using Docker Container
+**Quick single-shot mode** — generate a threat model from a text description (like the Streamlit UI, but in the terminal):
 
-1. Run the Docker container, mounting the `.env` file:
+```bash
+# Read description from a file
+stride-gpt quick -i app-description.txt
 
-    ```bash
-    docker run -p 8501:8501 --env-file .env mrwadams/stridegpt
-    ```
-    This command will start the container, map port 8501 (default for Streamlit apps) from the container to your host machine, and load the environment variables from the `.env` file.
+# Pipe from stdin
+echo "A web API that processes payments..." | stride-gpt quick
+```
 
-2. Open a web browser and navigate to `http://localhost:8501` to access the app running inside the container.
+**Interactive REPL** — launch an interactive session with tab completion and history:
 
-3. Follow the steps in the Streamlit interface to use STRIDE GPT.
+```bash
+stride-gpt
+```
 
-Note: When you run the application (either locally or via Docker), it will automatically load the environment variables you've set in the `.env` file. This will pre-fill the API keys in the application interface.
+Inside the REPL, type `/help` to see available commands and flags.
+
+**Common flags:**
+
+| Flag | Description |
+|------|-------------|
+| `-o`, `--output` | Save report to a file |
+| `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif` |
+| `-y`, `--yes` | Auto-approve the analysis plan |
+| `--model` | Model to use (e.g. `anthropic/claude-sonnet-4-5`, `ollama/llama3`) |
+
+**View previous reports:**
+
+```bash
+stride-gpt reports        # List recent reports
+stride-gpt reports 1      # View report #1
+stride-gpt reports 1 -o r.json -f json  # Export a report
+```
+
+### Streamlit Web UI
+
+```bash
+stride-gpt serve
+```
+
+Or run directly:
+
+```bash
+streamlit run main.py
+```
+
+Open the provided URL in your browser and follow the on-screen steps.
+
+### Docker
+
+```bash
+# CLI (default entrypoint)
+docker run --env-file .env mrwadams/stridegpt analyze /app --model openai/gpt-5.2
+
+# Streamlit UI
+docker run -p 8501:8501 --env-file .env mrwadams/stridegpt serve
+```
 
 ## Security Best Practices
 

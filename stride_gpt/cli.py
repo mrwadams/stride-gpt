@@ -55,14 +55,20 @@ HELP_TEXT = """
   [cyan]/help[/cyan]                Show this help
   [cyan]/quit[/cyan]                Exit
 
+[bold]Flags[/bold] (for /analyze, /quick, /reports):
+  [cyan]-o, --output[/cyan] <path>    Save report to file
+  [cyan]-f, --format[/cyan] <fmt>     Output format: markdown (default), json, sarif
+  [cyan]-y, --yes[/cyan]              Auto-approve the analysis plan
+
 [bold]Examples:[/bold]
-  [dim]/analyze .[/dim]              Analyze current directory
-  [dim]/analyze ./my-app[/dim]       Analyze a specific path
-  [dim]/analyze . -o report.md[/dim] Save report to file
-  [dim]/quick -i desc.txt[/dim]      Quick model from file
-  [dim]/reports[/dim]               List recent reports
-  [dim]/reports 1[/dim]             View report #1
-  [dim]/reports 1 -o r.md[/dim]     Export report #1 to file
+  [dim]/analyze .[/dim]                          Analyze current directory
+  [dim]/analyze ./my-app[/dim]                   Analyze a specific path
+  [dim]/analyze . -o report.md[/dim]             Save report to file
+  [dim]/analyze . -o report.json -f json[/dim]   Export as JSON
+  [dim]/quick -i desc.txt -f sarif[/dim]         Quick model in SARIF format
+  [dim]/reports[/dim]                            List recent reports
+  [dim]/reports 1[/dim]                          View report #1
+  [dim]/reports 1 -o r.md[/dim]                  Export report #1 to file
 """
 
 

@@ -2,7 +2,7 @@
 name = "stride-gpt"
 version = "0.16.0"
 description = "AI-powered threat modeling using the STRIDE methodology"
-readme = "readme.md"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
