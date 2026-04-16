@@ -73,8 +73,8 @@ def run_analysis(
     config: LLMConfig,
     target_path: Path,
     *,
-    max_llm_calls: int = 100,
-    max_tool_calls: int = 200,
+    max_llm_calls: int = 0,
+    max_tool_calls: int = 0,
     auto_approve: bool = False,
     console: Console | None = None,
 ) -> AnalysisReport:
@@ -118,20 +118,19 @@ def run_analysis(
     console.print(Panel("[bold]Phase 2: Analyzing Subsystems[/bold]", style="blue"))
     findings: list[SubsystemFinding] = []
 
-    num_subsystems = len(plan.subsystems)
-
     for i, subsystem in enumerate(plan.subsystems, 1):
-        if llm_calls >= max_llm_calls - 1 or tool_calls >= max_tool_calls:
+        if max_llm_calls and llm_calls >= max_llm_calls - 1:
             console.print(
-                f"[yellow]Reached call limits (LLM: {llm_calls}/{max_llm_calls}, "
-                f"Tools: {tool_calls}/{max_tool_calls}). Stopping early.[/yellow]"
+                f"[yellow]Reached LLM call limit ({llm_calls}/{max_llm_calls}). "
+                f"Stopping early.[/yellow]"
             )
             break
-
-        # Split remaining budget evenly across remaining subsystems
-        remaining = num_subsystems - (i - 1)
-        sub_llm_budget = max(2, (max_llm_calls - llm_calls - 1) // remaining)
-        sub_tool_budget = max(4, (max_tool_calls - tool_calls) // remaining)
+        if max_tool_calls and tool_calls >= max_tool_calls:
+            console.print(
+                f"[yellow]Reached tool call limit ({tool_calls}/{max_tool_calls}). "
+                f"Stopping early.[/yellow]"
+            )
+            break
 
         console.print(
             f"\n[bold cyan]({i}/{len(plan.subsystems)}) Analyzing: {subsystem.name}[/bold cyan]"
@@ -148,8 +147,8 @@ def run_analysis(
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
                 ctx=ctx,
-                max_llm_calls=sub_llm_budget,
-                max_tool_calls=sub_tool_budget,
+                max_llm_calls=max_llm_calls,
+                max_tool_calls=max_tool_calls,
                 console=console,
                 call_counts=sub_counts,
             )
@@ -160,18 +159,25 @@ def run_analysis(
                 f"  [green]Found {len(finding.threats)} threats in {subsystem.name}[/green]"
             )
         except Exception as e:
-            console.print(f"  [red]Error analyzing {subsystem.name}: {e}[/red]")
+            err_str = str(e)
+            if "n_keep" in err_str and "n_ctx" in err_str:
+                reason = "Context window exceeded — model ran out of space for this subsystem."
+            elif "crashed" in err_str.lower():
+                reason = "The model crashed, likely due to memory constraints."
+            else:
+                reason = f"Unexpected error: {err_str}"
+            console.print(f"  [red]Error analyzing {subsystem.name}: {reason}[/red]")
             findings.append(
                 SubsystemFinding(
                     subsystem=subsystem.name,
                     threats=[],
-                    improvement_suggestions=[f"Analysis failed: {e}"],
+                    improvement_suggestions=[f"Analysis skipped — {reason}"],
                 )
             )
 
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
-    if len(findings) > 1 and llm_calls < max_llm_calls:
+    if len(findings) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
         console.print(Panel("[bold]Phase 3: Synthesizing Cross-Cutting Threats[/bold]", style="blue"))
         with console.status("Identifying cross-cutting threats..."):
             cross_cutting = _synthesize(config, findings)
@@ -192,14 +198,25 @@ def run_analysis(
     )
 
     total_threats = sum(len(f.threats) for f in findings) + len(cross_cutting)
+    succeeded = sum(1 for f in findings if f.threats)
+    failed = len(findings) - succeeded
+
+    summary_style = "green" if not failed else "yellow"
+    status_line = "[bold green]Analysis complete![/bold green]"
+    if failed:
+        status_line = (
+            f"[bold yellow]Analysis partially complete[/bold yellow] "
+            f"— {failed}/{len(findings)} subsystems failed"
+        )
+
     console.print(
         Panel(
-            f"[bold green]Analysis complete![/bold green]\n"
-            f"Subsystems analyzed: {len(findings)}\n"
+            f"{status_line}\n"
+            f"Subsystems analyzed: {succeeded}/{len(findings)}\n"
             f"Total threats found: {total_threats}\n"
             f"LLM calls: {llm_calls} | Tool calls: {tool_calls}",
             title="Summary",
-            style="green",
+            style=summary_style,
         )
     )
 
@@ -235,8 +252,10 @@ Start by reading the key files. Use grep to find security-relevant patterns like
 
     llm_calls = 0
     tool_calls = 0
+    tool_cache: dict[str, str] = {}
 
-    while llm_calls < max_llm_calls and tool_calls < max_tool_calls:
+    while (not max_llm_calls or llm_calls < max_llm_calls) and \
+          (not max_tool_calls or tool_calls < max_tool_calls):
         with console.status(f"  Thinking about {subsystem_name}..."):
             response = call_llm_with_tools(config, messages, AGENT_TOOLS)
             llm_calls += 1
@@ -252,11 +271,21 @@ Start by reading the key files. Use grep to find security-relevant patterns like
                            ]})
 
             for tc in response.tool_calls:
-                if tool_calls >= max_tool_calls:
+                if max_tool_calls and tool_calls >= max_tool_calls:
                     break
-                result = execute_tool(target_path, tc)
+                cache_key = tc.function_name + ":" + json.dumps(tc.arguments, sort_keys=True)
+                cached = tool_cache.get(cache_key)
+                if cached is not None:
+                    result = (
+                        "You already have this result from a previous call. "
+                        "Refer to the earlier tool response instead of requesting it again."
+                    )
+                    console.print(f"    [dim]{tc.function_name}({_brief_args(tc.arguments)}) (cached)[/dim]")
+                else:
+                    result = execute_tool(target_path, tc)
+                    tool_cache[cache_key] = result
+                    console.print(f"    [dim]{tc.function_name}({_brief_args(tc.arguments)})[/dim]")
                 tool_calls += 1
-                console.print(f"    [dim]{tc.function_name}({_brief_args(tc.arguments)})[/dim]")
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -278,8 +307,9 @@ Start by reading the key files. Use grep to find security-relevant patterns like
             # JSON parse failed — retry with forced JSON output
             return _retry_as_json(config, messages, subsystem_name, call_counts)
 
-    # Hit limits — ask model to summarize what it has so far
-    clean_msgs = _strip_tool_calls(messages)
+    # Hit limits — summarize findings and ask model to produce final analysis
+    clean_msgs = _prepare_for_plain_llm(config, messages)
+    llm_calls += 1  # summarization call
     clean_msgs.append({
         "role": "user",
         "content": "You've reached the tool call limit. Please provide your STRIDE threat analysis now based on what you've gathered so far. Respond with the JSON format specified.",
@@ -349,7 +379,8 @@ def _retry_as_json(
     call_counts: dict[str, int],
 ) -> SubsystemFinding:
     """Retry the final analysis with forced JSON output."""
-    clean_msgs = _strip_tool_calls(messages)
+    clean_msgs = _prepare_for_plain_llm(config, messages)
+    call_counts["llm"] = call_counts.get("llm", 0) + 1  # summarization call
     clean_msgs.append({
         "role": "user",
         "content": "Please respond with ONLY a valid JSON object in the format specified in your instructions. No other text.",
@@ -413,14 +444,103 @@ def _synthesize(config: LLMConfig, findings: list[SubsystemFinding]) -> list[dic
     return data.get("cross_cutting_threats", [])
 
 
-def _strip_tool_calls(messages: list[dict]) -> list[dict]:
-    """Return a copy of messages with tool-call artifacts removed.
+SUMMARIZE_TRUNCATION = 6_000  # chars per message when building summary input
 
-    Anthropic (and some other providers) reject messages containing
-    tool_calls unless the request also includes a tools parameter.
-    When we switch from tool-use to a plain call_llm, we need to
-    clean these out.
+SUMMARIZE_PROMPT = """You are summarizing the results of a security-focused codebase exploration.
+
+The following is a conversation between a security analyst and their tools. The analyst read files, searched for patterns, and listed directories. Summarize the key findings into a concise briefing that preserves:
+
+- Specific code patterns found (e.g., auth checks, input validation, secret handling)
+- File contents and architectural details relevant to STRIDE threat analysis
+- Any security weaknesses or concerns already noted
+- Enough concrete detail to support writing specific threat scenarios
+
+Be thorough — the analyst needs this summary to produce a final STRIDE threat report without access to the original files."""
+
+
+def _summarize_for_analysis(config: LLMConfig, messages: list[dict]) -> str:
+    """Summarize tool exploration results into a security-focused findings briefing."""
+    parts: list[str] = []
+    for msg in messages:
+        role = msg.get("role", "unknown")
+        content = str(msg.get("content", ""))
+        if not content.strip():
+            continue
+        # Tool call metadata: show what was called
+        if "tool_calls" in msg:
+            tcs = msg.get("tool_calls", [])
+            calls = ", ".join(
+                f"{tc.get('function', {}).get('name', '?')}({tc.get('function', {}).get('arguments', '')})"
+                for tc in tcs
+            )
+            parts.append(f"[assistant] Called: {calls}")
+            continue
+        # Truncate long content (file reads can be huge)
+        if len(content) > SUMMARIZE_TRUNCATION:
+            content = content[:SUMMARIZE_TRUNCATION] + "\n... (truncated)"
+        parts.append(f"[{role}] {content}")
+
+    conversation = "\n---\n".join(parts)
+
+    summary_messages = [
+        {"role": "system", "content": SUMMARIZE_PROMPT},
+        {"role": "user", "content": conversation},
+    ]
+    response = call_llm(config, summary_messages)
+    return response.content
+
+
+def _prepare_for_plain_llm(config: LLMConfig, messages: list[dict]) -> list[dict]:
+    """Prepare messages for a plain (non-tool-use) LLM call.
+
+    Summarizes tool exploration via an LLM call, then builds a clean message
+    list with no tool artifacts. Falls back to _strip_tool_calls if the
+    summarization call fails.
     """
+    # Extract system messages and original user prompt
+    system_msgs = []
+    user_prompt_msg = None
+    for msg in messages:
+        if msg.get("role") == "system" and user_prompt_msg is None:
+            system_msgs.append(msg)
+        elif msg.get("role") == "user" and user_prompt_msg is None:
+            user_prompt_msg = msg
+            break
+
+    # Check if there are any tool results worth summarizing
+    has_tool_results = any(msg.get("role") == "tool" for msg in messages)
+    if not has_tool_results:
+        return _strip_tool_artifacts(messages)
+
+    try:
+        summary = _summarize_for_analysis(config, messages)
+    except Exception:
+        # Summarization failed — fall back to lossy stripping
+        return _strip_tool_artifacts(messages)
+
+    result = list(system_msgs)
+    if user_prompt_msg:
+        result.append(user_prompt_msg)
+    result.append({
+        "role": "user",
+        "content": f"[Findings from codebase exploration]\n{summary}",
+    })
+
+    # Preserve any substantive assistant analysis text
+    assistant_parts = []
+    for msg in messages:
+        if msg.get("role") == "assistant":
+            text = (msg.get("content") or "").strip()
+            if text and "tool_calls" not in msg:
+                assistant_parts.append(text)
+    if assistant_parts:
+        result.append({"role": "assistant", "content": "\n\n".join(assistant_parts)})
+
+    return result
+
+
+def _strip_tool_artifacts(messages: list[dict]) -> list[dict]:
+    """Remove tool-call metadata from messages so they're valid for plain LLM calls."""
     cleaned: list[dict] = []
     for msg in messages:
         if msg.get("role") == "tool":

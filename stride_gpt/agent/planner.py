@@ -71,7 +71,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
 ## Key Files Found ({len(key_files)} files)
 {chr(10).join(key_files[:200])}"""
 
-    json_config = config.model_copy(update={"response_format": "json"})
+    json_config = config.model_copy(update={"response_format": AnalysisPlan.model_json_schema()})
     messages = [
         {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
         {"role": "user", "content": discovery_prompt},

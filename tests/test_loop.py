@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-
-import pytest
 
 from stride_gpt.agent.loop import (
     _parse_subsystem_finding,
-    _strip_tool_calls,
+    _prepare_for_plain_llm,
+    _strip_tool_artifacts,
+    _summarize_for_analysis,
     _synthesize,
     _try_parse_json,
     run_analysis,
 )
 from stride_gpt.core.schemas import (
     AnalysisPlan,
-    LLMConfig,
     LLMResponse,
     Subsystem,
     SubsystemFinding,
@@ -87,11 +85,11 @@ class TestParseSubsystemFinding:
 
 
 # ---------------------------------------------------------------------------
-# _strip_tool_calls
+# _strip_tool_artifacts
 # ---------------------------------------------------------------------------
 
 
-class TestStripToolCalls:
+class TestStripToolArtifacts:
     def test_removes_tool_messages(self):
         msgs = [
             {"role": "system", "content": "sys"},
@@ -99,7 +97,7 @@ class TestStripToolCalls:
             {"role": "tool", "tool_call_id": "1", "content": "result"},
             {"role": "user", "content": "next"},
         ]
-        result = _strip_tool_calls(msgs)
+        result = _strip_tool_artifacts(msgs)
         assert len(result) == 3  # system + cleaned assistant + user
         assert all(m["role"] != "tool" for m in result)
         assert "tool_calls" not in result[1]
@@ -108,7 +106,7 @@ class TestStripToolCalls:
         msgs = [
             {"role": "assistant", "content": "thinking...", "tool_calls": [{"id": "1"}]},
         ]
-        result = _strip_tool_calls(msgs)
+        result = _strip_tool_artifacts(msgs)
         assert result[0]["content"] == "thinking..."
 
     def test_noop_on_clean_messages(self):
@@ -116,8 +114,104 @@ class TestStripToolCalls:
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hello"},
         ]
-        result = _strip_tool_calls(msgs)
+        result = _strip_tool_artifacts(msgs)
         assert result == msgs
+
+
+# ---------------------------------------------------------------------------
+# _summarize_for_analysis / _prepare_for_plain_llm
+# ---------------------------------------------------------------------------
+
+
+class TestSummarizeForAnalysis:
+    @patch("stride_gpt.agent.loop.call_llm")
+    def test_builds_summary_from_tool_results(self, mock_call_llm, llm_config):
+        mock_call_llm.return_value = LLMResponse(content="Summary of findings")
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "analyze auth"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "1", "type": "function", "function": {"name": "read_file", "arguments": '{"path":"auth.py"}'}}
+            ]},
+            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "def login(): pass"},
+        ]
+        result = _summarize_for_analysis(llm_config, messages)
+        assert result == "Summary of findings"
+        # Verify the LLM was called with the summary prompt
+        call_args = mock_call_llm.call_args
+        sent_messages = call_args[0][1]
+        assert "security-focused" in sent_messages[0]["content"].lower()
+        # Tool results should appear in the conversation sent to the summarizer
+        assert "def login(): pass" in sent_messages[1]["content"]
+
+    @patch("stride_gpt.agent.loop.call_llm")
+    def test_skips_empty_content(self, mock_call_llm, llm_config):
+        mock_call_llm.return_value = LLMResponse(content="Summary")
+        messages = [
+            {"role": "assistant", "content": ""},
+            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "data"},
+        ]
+        _summarize_for_analysis(llm_config, messages)
+        sent_content = mock_call_llm.call_args[0][1][1]["content"]
+        # Empty assistant content should be skipped, tool content included
+        assert "data" in sent_content
+
+
+class TestPrepareForPlainLlm:
+    @patch("stride_gpt.agent.loop._summarize_for_analysis")
+    def test_preserves_system_and_user(self, mock_summarize, llm_config):
+        mock_summarize.return_value = "Security findings here"
+        messages = [
+            {"role": "system", "content": "You are a security expert"},
+            {"role": "user", "content": "Analyze auth subsystem"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
+            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "file data"},
+        ]
+        result = _prepare_for_plain_llm(llm_config, messages)
+        assert result[0]["role"] == "system"
+        assert result[0]["content"] == "You are a security expert"
+        assert result[1]["role"] == "user"
+        assert result[1]["content"] == "Analyze auth subsystem"
+        assert result[2]["role"] == "user"
+        assert "Security findings here" in result[2]["content"]
+
+    @patch("stride_gpt.agent.loop._summarize_for_analysis")
+    def test_no_tool_results_skips_summarization(self, mock_summarize, llm_config):
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "response"},
+        ]
+        result = _prepare_for_plain_llm(llm_config, messages)
+        mock_summarize.assert_not_called()
+        assert all(m.get("role") != "tool" for m in result)
+
+    @patch("stride_gpt.agent.loop._summarize_for_analysis")
+    def test_falls_back_on_summarization_failure(self, mock_summarize, llm_config):
+        mock_summarize.side_effect = Exception("LLM error")
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "analyze"},
+            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "data"},
+        ]
+        result = _prepare_for_plain_llm(llm_config, messages)
+        # Should fall back to _strip_tool_artifacts (lossy but doesn't crash)
+        assert all(m.get("role") != "tool" for m in result)
+
+    @patch("stride_gpt.agent.loop._summarize_for_analysis")
+    def test_output_has_no_tool_artifacts(self, mock_summarize, llm_config):
+        mock_summarize.return_value = "findings"
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "task"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
+            {"role": "tool", "tool_call_id": "1", "name": "grep", "content": "matches"},
+            {"role": "assistant", "content": "I found something interesting"},
+        ]
+        result = _prepare_for_plain_llm(llm_config, messages)
+        for msg in result:
+            assert msg.get("role") != "tool"
+            assert "tool_calls" not in msg
 
 
 # ---------------------------------------------------------------------------

@@ -86,8 +86,19 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
             kwargs["api_base"] = config.api_base
 
     # JSON mode
-    if config.response_format == "json":
-        kwargs["response_format"] = {"type": "json_object"}
+    if isinstance(config.response_format, dict):
+        # Caller provided an explicit JSON schema — use json_schema mode.
+        # Ollama doesn't support structured output, so skip it there.
+        if config.provider != "Ollama":
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": config.response_format},
+            }
+    elif config.response_format == "json":
+        # Generic JSON mode — use json_object where supported.
+        # LM Studio only accepts json_schema or text; Ollama doesn't support either.
+        if config.provider not in ("Ollama", "LM Studio Server"):
+            kwargs["response_format"] = {"type": "json_object"}
 
     # --- Google AI API specifics ---
     if config.provider == "Google AI API":

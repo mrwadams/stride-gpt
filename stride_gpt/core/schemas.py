@@ -18,7 +18,7 @@ class LLMConfig(BaseModel):
     timeout: int | None = None  # Request timeout in seconds
     use_thinking: bool = False  # Anthropic extended thinking
     max_tokens: int | None = None  # Override default max tokens
-    response_format: str = "text"  # "text" or "json"
+    response_format: str | dict = "text"  # "text", "json", or a JSON schema dict
 
 
 @dataclass

@@ -213,6 +213,12 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         console.print(f"[red]API key not found. Set {env_var} in your environment.[/red]")
         return
 
+    if config.get("provider") == "LM Studio" and config.get("api_base"):
+        from stride_gpt.config import check_lm_studio_context
+
+        if not check_lm_studio_context(config["api_base"], config["model"], console):
+            return
+
     console.print(
         Panel(
             f"Analyzing [cyan]{target_path}[/cyan]\n"
@@ -481,8 +487,8 @@ def analyze(
     api_base: Annotated[Optional[str], typer.Option(help="Custom API base URL.")] = None,
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
-    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls.")] = 100,
-    max_tool_calls: Annotated[int, typer.Option(help="Max tool executions.")] = 200,
+    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls (0 = unlimited).")] = 0,
+    max_tool_calls: Annotated[int, typer.Option(help="Max tool executions (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""
@@ -496,6 +502,12 @@ def analyze(
     if not target.is_dir():
         console.print(f"[red]Error: {path} is not a directory.[/red]")
         raise typer.Exit(1)
+
+    if llm_config.provider == "LM Studio Server" and llm_config.api_base:
+        from stride_gpt.config import check_lm_studio_context
+
+        if not check_lm_studio_context(llm_config.api_base, llm_config.model_name, console):
+            raise typer.Exit(1)
 
     console.print(
         Panel(

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import httpx
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
@@ -58,7 +59,7 @@ PROVIDERS: dict[str, dict[str, Any]] = {
     },
     "Ollama": {
         "provider_key": "Ollama",
-        "models": ["llama3", "mistral", "codellama", "deepseek-coder"],
+        "models": [],
         "env_var": None,
         "needs_api_key": False,
         "needs_api_base": True,
@@ -73,6 +74,67 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "default_api_base": "http://localhost:1234",
     },
 }
+
+
+def fetch_local_models(provider_name: str, api_base: str) -> list[str]:
+    """Discover available models from a local Ollama or LM Studio instance.
+
+    Returns a list of model name strings, or an empty list on failure.
+    """
+    try:
+        if provider_name == "Ollama":
+            url = api_base.rstrip("/") + "/api/tags"
+            resp = httpx.get(url, timeout=5)
+            resp.raise_for_status()
+            return [m["name"] for m in resp.json().get("models", [])]
+        elif provider_name == "LM Studio":
+            url = api_base.rstrip("/") + "/v1/models"
+            resp = httpx.get(url, timeout=5)
+            resp.raise_for_status()
+            return [m["id"] for m in resp.json().get("data", [])]
+    except (httpx.HTTPError, KeyError, TypeError):
+        pass
+    return []
+
+
+MIN_CONTEXT_LENGTH = 16384  # Minimum context length recommended for agentic analysis
+
+
+def check_lm_studio_context(
+    api_base: str, model_name: str, console: Console | None = None,
+) -> bool:
+    """Check whether an LM Studio model has adequate context for agentic analysis.
+
+    Queries the native /api/v1/models endpoint for the loaded context length.
+    Returns True if context is sufficient or unknown. Returns False if too small.
+    """
+    try:
+        url = api_base.rstrip("/") + "/api/v1/models"
+        resp = httpx.get(url, timeout=5)
+        resp.raise_for_status()
+        for model in resp.json().get("models", []):
+            if model.get("key") != model_name:
+                continue
+            max_ctx = model.get("max_context_length", 0)
+            loaded_instances = model.get("loaded_instances", [])
+            if not loaded_instances:
+                continue
+            loaded_ctx = loaded_instances[0].get("config", {}).get("context_length", 0)
+            if loaded_ctx >= MIN_CONTEXT_LENGTH:
+                return True
+            if console:
+                console.print(
+                    f"\n[bold red]Context window too small.[/bold red] "
+                    f"'{model_name}' is loaded with [bold]{loaded_ctx:,}[/bold] tokens "
+                    f"(max supported: {max_ctx:,}).\n"
+                    f"[yellow]Agentic analysis needs at least {MIN_CONTEXT_LENGTH:,} tokens "
+                    f"(32,768+ recommended). Increase the context length in LM Studio's "
+                    f"model settings and reload the model.[/yellow]\n"
+                )
+            return False
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        pass
+    return True  # Can't check — proceed optimistically
 
 
 def load_config() -> dict[str, Any] | None:
@@ -143,32 +205,34 @@ def run_setup(console: Console) -> dict[str, Any]:
     console.print(f"  [green]Selected: {provider_name}[/green]")
     console.print()
 
-    # Step 2: Pick model
-    if provider["models"]:
-        console.print("[bold]Select a model:[/bold]")
-        for i, model in enumerate(provider["models"], 1):
-            console.print(f"  [bold]{i}[/bold]  {model}")
-        console.print(f"  [bold]{len(provider['models']) + 1}[/bold]  [dim]Custom (enter model name)[/dim]")
+    # Step 2: Pick model (cloud providers only — local providers pick after endpoint discovery)
+    model_name = ""
+    if not provider["needs_api_base"]:
+        if provider["models"]:
+            console.print("[bold]Select a model:[/bold]")
+            for i, model in enumerate(provider["models"], 1):
+                console.print(f"  [bold]{i}[/bold]  {model}")
+            console.print(f"  [bold]{len(provider['models']) + 1}[/bold]  [dim]Custom (enter model name)[/dim]")
+            console.print()
+
+            while True:
+                model_choice = Prompt.ask("Model", default="1")
+                try:
+                    midx = int(model_choice) - 1
+                    if 0 <= midx < len(provider["models"]):
+                        model_name = provider["models"][midx]
+                        break
+                    elif midx == len(provider["models"]):
+                        model_name = Prompt.ask("Enter model name")
+                        break
+                except ValueError:
+                    model_name = model_choice  # Treat as raw model name
+                    break
+        else:
+            model_name = Prompt.ask("Enter model name")
+
+        console.print(f"  [green]Model: {model_name}[/green]")
         console.print()
-
-        while True:
-            model_choice = Prompt.ask("Model", default="1")
-            try:
-                midx = int(model_choice) - 1
-                if 0 <= midx < len(provider["models"]):
-                    model_name = provider["models"][midx]
-                    break
-                elif midx == len(provider["models"]):
-                    model_name = Prompt.ask("Enter model name")
-                    break
-            except ValueError:
-                model_name = model_choice  # Treat as raw model name
-                break
-    else:
-        model_name = Prompt.ask("Enter model name")
-
-    console.print(f"  [green]Model: {model_name}[/green]")
-    console.print()
 
     # Step 3: API key — read from .env file or environment variables
     if provider["needs_api_key"]:
@@ -197,6 +261,39 @@ def run_setup(console: Console) -> dict[str, Any]:
     if provider["needs_api_base"]:
         default_base = provider.get("default_api_base", "http://localhost:11434")
         api_base = Prompt.ask("API base URL", default=default_base)
+
+        # Auto-discover models from the local server
+        console.print(f"  [dim]Checking {api_base} for available models...[/dim]")
+        discovered = fetch_local_models(provider_name, api_base)
+        if discovered:
+            console.print(f"  [green]Found {len(discovered)} model(s)[/green]")
+            console.print()
+            console.print("[bold]Select a model:[/bold]")
+            for i, m in enumerate(discovered, 1):
+                console.print(f"  [bold]{i}[/bold]  {m}")
+            console.print(f"  [bold]{len(discovered) + 1}[/bold]  [dim]Custom (enter model name)[/dim]")
+            console.print()
+
+            while True:
+                model_choice = Prompt.ask("Model", default="1")
+                try:
+                    midx = int(model_choice) - 1
+                    if 0 <= midx < len(discovered):
+                        model_name = discovered[midx]
+                        break
+                    elif midx == len(discovered):
+                        model_name = Prompt.ask("Enter model name")
+                        break
+                except ValueError:
+                    model_name = model_choice
+                    break
+
+            console.print(f"  [green]Model: {model_name}[/green]")
+            console.print()
+        else:
+            console.print("  [yellow]Could not connect or no models found.[/yellow]")
+            if not model_name:
+                model_name = Prompt.ask("Enter model name")
 
     config = {
         "provider": provider_name,
