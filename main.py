@@ -1319,8 +1319,8 @@ with st.sidebar:
 
 # ------------------ Main App UI ------------------ #
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases", "Deep Analysis"]
 )
 
 with tab1:
@@ -2153,3 +2153,8 @@ scenarios.
 
         else:
             st.error("Please generate a threat model first before requesting test cases.")
+
+with tab6:
+    from stride_gpt.streamlit_analysis import render_deep_analysis_tab
+
+    render_deep_analysis_tab()

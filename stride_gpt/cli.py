@@ -171,7 +171,9 @@ def _handle_config(config: dict) -> None:
 
 def _handle_analyze(config: dict, args_str: str) -> None:
     """Run agentic analysis from interactive session."""
-    from stride_gpt.agent.loop import run_analysis
+    from stride_gpt.agent.loop import create_analysis_plan, run_analysis
+    from stride_gpt.agent.planner import format_plan_for_display
+    from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
 
     # Parse inline args
@@ -228,11 +230,26 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         )
     )
 
+    progress = RichProgress(console)
+
+    # Phase 1: Plan
+    progress.phase_start("Phase 1", "Planning")
+    progress.status("Scanning codebase and generating plan...")
+    plan = create_analysis_plan(llm_config, target_path)
+    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+
+    if not auto_approve:
+        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
+        if response.lower() not in ("y", "yes"):
+            console.print("[red]Analysis cancelled.[/red]")
+            return
+
+    # Phases 2+3: Analyze with pre-approved plan
     report = run_analysis(
         config=llm_config,
         target_path=target_path,
-        auto_approve=auto_approve,
-        console=console,
+        plan=plan,
+        progress=progress,
     )
 
     # Auto-save (skip cancelled runs)
@@ -492,7 +509,9 @@ def analyze(
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""
-    from stride_gpt.agent.loop import run_analysis
+    from stride_gpt.agent.loop import create_analysis_plan, run_analysis
+    from stride_gpt.agent.planner import format_plan_for_display
+    from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
     from stride_gpt.core.schemas import LLMConfig
 
@@ -519,13 +538,28 @@ def analyze(
         )
     )
 
+    progress = RichProgress(console)
+
+    # Phase 1: Plan
+    progress.phase_start("Phase 1", "Planning")
+    progress.status("Scanning codebase and generating plan...")
+    plan = create_analysis_plan(llm_config, target)
+    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+
+    if not auto_approve:
+        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
+        if response.lower() not in ("y", "yes"):
+            console.print("[red]Analysis cancelled.[/red]")
+            raise typer.Exit(0)
+
+    # Phases 2+3: Analyze with pre-approved plan
     report = run_analysis(
         config=llm_config,
         target_path=target,
+        plan=plan,
         max_llm_calls=max_llm_calls,
         max_tool_calls=max_tool_calls,
-        auto_approve=auto_approve,
-        console=console,
+        progress=progress,
     )
 
     # Auto-save

@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
-from rich.panel import Panel
 
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.planner import create_plan, format_plan_for_display
+from stride_gpt.agent.progress import ProgressCallback, RichProgress
 from stride_gpt.agent.tools import AGENT_TOOLS, execute_tool
 from stride_gpt.core.llm import call_llm, call_llm_with_tools
 from stride_gpt.core.schemas import (
@@ -69,13 +69,24 @@ Respond with a JSON object:
 }"""
 
 
+def create_analysis_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
+    """Run Phase 1 only: scan the codebase and generate an analysis plan.
+
+    This is separated from run_analysis() so callers can inspect/approve
+    the plan before committing to the full analysis.
+    """
+    return create_plan(config, target_path)
+
+
 def run_analysis(
     config: LLMConfig,
     target_path: Path,
     *,
+    plan: AnalysisPlan | None = None,
     max_llm_calls: int = 0,
     max_tool_calls: int = 0,
     auto_approve: bool = False,
+    progress: ProgressCallback | None = None,
     console: Console | None = None,
 ) -> AnalysisReport:
     """Run a full agentic threat model analysis on a codebase.
@@ -83,59 +94,61 @@ def run_analysis(
     Args:
         config: LLM configuration.
         target_path: Path to the codebase root.
-        max_llm_calls: Hard limit on total LLM calls.
-        max_tool_calls: Hard limit on total tool executions.
-        auto_approve: Skip interactive plan approval.
-        console: Rich console for output. Creates one if not provided.
+        plan: Pre-approved analysis plan. If None, creates one (Phase 1).
+        max_llm_calls: Hard limit on total LLM calls (0 = unlimited).
+        max_tool_calls: Hard limit on total tool executions (0 = unlimited).
+        auto_approve: Skip interactive plan approval (only used when plan is None).
+        progress: Progress callback for UI updates. Falls back to Rich console.
+        console: Deprecated — use progress instead. Kept for backward compat.
 
     Returns:
         Complete AnalysisReport.
     """
-    console = console or Console()
+    if progress is None:
+        progress = RichProgress(console or Console())
+
     ctx = ContextManager(model=config.model_name)
     llm_calls = 0
     tool_calls = 0
 
     # --- Phase 1: Planning ---
-    console.print(Panel("[bold]Phase 1: Planning[/bold]", style="blue"))
-    with console.status("Scanning codebase and generating plan..."):
+    if plan is None:
+        progress.phase_start("Phase 1", "Planning")
+        progress.status("Scanning codebase and generating plan...")
         plan = create_plan(config, target_path)
         llm_calls += 1
 
-    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+        progress.status(format_plan_for_display(plan))
 
-    if not auto_approve:
-        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
-        if response.lower() not in ("y", "yes"):
-            console.print("[red]Analysis cancelled.[/red]")
-            return AnalysisReport(
-                plan=plan,
-                findings=[],
-                metadata={"status": "cancelled"},
-            )
+        if not auto_approve:
+            # When no plan is provided and auto_approve is False,
+            # the caller should have handled approval. For backward compat
+            # with CLI, we use Rich console input if available.
+            if console is not None:
+                response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
+                if response.lower() not in ("y", "yes"):
+                    progress.complete("Analysis cancelled.")
+                    return AnalysisReport(
+                        plan=plan,
+                        findings=[],
+                        metadata={"status": "cancelled"},
+                    )
+            # If no console and not auto_approve, proceed anyway
+            # (caller should use the split API for interactive approval)
 
     # --- Phase 2: Per-subsystem analysis ---
-    console.print(Panel("[bold]Phase 2: Analyzing Subsystems[/bold]", style="blue"))
+    progress.phase_start("Phase 2", "Analyzing Subsystems")
     findings: list[SubsystemFinding] = []
 
     for i, subsystem in enumerate(plan.subsystems, 1):
         if max_llm_calls and llm_calls >= max_llm_calls - 1:
-            console.print(
-                f"[yellow]Reached LLM call limit ({llm_calls}/{max_llm_calls}). "
-                f"Stopping early.[/yellow]"
-            )
+            progress.limit_reached("LLM call", llm_calls, max_llm_calls)
             break
         if max_tool_calls and tool_calls >= max_tool_calls:
-            console.print(
-                f"[yellow]Reached tool call limit ({tool_calls}/{max_tool_calls}). "
-                f"Stopping early.[/yellow]"
-            )
+            progress.limit_reached("tool call", tool_calls, max_tool_calls)
             break
 
-        console.print(
-            f"\n[bold cyan]({i}/{len(plan.subsystems)}) Analyzing: {subsystem.name}[/bold cyan]"
-        )
-        console.print(f"  {subsystem.description}")
+        progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
 
         try:
             sub_counts: dict[str, int] = {"llm": 0, "tool": 0}
@@ -149,15 +162,13 @@ def run_analysis(
                 ctx=ctx,
                 max_llm_calls=max_llm_calls,
                 max_tool_calls=max_tool_calls,
-                console=console,
+                progress=progress,
                 call_counts=sub_counts,
             )
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
             findings.append(finding)
-            console.print(
-                f"  [green]Found {len(finding.threats)} threats in {subsystem.name}[/green]"
-            )
+            progress.subsystem_done(subsystem.name, len(finding.threats))
         except Exception as e:
             err_str = str(e)
             if "n_keep" in err_str and "n_ctx" in err_str:
@@ -166,7 +177,7 @@ def run_analysis(
                 reason = "The model crashed, likely due to memory constraints."
             else:
                 reason = f"Unexpected error: {err_str}"
-            console.print(f"  [red]Error analyzing {subsystem.name}: {reason}[/red]")
+            progress.error(subsystem.name, reason)
             findings.append(
                 SubsystemFinding(
                     subsystem=subsystem.name,
@@ -178,11 +189,11 @@ def run_analysis(
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
     if len(findings) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
-        console.print(Panel("[bold]Phase 3: Synthesizing Cross-Cutting Threats[/bold]", style="blue"))
-        with console.status("Identifying cross-cutting threats..."):
-            cross_cutting = _synthesize(config, findings)
-            llm_calls += 1
-        console.print(f"  [green]Found {len(cross_cutting)} cross-cutting threats[/green]")
+        progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
+        progress.status("Identifying cross-cutting threats...")
+        cross_cutting = _synthesize(config, findings)
+        llm_calls += 1
+        progress.synthesis_done(len(cross_cutting))
 
     report = AnalysisReport(
         plan=plan,
@@ -201,25 +212,22 @@ def run_analysis(
     succeeded = sum(1 for f in findings if f.threats)
     failed = len(findings) - succeeded
 
-    summary_style = "green" if not failed else "yellow"
-    status_line = "[bold green]Analysis complete![/bold green]"
     if failed:
-        status_line = (
-            f"[bold yellow]Analysis partially complete[/bold yellow] "
-            f"— {failed}/{len(findings)} subsystems failed"
-        )
-
-    console.print(
-        Panel(
-            f"{status_line}\n"
+        summary = (
+            f"Analysis partially complete — {failed}/{len(findings)} subsystems failed\n"
             f"Subsystems analyzed: {succeeded}/{len(findings)}\n"
             f"Total threats found: {total_threats}\n"
-            f"LLM calls: {llm_calls} | Tool calls: {tool_calls}",
-            title="Summary",
-            style=summary_style,
+            f"LLM calls: {llm_calls} | Tool calls: {tool_calls}"
         )
-    )
+    else:
+        summary = (
+            f"Analysis complete!\n"
+            f"Subsystems analyzed: {succeeded}/{len(findings)}\n"
+            f"Total threats found: {total_threats}\n"
+            f"LLM calls: {llm_calls} | Tool calls: {tool_calls}"
+        )
 
+    progress.complete(summary)
     return report
 
 
@@ -233,7 +241,7 @@ def _analyze_subsystem(
     ctx: ContextManager,
     max_llm_calls: int,
     max_tool_calls: int,
-    console: Console,
+    progress: ProgressCallback,
     call_counts: dict[str, int],
 ) -> SubsystemFinding:
     """Analyze a single subsystem using the agent loop."""
@@ -256,9 +264,9 @@ Start by reading the key files. Use grep to find security-relevant patterns like
 
     while (not max_llm_calls or llm_calls < max_llm_calls) and \
           (not max_tool_calls or tool_calls < max_tool_calls):
-        with console.status(f"  Thinking about {subsystem_name}..."):
-            response = call_llm_with_tools(config, messages, AGENT_TOOLS)
-            llm_calls += 1
+        progress.status(f"Thinking about {subsystem_name}...")
+        response = call_llm_with_tools(config, messages, AGENT_TOOLS)
+        llm_calls += 1
 
         if response.tool_calls:
             # Execute tool calls
@@ -280,11 +288,11 @@ Start by reading the key files. Use grep to find security-relevant patterns like
                         "You already have this result from a previous call. "
                         "Refer to the earlier tool response instead of requesting it again."
                     )
-                    console.print(f"    [dim]{tc.function_name}({_brief_args(tc.arguments)}) (cached)[/dim]")
+                    progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=True)
                 else:
                     result = execute_tool(target_path, tc)
                     tool_cache[cache_key] = result
-                    console.print(f"    [dim]{tc.function_name}({_brief_args(tc.arguments)})[/dim]")
+                    progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=False)
                 tool_calls += 1
                 messages.append({
                     "role": "tool",

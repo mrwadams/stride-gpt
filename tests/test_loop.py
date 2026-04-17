@@ -12,8 +12,10 @@ from stride_gpt.agent.loop import (
     _summarize_for_analysis,
     _synthesize,
     _try_parse_json,
+    create_analysis_plan,
     run_analysis,
 )
+from stride_gpt.agent.progress import RichProgress
 from stride_gpt.core.schemas import (
     AnalysisPlan,
     LLMResponse,
@@ -260,10 +262,9 @@ class TestSynthesize:
 class TestRunAnalysis:
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
-    @patch("stride_gpt.agent.loop.create_plan")
-    def test_full_analysis(self, mock_plan, mock_llm_tools, mock_llm, llm_config, tmp_path):
-        # Plan
-        mock_plan.return_value = AnalysisPlan(
+    def test_full_analysis_with_plan(self, mock_llm_tools, mock_llm, llm_config, tmp_path):
+        """Test analysis with a pre-approved plan (the split API)."""
+        plan = AnalysisPlan(
             target_path=str(tmp_path),
             overall_description="Test app",
             subsystems=[
@@ -283,23 +284,24 @@ class TestRunAnalysis:
         )
 
         # Synthesis skipped (only 1 subsystem)
-        console = MagicMock()
-        console.status.return_value.__enter__ = MagicMock()
-        console.status.return_value.__exit__ = MagicMock()
-
-        report = run_analysis(llm_config, tmp_path, auto_approve=True, console=console)
+        progress = MagicMock()
+        report = run_analysis(llm_config, tmp_path, plan=plan, progress=progress)
 
         assert len(report.findings) == 1
         assert report.findings[0].subsystem == "Auth"
         assert len(report.findings[0].threats) == 1
         assert report.metadata["subsystems_analyzed"] == 1
+        # Verify progress callbacks were invoked
+        progress.phase_start.assert_called()
+        progress.subsystem_start.assert_called()
+        progress.subsystem_done.assert_called_with("Auth", 1)
+        progress.complete.assert_called()
 
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
-    @patch("stride_gpt.agent.loop.create_plan")
-    def test_tool_call_flow(self, mock_plan, mock_llm_tools, mock_llm, llm_config, sandbox_dir):
+    def test_tool_call_flow(self, mock_llm_tools, mock_llm, llm_config, sandbox_dir):
         """Test that the agent executes tool calls before producing findings."""
-        mock_plan.return_value = AnalysisPlan(
+        plan = AnalysisPlan(
             target_path=str(sandbox_dir),
             overall_description="Test app",
             subsystems=[
@@ -325,18 +327,18 @@ class TestRunAnalysis:
         )
         mock_llm_tools.side_effect = [tool_call_response, final_response]
 
-        console = MagicMock()
-        console.status.return_value.__enter__ = MagicMock()
-        console.status.return_value.__exit__ = MagicMock()
-
-        report = run_analysis(llm_config, sandbox_dir, auto_approve=True, console=console)
+        progress = MagicMock()
+        report = run_analysis(llm_config, sandbox_dir, plan=plan, progress=progress)
 
         assert len(report.findings) == 1
         assert report.findings[0].threats[0]["Threat Type"] == "Information Disclosure"
         assert report.metadata["tool_calls"] >= 1
+        # Verify tool call was reported to progress
+        progress.tool_call.assert_called()
 
     @patch("stride_gpt.agent.loop.create_plan")
     def test_cancelled_analysis(self, mock_plan, llm_config, tmp_path):
+        """Test cancellation via console.input (backward compat path)."""
         mock_plan.return_value = AnalysisPlan(
             target_path=str(tmp_path),
             overall_description="Test",
@@ -344,8 +346,6 @@ class TestRunAnalysis:
         )
 
         console = MagicMock()
-        console.status.return_value.__enter__ = MagicMock()
-        console.status.return_value.__exit__ = MagicMock()
         console.input.return_value = "n"
 
         report = run_analysis(llm_config, tmp_path, auto_approve=False, console=console)
