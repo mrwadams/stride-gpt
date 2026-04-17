@@ -95,6 +95,9 @@ def interactive(ctx: typer.Context) -> None:
     config = load_config()
     if config is None:
         config = run_setup(console)
+        if config is None:
+            console.print("[yellow]Configuration is required to continue. Run stride-gpt again to set up.[/yellow]")
+            raise typer.Exit()
     else:
         console.print()
         console.print(
@@ -166,7 +169,9 @@ def _handle_config(config: dict) -> None:
     show_config(console, config)
     console.print()
     if Confirm.ask("Reconfigure?", default=False):
-        run_setup(console)
+        result = run_setup(console)
+        if result is None:
+            console.print("[dim]Keeping existing configuration.[/dim]")
 
 
 def _handle_analyze(config: dict, args_str: str) -> None:

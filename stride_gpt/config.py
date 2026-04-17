@@ -91,14 +91,24 @@ def save_config(config: dict[str, Any]) -> None:
     CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n")
 
 
-def run_setup(console: Console) -> dict[str, Any]:
-    """Interactive first-run setup wizard. Returns config dict."""
+def _is_quit(value: str) -> bool:
+    """Check if the user wants to cancel setup."""
+    return value.strip().lower() in ("q", "quit", "cancel")
+
+
+def _cancel(console: Console) -> None:
+    console.print("\n[dim]Setup cancelled.[/dim]")
+
+
+def run_setup(console: Console) -> dict[str, Any] | None:
+    """Interactive first-run setup wizard. Returns config dict, or None if cancelled."""
     console.print()
     console.print(
         Panel(
             "[bold]Welcome to STRIDE-GPT[/bold]\n\n"
             "Let's set up your threat modeling agent.\n"
-            "You can change these settings anytime with [cyan]/config[/cyan].",
+            "You can change these settings anytime with [cyan]/config[/cyan].\n"
+            "Type [dim]q[/dim] at any prompt to cancel.",
             style="blue",
         )
     )
@@ -123,6 +133,9 @@ def run_setup(console: Console) -> dict[str, Any]:
             "Provider",
             default="1",
         )
+        if _is_quit(choice):
+            _cancel(console)
+            return None
         try:
             idx = int(choice) - 1
             if 0 <= idx < len(provider_names):
@@ -156,6 +169,9 @@ def run_setup(console: Console) -> dict[str, Any]:
 
             while True:
                 model_choice = Prompt.ask("Model", default="1")
+                if _is_quit(model_choice):
+                    _cancel(console)
+                    return None
                 try:
                     midx = int(model_choice) - 1
                     if 0 <= midx < len(models):
@@ -163,12 +179,18 @@ def run_setup(console: Console) -> dict[str, Any]:
                         break
                     elif midx == len(models):
                         model_name = Prompt.ask("Enter model name")
+                        if _is_quit(model_name):
+                            _cancel(console)
+                            return None
                         break
                 except ValueError:
                     model_name = model_choice  # Treat as raw model name
                     break
         else:
             model_name = Prompt.ask("Enter model name")
+            if _is_quit(model_name):
+                _cancel(console)
+                return None
 
         console.print(f"  [green]Model: {model_name}[/green]")
         console.print()
@@ -193,13 +215,17 @@ def run_setup(console: Console) -> dict[str, Any]:
                 )
             )
             if not Confirm.ask("Continue setup without the key for now?", default=True):
-                return run_setup(console)
+                _cancel(console)
+                return None
 
     # Step 4: API base (for LM Studio)
     api_base = None
     if provider.needs_api_base:
         default_base = provider.default_api_base or "http://localhost:11434"
         api_base = Prompt.ask("API base URL", default=default_base)
+        if _is_quit(api_base):
+            _cancel(console)
+            return None
 
         # Auto-discover models from the local server
         console.print(f"  [dim]Checking {api_base} for available models...[/dim]")
@@ -215,6 +241,9 @@ def run_setup(console: Console) -> dict[str, Any]:
 
             while True:
                 model_choice = Prompt.ask("Model", default="1")
+                if _is_quit(model_choice):
+                    _cancel(console)
+                    return None
                 try:
                     midx = int(model_choice) - 1
                     if 0 <= midx < len(discovered):
@@ -222,6 +251,9 @@ def run_setup(console: Console) -> dict[str, Any]:
                         break
                     elif midx == len(discovered):
                         model_name = Prompt.ask("Enter model name")
+                        if _is_quit(model_name):
+                            _cancel(console)
+                            return None
                         break
                 except ValueError:
                     model_name = model_choice
@@ -233,6 +265,9 @@ def run_setup(console: Console) -> dict[str, Any]:
             console.print("  [yellow]Could not connect or no models found.[/yellow]")
             if not model_name:
                 model_name = Prompt.ask("Enter model name")
+                if _is_quit(model_name):
+                    _cancel(console)
+                    return None
 
     config = {
         "provider": provider_name,
