@@ -12,7 +12,7 @@ from stride_gpt.core.prompts import (
 )
 from stride_gpt.core.schemas import LLMConfig, LLMResponse
 
-GPT5_MODELS = {"gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"}
+from stride_gpt.models import model_uses_completion_tokens
 
 
 def generate_attack_tree(config: LLMConfig, prompt: str) -> tuple[str, LLMResponse]:
@@ -28,7 +28,7 @@ def generate_attack_tree(config: LLMConfig, prompt: str) -> tuple[str, LLMRespon
 
 
 def _get_system_prompt(config: LLMConfig) -> str:
-    if config.model_name in GPT5_MODELS:
+    if model_uses_completion_tokens(config.model_name):
         return create_reasoning_system_prompt(
             task_description="Create a structured attack tree by analyzing potential attack paths.",
             approach_description="""Analyze the application and create an attack tree showing potential attack paths.

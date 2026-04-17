@@ -681,46 +681,9 @@ def load_env_variables():
 # Call this function at the start of your app
 load_env_variables()
 
-# ------------------ Model Token Limits ------------------ #
+# ------------------ Model Registry ------------------ #
 
-# Define token limits for specific model+provider combinations
-# Format: {"provider:model": {"default": default_value, "max": max_value}}
-model_token_limits = {
-    "OpenAI API:gpt-5.2": {"default": 128000, "max": 400000},
-    "OpenAI API:gpt-5-mini": {"default": 64000, "max": 400000},
-    "OpenAI API:gpt-5-nano": {"default": 64000, "max": 400000},
-    "OpenAI API:gpt-5.2-pro": {"default": 128000, "max": 400000},
-    "OpenAI API:gpt-5": {"default": 128000, "max": 400000},
-    "OpenAI API:gpt-4.1": {"default": 128000, "max": 1000000},
-    # Claude models
-    "Anthropic API:claude-sonnet-4-5-20250929": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-haiku-4-5-20251001": {"default": 64000, "max": 200000},
-    "Anthropic API:claude-opus-4-5-20251101": {"default": 64000, "max": 200000},
-    # Mistral models
-    "Mistral API:mistral-large-2512": {"default": 64000, "max": 128000},
-    "Mistral API:mistral-medium-2508": {"default": 64000, "max": 128000},
-    "Mistral API:mistral-small-2506": {"default": 24000, "max": 32000},
-    "Mistral API:ministral-14b-2512": {"default": 64000, "max": 128000},
-    "Mistral API:ministral-8b-2512": {"default": 64000, "max": 128000},
-    "Mistral API:magistral-medium-2509": {"default": 32000, "max": 40000},
-    "Mistral API:magistral-small-2509": {"default": 32000, "max": 40000},
-    # Google models
-    "Google AI API:gemini-3-pro-preview": {"default": 200000, "max": 1000000},
-    "Google AI API:gemini-3-flash-preview": {"default": 200000, "max": 1000000},
-    "Google AI API:gemini-2.5-flash": {"default": 200000, "max": 1000000},
-    "Google AI API:gemini-2.5-flash-lite": {"default": 200000, "max": 1000000},
-    "Google AI API:gemini-2.5-pro": {"default": 200000, "max": 1000000},
-    # Groq models
-    "Groq API:openai/gpt-oss-120b": {"default": 64000, "max": 128000},
-    "Groq API:openai/gpt-oss-20b": {"default": 64000, "max": 128000},
-    "Groq API:llama-3.3-70b-versatile": {"default": 64000, "max": 128000},
-    "Groq API:llama-3.1-8b-instant": {"default": 64000, "max": 131072},
-    "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
-    "Groq API:moonshotai/kimi-k2-instruct": {"default": 64000, "max": 128000},
-    "Groq API:qwen/qwen3-32b": {"default": 64000, "max": 128000},
-    # LM Studio - conservative defaults
-    "LM Studio Server:default": {"default": 8000, "max": 32000},
-}
+from stride_gpt.models import PROVIDERS as _PROVIDERS, get_model, get_models_for_provider
 
 st.set_page_config(
     page_title="STRIDE GPT",
@@ -733,58 +696,31 @@ st.set_page_config(
 # Define callback for model provider change
 def on_model_provider_change():
     """Update token limit and selected model when model provider changes"""
-    # Get the new model provider
     new_provider = st.session_state.model_provider
 
-    # Set the token limit to the default for the new provider
-    provider_key = f"{new_provider}:default"
-    if provider_key in model_token_limits:
-        st.session_state.token_limit = model_token_limits[provider_key]["default"]
+    # Set default model and token limit from registry
+    models = get_models_for_provider(new_provider)
+    if models:
+        st.session_state.selected_model = models[0].model_id
+        st.session_state.token_limit = models[0].default_tokens
     else:
-        # Fallback to a conservative default
+        # LM Studio or unknown — conservative default
         st.session_state.token_limit = 8000
 
     # Reset the current_model_key to force token limit update in Advanced Settings
     if "current_model_key" in st.session_state:
         del st.session_state.current_model_key
 
-    # Update the selected model based on the new provider
-    # This ensures that when provider changes, we reset the model selection
-    # which will trigger the on_model_selection_change callback
-    if new_provider == "OpenAI API":
-        st.session_state.selected_model = "gpt-5.2"
-    elif new_provider == "Anthropic API":
-        st.session_state.selected_model = "claude-sonnet-4-5-20250929"
-    elif new_provider == "Google AI API":
-        st.session_state.selected_model = "gemini-3-pro-preview"
-    elif new_provider == "Mistral API":
-        st.session_state.selected_model = "mistral-large-2512"
-    elif new_provider == "Groq API":
-        st.session_state.selected_model = "llama-3.3-70b-versatile"
-    # For LM Studio, we don't set a default as it depends on locally available models
-
 
 # Define callback for model selection change
 def on_model_selection_change():
     """Update token limit when specific model is selected"""
-    # Only proceed if we have both a model provider and a selected model
     if "model_provider" not in st.session_state or "selected_model" not in st.session_state:
         return
 
-    model_provider = st.session_state.model_provider
-    selected_model = st.session_state.selected_model
-
-    # Create the key for lookup
-    model_key = f"{model_provider}:{selected_model}"
-
-    # If we have a specific limit for this model, use it
-    if model_key in model_token_limits:
-        st.session_state.token_limit = model_token_limits[model_key]["default"]
-    else:
-        # Otherwise use a provider default
-        provider_key = f"{model_provider}:default"
-        if provider_key in model_token_limits:
-            st.session_state.token_limit = model_token_limits[provider_key]["default"]
+    model_info = get_model(st.session_state.model_provider, st.session_state.selected_model)
+    if model_info:
+        st.session_state.token_limit = model_info.default_tokens
 
     # Reset the current_model_key to force token limit update in Advanced Settings
     if "current_model_key" in st.session_state:
@@ -800,179 +736,36 @@ st.sidebar.header("How to use STRIDE GPT")
 
 with st.sidebar:
     # Add model selection input field to the sidebar
+    # Build provider list from registry (use provider_key as selectbox values)
+    _provider_keys = [p.provider_key for p in _PROVIDERS.values()]
     model_provider = st.selectbox(
         "Select your preferred model provider:",
-        [
-            "OpenAI API",
-            "Anthropic API",
-            "Google AI API",
-            "Mistral API",
-            "Groq API",
-            "LM Studio Server",
-        ],
+        _provider_keys,
         key="model_provider",
         on_change=on_model_provider_change,
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
 
-    if model_provider == "OpenAI API":
-        st.markdown(
-            """
-    1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and chosen model below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-        # Add OpenAI API key input field to the sidebar
-        openai_api_key = st.text_input(
-            "Enter your OpenAI API key:",
-            value=st.session_state.get("openai_api_key", ""),
-            type="password",
-            help="You can find your OpenAI API key on the [OpenAI dashboard](https://platform.openai.com/account/api-keys).",
-        )
-        if openai_api_key:
-            st.session_state["openai_api_key"] = openai_api_key
-
-        # Add model selection input field to the sidebar
-        selected_model = st.selectbox(
-            "Select the model you would like to use:",
-            [
-                "gpt-5.2",
-                "gpt-5-mini",
-                "gpt-5-nano",
-                "gpt-5.2-pro",
-                "gpt-5",
-                "gpt-4.1",
-            ],
-            key="selected_model",
-            on_change=on_model_selection_change,
-            help="GPT-5.2 is the best model for coding and agentic tasks. GPT-5.2 pro produces smarter, more precise responses. GPT-5-mini and nano are faster, cost-efficient versions. GPT-4.1 is the smartest non-reasoning model with 1M token context.",
-        )
-
-    if model_provider == "Anthropic API":
-        st.markdown(
-            """
-    1. Enter your [Anthropic API key](https://console.anthropic.com/settings/keys) and chosen model below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-        # Add Anthropic API key input field to the sidebar
-        anthropic_api_key = st.text_input(
-            "Enter your Anthropic API key:",
-            value=st.session_state.get("anthropic_api_key", ""),
-            type="password",
-            help="You can find your Anthropic API key on the [Anthropic console](https://console.anthropic.com/settings/keys).",
-        )
-        if anthropic_api_key:
-            st.session_state["anthropic_api_key"] = anthropic_api_key
-
-        # Add model selection input field to the sidebar
-        anthropic_model = st.selectbox(
-            "Select the model you would like to use:",
-            [
-                "claude-sonnet-4-5-20250929",
-                "claude-haiku-4-5-20251001",
-                "claude-opus-4-5-20251101",
-            ],
-            key="selected_model",
-            on_change=on_model_selection_change,
-            help="Claude 4.5 models are the latest generation. Sonnet offers the best balance of performance and efficiency. Haiku is fastest and most cost-effective. Opus is the most capable.",
-        )
-
-        # Add extended thinking checkbox
-        use_thinking = st.checkbox(
-            "Enable Extended Thinking",
-            value=st.session_state.get("use_thinking", False),
-            key="use_thinking",
-            help="Extended thinking gives Claude enhanced reasoning capabilities for complex tasks. This may increase response time and token usage.",
-        )
-
-    if model_provider == "Google AI API":
-        st.markdown(
-            """
-    1. Enter your [Google AI API key](https://makersuite.google.com/app/apikey) and chosen model below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-        # Add Google API key input field to the sidebar
-        google_api_key = st.text_input(
-            "Enter your Google AI API key:",
-            value=st.session_state.get("google_api_key", ""),
-            type="password",
-            help="You can generate a Google AI API key in the [Google AI Studio](https://makersuite.google.com/app/apikey).",
-        )
-        if google_api_key:
-            st.session_state["google_api_key"] = google_api_key
-
-        # Add model selection input field to the sidebar
-        google_model = st.selectbox(
-            "Select the model you would like to use:",
-            [
-                "gemini-3-pro-preview",
-                "gemini-3-flash-preview",
-                "gemini-2.5-flash",
-                "gemini-2.5-flash-lite",
-                "gemini-2.5-pro",
-            ],
-            key="selected_model",
-            on_change=on_model_selection_change,
-            help="Gemini 3 models are Google's latest preview models. Gemini 2.5 models offer 1M token context with enhanced reasoning capabilities.",
-        )
-
-    if model_provider == "Mistral API":
-        st.markdown(
-            """
-    1. Enter your [Mistral API key](https://console.mistral.ai/api-keys/) and chosen model below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-        # Add Mistral API key input field to the sidebar
-        mistral_api_key = st.text_input(
-            "Enter your Mistral API key:",
-            value=st.session_state.get("mistral_api_key", ""),
-            type="password",
-            help="You can generate a Mistral API key in the [Mistral console](https://console.mistral.ai/api-keys/).",
-        )
-        if mistral_api_key:
-            st.session_state["mistral_api_key"] = mistral_api_key
-
-        # Add model selection input field to the sidebar
-        mistral_model = st.selectbox(
-            "Select the model you would like to use:",
-            [
-                "mistral-large-2512",
-                "mistral-medium-2508",
-                "mistral-small-2506",
-                "ministral-14b-2512",
-                "ministral-8b-2512",
-                "magistral-medium-2509",
-                "magistral-small-2509",
-            ],
-            key="selected_model",
-            on_change=on_model_selection_change,
-            help="Mistral Large 3 offers premium capabilities. Medium 3.1 and Small 3.2 provide balanced performance. Ministral models are optimized for efficiency. Magistral models are reasoning-focused.",
-        )
+    # --- API key session-state keys (map provider_key → session key) ---
+    _API_KEY_SESSION = {
+        "OpenAI API": "openai_api_key",
+        "Anthropic API": "anthropic_api_key",
+        "Google AI API": "google_api_key",
+        "Mistral API": "mistral_api_key",
+        "Groq API": "groq_api_key",
+    }
 
     if model_provider == "LM Studio Server":
-        st.markdown(
-            """
-    1. Configure your LM Studio Server endpoint below (defaults to http://localhost:1234) 🔧
-    2. Optionally enter an API key if your LM Studio Server requires authentication 🔑
-    3. Provide details of the application that you would like to threat model 📝
-    4. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-        # Add LM Studio Server endpoint configuration field
+        # --- LM Studio: custom endpoint + dynamic model discovery ---
+        provider_info = _PROVIDERS["LM Studio"]
+        st.markdown(provider_info.setup_instructions)
+
         lm_studio_endpoint = st.text_input(
             "Enter your LM Studio Server endpoint:",
             value=st.session_state.get("lm_studio_endpoint", "http://localhost:1234"),
             help="The URL of your LM Studio Server instance. Default is http://localhost:1234 for local installations.",
         )
 
-        # Add LM Studio API key input field (optional)
         lm_studio_api_key = st.text_input(
             "Enter your LM Studio API key (optional):",
             value=st.session_state.get("lm_studio_api_key", ""),
@@ -983,17 +776,14 @@ with st.sidebar:
             st.session_state["lm_studio_api_key"] = lm_studio_api_key
 
         if lm_studio_endpoint:
-            # Basic URL validation
             if not lm_studio_endpoint.startswith(("http://", "https://")):
                 st.error("Endpoint URL must start with http:// or https://")
             else:
                 st.session_state["lm_studio_endpoint"] = lm_studio_endpoint
-                # Fetch available models from LM Studio Server
                 available_models = get_lm_studio_models(
                     lm_studio_endpoint, st.session_state.get("lm_studio_api_key", "")
                 )
 
-        # Add model selection input field
         selected_model = st.selectbox(
             "Select the model you would like to use:",
             (
@@ -1005,41 +795,44 @@ with st.sidebar:
             on_change=on_model_selection_change,
             help="Select a model from your local LM Studio Server. If you don't see any models, make sure LM Studio Server is running with models loaded.",
         )
+    else:
+        # --- Cloud providers: generic rendering from registry ---
+        # Find the ProviderInfo by provider_key
+        _current_provider = next(p for p in _PROVIDERS.values() if p.provider_key == model_provider)
+        st.markdown(_current_provider.setup_instructions)
 
-    if model_provider == "Groq API":
-        st.markdown(
-            """
-    1. Enter your [Groq API key](https://console.groq.com/keys) and chosen model below 🔑
-    2. Provide details of the application that you would like to threat model  📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-        # Add Groq API key input field to the sidebar
-        groq_api_key = st.text_input(
-            "Enter your Groq API key:",
-            value=st.session_state.get("groq_api_key", ""),
-            type="password",
-            help="You can find your Groq API key in the [Groq console](https://console.groq.com/keys).",
-        )
-        if groq_api_key:
-            st.session_state["groq_api_key"] = groq_api_key
+        # API key input
+        _session_key = _API_KEY_SESSION.get(model_provider, "")
+        if _session_key:
+            _api_key_val = st.text_input(
+                f"Enter your {_current_provider.name} API key:",
+                value=st.session_state.get(_session_key, ""),
+                type="password",
+                help=f"You can find your API key at [{_current_provider.name}]({_current_provider.api_key_url}).",
+            )
+            if _api_key_val:
+                st.session_state[_session_key] = _api_key_val
 
-        # Add model selection input field to the sidebar
-        groq_model = st.selectbox(
+        # Model selectbox from registry
+        _model_list = get_models_for_provider(model_provider)
+        _model_ids = [m.model_id for m in _model_list]
+        _model_help = " | ".join(f"{m.model_id}: {m.help_text}" for m in _model_list if m.help_text)
+        selected_model = st.selectbox(
             "Select the model you would like to use:",
-            [
-                "openai/gpt-oss-120b",
-                "openai/gpt-oss-20b",
-                "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant",
-                "deepseek-r1-distill-llama-70b",
-                "moonshotai/kimi-k2-instruct",
-                "qwen/qwen3-32b",
-            ],
+            _model_ids,
             key="selected_model",
             on_change=on_model_selection_change,
-            help="OpenAI GPT-OSS models provide open-source options, Llama 3.3 70B excels at tool use, DeepSeek R1 offers reasoning capabilities, Kimi K2 provides multilingual support, and Qwen3 32B delivers balanced performance.",
+            help=_model_help or None,
         )
+
+        # Anthropic-specific: Extended Thinking checkbox
+        if model_provider == "Anthropic API":
+            use_thinking = st.checkbox(
+                "Enable Extended Thinking",
+                value=st.session_state.get("use_thinking", False),
+                key="use_thinking",
+                help="Extended thinking gives Claude enhanced reasoning capabilities for complex tasks. This may increase response time and token usage.",
+            )
 
     # Add GitHub API key input field to the sidebar
     github_api_key = st.text_input(
@@ -1055,26 +848,14 @@ with st.sidebar:
 
     # Add Advanced Settings section with token limit configuration
     with st.expander("Advanced Settings"):
-        # Get the current model provider and selected model
+        # Get token limits from registry
         current_provider = st.session_state.get("model_provider", "OpenAI API")
         current_model = st.session_state.get("selected_model", "")
-
-        # Create the key for lookup
         model_key = f"{current_provider}:{current_model}"
 
-        # Get the max token limit for the current model
-        max_token_limit = 128000  # Default max
-        default_token_limit = 64000  # Default value
-
-        if model_key in model_token_limits:
-            max_token_limit = model_token_limits[model_key]["max"]
-            default_token_limit = model_token_limits[model_key]["default"]
-        else:
-            # Try provider default
-            provider_key = f"{current_provider}:default"
-            if provider_key in model_token_limits:
-                max_token_limit = model_token_limits[provider_key]["max"]
-                default_token_limit = model_token_limits[provider_key]["default"]
+        _model_info = get_model(current_provider, current_model)
+        max_token_limit = _model_info.max_tokens if _model_info else 128000
+        default_token_limit = _model_info.default_tokens if _model_info else 64000
 
         # Store the current model and provider to detect changes
         current_model_key = st.session_state.get("current_model_key", "")

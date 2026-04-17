@@ -8,22 +8,10 @@ import re
 import litellm
 
 from stride_gpt.core.schemas import LLMConfig, LLMResponse, ToolCallResult
+from stride_gpt.models import get_litellm_prefix, model_supports_thinking, model_uses_completion_tokens
 
 # Suppress LiteLLM's verbose logging
 litellm.suppress_debug_info = True
-
-# LiteLLM model prefix mapping. UI presents bare model names; we prepend the prefix.
-PROVIDER_PREFIXES: dict[str, str] = {
-    "OpenAI API": "",
-    "Anthropic API": "anthropic/",
-    "Google AI API": "gemini/",
-    "Mistral API": "mistral/",
-    "Groq API": "groq/",
-    "LM Studio Server": "openai/",
-}
-
-# GPT-5 series models that use max_completion_tokens instead of max_tokens
-GPT5_MODELS = {"gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"}
 
 # Gemini safety settings — allow security-related content generation
 GEMINI_SAFETY_SETTINGS = [
@@ -32,12 +20,6 @@ GEMINI_SAFETY_SETTINGS = [
     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
-
-
-def _is_gemini_thinking(model_name: str) -> bool:
-    """Gemini 2.5+ and 3+ support thinking capabilities."""
-    lower = model_name.lower()
-    return "gemini-2.5" in lower or "gemini-3" in lower
 
 
 def call_llm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
@@ -69,7 +51,7 @@ def call_llm_with_image(
 
 def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     """Build kwargs dict for litellm.completion() from config."""
-    prefix = PROVIDER_PREFIXES.get(config.provider, "")
+    prefix = get_litellm_prefix(config.provider)
     model = prefix + config.model_name
 
     kwargs: dict = {
@@ -100,7 +82,7 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     # --- Google AI API specifics ---
     if config.provider == "Google AI API":
         kwargs["safety_settings"] = GEMINI_SAFETY_SETTINGS
-        if _is_gemini_thinking(config.model_name):
+        if model_supports_thinking(config.provider, config.model_name):
             kwargs["thinking"] = {"type": "enabled", "budget_tokens": 1024}
 
     # --- Anthropic ---
@@ -113,7 +95,7 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
         kwargs["timeout"] = config.timeout or 300
 
     # GPT-5 series: max_completion_tokens instead of max_tokens
-    elif config.model_name in GPT5_MODELS:
+    elif model_uses_completion_tokens(config.model_name):
         kwargs["max_completion_tokens"] = config.max_tokens or 20000
 
     # LM Studio: conservative default
@@ -139,7 +121,7 @@ def _extract_thinking(config: LLMConfig, response) -> tuple[str | None, str | No
 
     if config.provider == "Anthropic API" and config.use_thinking:
         thinking = _extract_anthropic_thinking(response)
-    elif config.provider == "Google AI API" and _is_gemini_thinking(config.model_name):
+    elif config.provider == "Google AI API" and model_supports_thinking(config.provider, config.model_name):
         thinking = _extract_gemini_thinking(response)
     elif config.provider == "Groq API":
         # Groq/DeepSeek reasoning is extracted from content, handled separately
@@ -259,8 +241,8 @@ def _call_litellm_with_image(
         }
     ]
 
-    # For GPT-5 series, add system message
-    if config.model_name in GPT5_MODELS:
+    # For reasoning models, add system message
+    if model_uses_completion_tokens(config.model_name):
         from stride_gpt.core.prompts import create_reasoning_system_prompt
 
         system_prompt = create_reasoning_system_prompt(

@@ -6,7 +6,7 @@ from stride_gpt.core.llm import call_llm
 from stride_gpt.core.prompts import create_reasoning_system_prompt
 from stride_gpt.core.schemas import LLMConfig, LLMResponse
 
-GPT5_MODELS = {"gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"}
+from stride_gpt.models import model_uses_completion_tokens
 
 
 def generate_mitigations(config: LLMConfig, prompt: str) -> tuple[str, LLMResponse]:
@@ -21,7 +21,7 @@ def generate_mitigations(config: LLMConfig, prompt: str) -> tuple[str, LLMRespon
 
 
 def _get_system_prompt(config: LLMConfig) -> str:
-    if config.model_name in GPT5_MODELS:
+    if model_uses_completion_tokens(config.model_name):
         return create_reasoning_system_prompt(
             task_description="Generate effective security mitigations for the identified threats using the STRIDE methodology.",
             approach_description="""1. Analyze each threat in the provided threat model

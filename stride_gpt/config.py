@@ -12,60 +12,11 @@ from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from stride_gpt.models import PROVIDERS, get_models_for_provider
+
 CONFIG_DIR = Path.home() / ".stride-gpt"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 REPORTS_DIR = CONFIG_DIR / "reports"
-
-# Provider catalog: provider name → {models, needs_api_key, needs_api_base}
-PROVIDERS: dict[str, dict[str, Any]] = {
-    "Anthropic": {
-        "provider_key": "Anthropic API",
-        "models": [
-            "claude-sonnet-4-5-20250929",
-            "claude-opus-4-5-20250414",
-            "claude-haiku-4-5-20251001",
-        ],
-        "env_var": "ANTHROPIC_API_KEY",
-        "needs_api_key": True,
-        "needs_api_base": False,
-    },
-    "OpenAI": {
-        "provider_key": "OpenAI API",
-        "models": ["gpt-5.2", "gpt-5-mini", "gpt-5-nano"],
-        "env_var": "OPENAI_API_KEY",
-        "needs_api_key": True,
-        "needs_api_base": False,
-    },
-    "Google AI": {
-        "provider_key": "Google AI API",
-        "models": ["gemini-2.5-pro", "gemini-2.5-flash"],
-        "env_var": "GOOGLE_API_KEY",
-        "needs_api_key": True,
-        "needs_api_base": False,
-    },
-    "Mistral": {
-        "provider_key": "Mistral API",
-        "models": ["mistral-large-latest", "mistral-small-latest"],
-        "env_var": "MISTRAL_API_KEY",
-        "needs_api_key": True,
-        "needs_api_base": False,
-    },
-    "Groq": {
-        "provider_key": "Groq API",
-        "models": ["llama-3.3-70b-versatile", "deepseek-r1-distill-llama-70b"],
-        "env_var": "GROQ_API_KEY",
-        "needs_api_key": True,
-        "needs_api_base": False,
-    },
-    "LM Studio": {
-        "provider_key": "LM Studio Server",
-        "models": [],
-        "env_var": None,
-        "needs_api_key": False,
-        "needs_api_base": True,
-        "default_api_base": "http://localhost:1234",
-    },
-}
 
 
 def fetch_local_models(provider_name: str, api_base: str) -> list[str]:
@@ -159,7 +110,7 @@ def run_setup(console: Console) -> dict[str, Any]:
     for i, name in enumerate(provider_names, 1):
         info = PROVIDERS[name]
         detail = ""
-        if not info["needs_api_key"]:
+        if not info.needs_api_key:
             detail = " [dim](local)[/dim]"
         table.add_row(f"  [bold]{i}[/bold]", f"{name}{detail}")
 
@@ -194,22 +145,23 @@ def run_setup(console: Console) -> dict[str, Any]:
 
     # Step 2: Pick model (cloud providers only — local providers pick after endpoint discovery)
     model_name = ""
-    if not provider["needs_api_base"]:
-        if provider["models"]:
+    if not provider.needs_api_base:
+        models = [m.model_id for m in get_models_for_provider(provider.provider_key)]
+        if models:
             console.print("[bold]Select a model:[/bold]")
-            for i, model in enumerate(provider["models"], 1):
+            for i, model in enumerate(models, 1):
                 console.print(f"  [bold]{i}[/bold]  {model}")
-            console.print(f"  [bold]{len(provider['models']) + 1}[/bold]  [dim]Custom (enter model name)[/dim]")
+            console.print(f"  [bold]{len(models) + 1}[/bold]  [dim]Custom (enter model name)[/dim]")
             console.print()
 
             while True:
                 model_choice = Prompt.ask("Model", default="1")
                 try:
                     midx = int(model_choice) - 1
-                    if 0 <= midx < len(provider["models"]):
-                        model_name = provider["models"][midx]
+                    if 0 <= midx < len(models):
+                        model_name = models[midx]
                         break
-                    elif midx == len(provider["models"]):
+                    elif midx == len(models):
                         model_name = Prompt.ask("Enter model name")
                         break
                 except ValueError:
@@ -222,10 +174,10 @@ def run_setup(console: Console) -> dict[str, Any]:
         console.print()
 
     # Step 3: API key — read from .env file or environment variables
-    if provider["needs_api_key"]:
+    if provider.needs_api_key:
         import os
 
-        env_var = provider["env_var"]
+        env_var = provider.env_var
         env_key = os.environ.get(env_var or "")
         if env_key:
             masked = env_key[:8] + "..." + env_key[-4:]
@@ -245,8 +197,8 @@ def run_setup(console: Console) -> dict[str, Any]:
 
     # Step 4: API base (for LM Studio)
     api_base = None
-    if provider["needs_api_base"]:
-        default_base = provider.get("default_api_base", "http://localhost:11434")
+    if provider.needs_api_base:
+        default_base = provider.default_api_base or "http://localhost:11434"
         api_base = Prompt.ask("API base URL", default=default_base)
 
         # Auto-discover models from the local server
@@ -284,7 +236,7 @@ def run_setup(console: Console) -> dict[str, Any]:
 
     config = {
         "provider": provider_name,
-        "provider_key": provider["provider_key"],
+        "provider_key": provider.provider_key,
         "model": model_name,
         "api_base": api_base,
     }
@@ -305,8 +257,8 @@ def show_config(console: Console, config: dict[str, Any]) -> None:
 
     # Show env var status
     provider_info = PROVIDERS.get(config.get("provider", ""))
-    if provider_info and provider_info.get("env_var"):
-        env_var = provider_info["env_var"]
+    if provider_info and provider_info.env_var:
+        env_var = provider_info.env_var
         env_val = os.environ.get(env_var, "")
         if env_val:
             masked = env_val[:8] + "..." + env_val[-4:] if len(env_val) > 12 else "***"
@@ -325,8 +277,8 @@ def get_api_key(config: dict[str, Any]) -> str:
     import os
 
     provider_info = PROVIDERS.get(config.get("provider", ""))
-    if provider_info and provider_info.get("env_var"):
-        key = os.environ.get(provider_info["env_var"], "")
+    if provider_info and provider_info.env_var:
+        key = os.environ.get(provider_info.env_var, "")
         if key:
             return key
 

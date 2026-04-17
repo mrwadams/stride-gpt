@@ -9,7 +9,7 @@ from stride_gpt.core.llm import call_llm
 from stride_gpt.core.prompts import create_reasoning_system_prompt
 from stride_gpt.core.schemas import LLMConfig, LLMResponse
 
-GPT5_MODELS = {"gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5.2-pro", "gpt-5"}
+from stride_gpt.models import model_uses_completion_tokens
 
 
 def generate_dread_assessment(config: LLMConfig, prompt: str) -> tuple[dict, LLMResponse]:
@@ -82,7 +82,7 @@ def dread_json_to_markdown(dread_assessment):
 
 
 def _get_system_prompt(config: LLMConfig) -> str:
-    if config.model_name in GPT5_MODELS:
+    if model_uses_completion_tokens(config.model_name):
         return create_reasoning_system_prompt(
             task_description="Perform a DREAD risk assessment for the identified security threats.",
             approach_description="""1. For each threat in the provided threat model:
