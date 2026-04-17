@@ -487,19 +487,6 @@ def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
     return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 
 
-# Function to get threat model from Ollama hosted LLM.
-def get_threat_model_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
-    config = LLMConfig(
-        provider="Ollama",
-        model_name=ollama_model,
-        api_key="",
-        api_base=ollama_endpoint,
-        timeout=ollama_timeout,
-    )
-    result, _response = generate_threat_model(config, prompt)
-    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
-
-
 # Function to get threat model from the Claude response.
 def get_threat_model_anthropic(anthropic_api_key, anthropic_model, prompt):
     config = LLMConfig(

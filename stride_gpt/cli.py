@@ -207,7 +207,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     auto_approve = "-y" in args_str or "--yes" in args_str
     llm_config = config_to_llm_config(config)
 
-    if not llm_config.api_key and config.get("provider") not in ("Ollama", "LM Studio"):
+    if not llm_config.api_key and config.get("provider") != "LM Studio":
         from stride_gpt.config import PROVIDERS
 
         provider_info = PROVIDERS.get(config.get("provider", ""), {})
@@ -427,7 +427,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
 
     llm_config = config_to_llm_config(config)
 
-    if not llm_config.api_key and config.get("provider") not in ("Ollama", "LM Studio"):
+    if not llm_config.api_key and config.get("provider") != "LM Studio":
         from stride_gpt.config import PROVIDERS
 
         provider_info = PROVIDERS.get(config.get("provider", ""), {})
@@ -486,7 +486,6 @@ def _resolve_provider(model: str) -> tuple[str, str]:
         "anthropic/": "Anthropic API",
         "mistral/": "Mistral API",
         "groq/": "Groq API",
-        "ollama/": "Ollama",
         "openai/": "OpenAI API",
         "google/": "Google AI API",
     }
@@ -757,7 +756,7 @@ def _build_config(
     if not api_key:
         api_key = get_api_key(saved or {})
 
-    if not api_key and provider not in ("Ollama", "LM Studio Server"):
+    if not api_key and provider != "LM Studio Server":
         console.print("[red]No API key found in environment. Set the appropriate env var (e.g. ANTHROPIC_API_KEY).[/red]")
         raise typer.Exit(1)
 

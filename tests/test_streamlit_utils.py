@@ -38,20 +38,6 @@ class TestBuildLlmConfigFromSession:
         assert config.use_thinking is True
 
     @patch("stride_gpt.streamlit_utils.st")
-    def test_ollama_config(self, mock_st):
-        from stride_gpt.streamlit_utils import build_llm_config_from_session
-
-        mock_st.session_state = {
-            "model_provider": "Ollama",
-            "selected_model": "llama3:8b",
-            "ollama_endpoint": "http://localhost:11434",
-        }
-        config = build_llm_config_from_session()
-        assert config.provider == "Ollama"
-        assert config.api_key == ""
-        assert config.api_base == "http://localhost:11434"
-
-    @patch("stride_gpt.streamlit_utils.st")
     def test_lm_studio_config(self, mock_st):
         from stride_gpt.streamlit_utils import build_llm_config_from_session
 

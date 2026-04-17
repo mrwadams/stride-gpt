@@ -19,7 +19,7 @@ flowchart TD
     C -->|OpenAI| D[JSON Response]
     C -->|Anthropic| D
     C -->|Google/Mistral/Groq| D
-    C -->|Ollama/LM Studio| D
+    C -->|LM Studio| D
     D --> E[Markdown Converter]
     E --> F[Display Results]
 
@@ -362,7 +362,7 @@ docker run -p 8501:8501 \
 **API Keys needed:**
 - LLM provider keys (OpenAI, Anthropic, Google, etc.)
 - Optional: GitHub token for repository analysis
-- Optional: Ollama/LM Studio endpoints for local models
+- Optional: LM Studio endpoint for local models
 
 ### Option 4: Kubernetes (Enterprise)
 
@@ -603,14 +603,14 @@ This is useful for quick pilots or when you can't deploy a modified version.
 ## FAQs
 
 ### Q: Can I use this with local/private LLMs?
-**A:** Yes! STRIDE-GPT supports Ollama and LM Studio for on-premises deployment. This is useful for organizations with data privacy requirements. Set up Ollama locally, load a model (e.g., `ollama pull llama2`), and select "Ollama" as the provider in the UI.
+**A:** Yes! STRIDE-GPT supports LM Studio for on-premises deployment. This is useful for organizations with data privacy requirements. Set up LM Studio locally, load a model, and select "LM Studio" as the provider in the UI.
 
 ### Q: How much context is too much?
 **A:** Monitor token usage. Current model context windows (2025):
 - **GPT-5**: 272k input tokens (400k total)
 - **Claude Sonnet 4.5**: 200k tokens (1M with extended context)
 - **GPT-4o**: 128k tokens
-- Local models (Ollama/LM Studio): Typically 4-32k tokens
+- Local models (LM Studio): Typically 4-32k tokens
 
 For organizational context, aim for 10-20k tokens (20-30 controls + 2-3 architectures). This leaves room for application descriptions and responses while staying well within modern model limits.
 

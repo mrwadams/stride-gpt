@@ -107,7 +107,7 @@ def run_analysis(
     if progress is None:
         progress = RichProgress(console or Console())
 
-    ctx = ContextManager(model=config.model_name)
+    ctx = ContextManager(config=config)
     llm_calls = 0
     tool_calls = 0
 
@@ -135,6 +135,9 @@ def run_analysis(
                     )
             # If no console and not auto_approve, proceed anyway
             # (caller should use the split API for interactive approval)
+
+    # Report token budget so the user knows what context limit is in effect
+    progress.token_budget(config.model_name, ctx.max_tokens, source=ctx.budget_source.value)
 
     # --- Phase 2: Per-subsystem analysis ---
     progress.phase_start("Phase 2", "Analyzing Subsystems")
@@ -168,6 +171,8 @@ def run_analysis(
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
             findings.append(finding)
+            if sub_counts["tool"] == 0:
+                progress.no_tool_use_warning(subsystem.name)
             progress.subsystem_done(subsystem.name, len(finding.threats))
         except Exception as e:
             err_str = str(e)

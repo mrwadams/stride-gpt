@@ -106,7 +106,7 @@ def _render_input_step() -> None:
             st.error(f"Configuration error: {e}")
             return
 
-        if not config.api_key and config.provider not in ("Ollama", "LM Studio Server"):
+        if not config.api_key and config.provider != "LM Studio Server":
             st.error("Please configure your API key in the sidebar first.")
             return
 

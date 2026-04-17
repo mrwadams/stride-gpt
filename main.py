@@ -23,7 +23,6 @@ from attack_tree import (
     get_attack_tree_groq,
     get_attack_tree_lm_studio,
     get_attack_tree_mistral,
-    get_attack_tree_ollama,
 )
 from dread import (
     create_dread_assessment_prompt,
@@ -34,7 +33,6 @@ from dread import (
     get_dread_assessment_groq,
     get_dread_assessment_lm_studio,
     get_dread_assessment_mistral,
-    get_dread_assessment_ollama,
 )
 from mitigations import (
     create_mitigations_prompt,
@@ -44,7 +42,6 @@ from mitigations import (
     get_mitigations_groq,
     get_mitigations_lm_studio,
     get_mitigations_mistral,
-    get_mitigations_ollama,
 )
 from test_cases import (
     create_test_cases_prompt,
@@ -54,7 +51,6 @@ from test_cases import (
     get_test_cases_groq,
     get_test_cases_lm_studio,
     get_test_cases_mistral,
-    get_test_cases_ollama,
 )
 from threat_model import (
     create_image_analysis_prompt,
@@ -68,7 +64,6 @@ from threat_model import (
     get_threat_model_groq,
     get_threat_model_lm_studio,
     get_threat_model_mistral,
-    get_threat_model_ollama,
     json_to_markdown,
 )
 
@@ -273,74 +268,6 @@ Please check:
         )
         return ["local-model"]
 
-
-def get_ollama_models(ollama_endpoint):
-    """
-    Get list of available models from Ollama.
-
-    Args:
-        ollama_endpoint (str): The URL of the Ollama endpoint (e.g., 'http://localhost:11434')
-
-    Returns:
-        list: List of available model names
-
-    Raises:
-        requests.exceptions.RequestException: If there's an error communicating with the Ollama endpoint
-    """
-    if not ollama_endpoint.endswith("/"):
-        ollama_endpoint = ollama_endpoint + "/"
-
-    url = ollama_endpoint + "api/tags"
-
-    try:
-        response = requests.get(url, timeout=10)  # Add timeout
-        response.raise_for_status()  # Raise exception for bad status codes
-        models_data = response.json()
-
-        # Extract model names from the response
-        model_names = [model["name"] for model in models_data["models"]]
-        if not model_names:
-            st.warning(
-                """No models found in Ollama. Please ensure you have:
-1. Pulled at least one model using 'ollama pull <model_name>'
-2. The model download completed successfully"""
-            )
-            return ["local-model"]
-        return model_names
-
-    except requests.exceptions.ConnectionError:
-        st.error(
-            """Unable to connect to Ollama. Please ensure:
-1. Ollama is installed and running
-2. The endpoint URL is correct (default: http://localhost:11434)
-3. No firewall is blocking the connection"""
-        )
-        return ["local-model"]
-    except requests.exceptions.Timeout:
-        st.error(
-            """Request to Ollama timed out. Please check:
-1. Ollama is responding and not overloaded
-2. Your network connection is stable
-3. The endpoint URL is accessible"""
-        )
-        return ["local-model"]
-    except (KeyError, json.JSONDecodeError):
-        st.error(
-            """Received invalid response from Ollama. Please verify:
-1. You're running a compatible version of Ollama
-2. The endpoint URL is pointing to Ollama and not another service"""
-        )
-        return ["local-model"]
-    except Exception as e:
-        st.error(
-            f"""Unexpected error fetching Ollama models: {e!s}
-
-Please check:
-1. Ollama is properly installed and running
-2. You have pulled at least one model
-3. You have sufficient system resources"""
-        )
-        return ["local-model"]
 
 
 # Function to get user input for the application description and key details
@@ -746,10 +673,6 @@ def load_env_variables():
     if groq_api_key:
         st.session_state["groq_api_key"] = groq_api_key
 
-    # Add Ollama endpoint configuration
-    ollama_endpoint = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
-    st.session_state["ollama_endpoint"] = ollama_endpoint
-
     # Add LM Studio Server endpoint configuration
     lm_studio_endpoint = os.getenv("LM_STUDIO_ENDPOINT", "http://localhost:1234")
     st.session_state["lm_studio_endpoint"] = lm_studio_endpoint
@@ -795,8 +718,7 @@ model_token_limits = {
     "Groq API:deepseek-r1-distill-llama-70b": {"default": 64000, "max": 128000},
     "Groq API:moonshotai/kimi-k2-instruct": {"default": 64000, "max": 128000},
     "Groq API:qwen/qwen3-32b": {"default": 64000, "max": 128000},
-    # Ollama and LM Studio - conservative defaults
-    "Ollama:default": {"default": 8000, "max": 32000},
+    # LM Studio - conservative defaults
     "LM Studio Server:default": {"default": 8000, "max": 32000},
 }
 
@@ -839,7 +761,7 @@ def on_model_provider_change():
         st.session_state.selected_model = "mistral-large-2512"
     elif new_provider == "Groq API":
         st.session_state.selected_model = "llama-3.3-70b-versatile"
-    # For Ollama and LM Studio, we don't set a default as they depend on locally available models
+    # For LM Studio, we don't set a default as it depends on locally available models
 
 
 # Define callback for model selection change
@@ -886,7 +808,6 @@ with st.sidebar:
             "Google AI API",
             "Mistral API",
             "Groq API",
-            "Ollama",
             "LM Studio Server",
         ],
         key="model_provider",
@@ -1033,52 +954,6 @@ with st.sidebar:
             key="selected_model",
             on_change=on_model_selection_change,
             help="Mistral Large 3 offers premium capabilities. Medium 3.1 and Small 3.2 provide balanced performance. Ministral models are optimized for efficiency. Magistral models are reasoning-focused.",
-        )
-
-    if model_provider == "Ollama":
-        st.markdown(
-            """
-    1. Configure your Ollama endpoint below (defaults to http://localhost:11434) 🔧
-    2. Provide details of the application that you would like to threat model 📝
-    3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀
-    """
-        )
-        # Add Ollama endpoint configuration field
-        ollama_endpoint = st.text_input(
-            "Enter your Ollama endpoint:",
-            value=st.session_state.get("ollama_endpoint", "http://localhost:11434"),
-            help="The URL of your Ollama instance. Default is http://localhost:11434 for local installations.",
-        )
-        if ollama_endpoint:
-            # Basic URL validation
-            if not ollama_endpoint.startswith(("http://", "https://")):
-                st.error("Endpoint URL must start with http:// or https://")
-            else:
-                st.session_state["ollama_endpoint"] = ollama_endpoint
-                # Fetch available models from Ollama
-                available_models = get_ollama_models(ollama_endpoint)
-
-        # Add model selection input field
-        selected_model = st.selectbox(
-            "Select the model you would like to use:",
-            (
-                available_models
-                if ollama_endpoint and ollama_endpoint.startswith(("http://", "https://"))
-                else ["local-model"]
-            ),
-            key="selected_model",
-            on_change=on_model_selection_change,
-            help="Select a model from your local Ollama instance. If you don't see any models, make sure Ollama is running and has models installed.",
-        )
-
-        # Add timeout configuration
-        ollama_timeout = st.number_input(
-            "Ollama request timeout (seconds):",
-            min_value=60,
-            max_value=600,
-            value=60,
-            step=20,
-            help="Set the timeout for requests to your Ollama instance. Increase this if you experience timeouts with larger models.",
         )
 
     if model_provider == "LM Studio Server":
@@ -1279,7 +1154,7 @@ with st.sidebar:
     st.markdown(
         """
     ### **How does STRIDE GPT work?**
-    When you enter an application description and other relevant details, the tool uses advanced AI models from multiple providers (OpenAI, Anthropic, Google, Mistral, Ollama, LM Studio, and Groq) to generate a threat model for your application. The selected model analyzes the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
+    When you enter an application description and other relevant details, the tool uses advanced AI models from multiple providers (OpenAI, Anthropic, Google, Mistral, LM Studio, and Groq) to generate a threat model for your application. The selected model analyzes the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
     """
     )
     st.markdown(
@@ -1542,10 +1417,6 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_mistral(
                             mistral_api_key, mistral_model, threat_model_prompt
                         )
-                    elif model_provider == "Ollama":
-                        model_output = get_threat_model_ollama(
-                            st.session_state["ollama_endpoint"], selected_model, ollama_timeout, threat_model_prompt
-                        )
                     elif model_provider == "Anthropic API":
                         model_output = get_threat_model_anthropic(
                             anthropic_api_key, anthropic_model, threat_model_prompt
@@ -1647,7 +1518,7 @@ vulnerabilities and prioritising mitigation efforts.
             "⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use Mistral Large for generating attack trees, or select a different model provider."
         )
     else:
-        if model_provider in ["Ollama", "LM Studio Server"]:
+        if model_provider == "LM Studio Server":
             st.warning(
                 "⚠️ Users may encounter syntax errors when generating attack trees using local LLMs. Experiment with different local LLMs to assess their output quality, or consider using a hosted model provider to generate attack trees."
             )
@@ -1687,10 +1558,6 @@ vulnerabilities and prioritising mitigation efforts.
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(
                             mistral_api_key, mistral_model, attack_tree_prompt
-                        )
-                    elif model_provider == "Ollama":
-                        mermaid_code = get_attack_tree_ollama(
-                            st.session_state["ollama_endpoint"], selected_model, ollama_timeout, attack_tree_prompt
                         )
                     elif model_provider == "Anthropic API":
                         mermaid_code = get_attack_tree_anthropic(
@@ -1820,13 +1687,6 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_mistral(
                                 mistral_api_key, mistral_model, mitigations_prompt
                             )
-                        elif model_provider == "Ollama":
-                            mitigations_markdown = get_mitigations_ollama(
-                                st.session_state["ollama_endpoint"],
-                                selected_model,
-                                ollama_timeout,
-                                mitigations_prompt,
-                            )
                         elif model_provider == "Anthropic API":
                             mitigations_markdown = get_mitigations_anthropic(
                                 anthropic_api_key, anthropic_model, mitigations_prompt
@@ -1941,13 +1801,6 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(
                                 mistral_api_key, mistral_model, dread_assessment_prompt
-                            )
-                        elif model_provider == "Ollama":
-                            dread_assessment = get_dread_assessment_ollama(
-                                st.session_state["ollama_endpoint"],
-                                selected_model,
-                                ollama_timeout,
-                                dread_assessment_prompt,
                             )
                         elif model_provider == "Anthropic API":
                             dread_assessment = get_dread_assessment_anthropic(
@@ -2078,13 +1931,6 @@ scenarios.
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(
                                 mistral_api_key, mistral_model, test_cases_prompt
-                            )
-                        elif model_provider == "Ollama":
-                            test_cases_markdown = get_test_cases_ollama(
-                                st.session_state["ollama_endpoint"],
-                                selected_model,
-                                ollama_timeout,
-                                test_cases_prompt,
                             )
                         elif model_provider == "Anthropic API":
                             test_cases_markdown = get_test_cases_anthropic(

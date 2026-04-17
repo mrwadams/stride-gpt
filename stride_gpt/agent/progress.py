@@ -48,6 +48,18 @@ class ProgressCallback(Protocol):
         """Cross-cutting threat synthesis completed."""
         ...
 
+    def token_budget(self, model: str, limit: int, source: str) -> None:
+        """Report the context token budget for the model.
+
+        Args:
+            source: One of "queried", "inferred", "explicit".
+        """
+        ...
+
+    def no_tool_use_warning(self, subsystem: str) -> None:
+        """Warn that a subsystem was analyzed without any tool calls."""
+        ...
+
     def complete(self, summary: str) -> None:
         """Analysis finished. Summary is a human-readable status line."""
         ...
@@ -83,6 +95,22 @@ class RichProgress:
     def limit_reached(self, kind: str, current: int, maximum: int) -> None:
         self.console.print(
             f"[yellow]Reached {kind} limit ({current}/{maximum}). Stopping early.[/yellow]"
+        )
+
+    def token_budget(self, model: str, limit: int, source: str) -> None:
+        if source == "queried" or source == "explicit":
+            self.console.print(f"  [dim]Token budget: {limit:,} tokens[/dim]")
+        else:
+            self.console.print(
+                f"[yellow]Warning: Could not query '{model}' for its context window size. "
+                f"Context compression may not work correctly.[/yellow]"
+            )
+
+    def no_tool_use_warning(self, subsystem: str) -> None:
+        self.console.print(
+            f"  [yellow]Warning: No tool calls made for {subsystem} — "
+            f"the model may not support function calling. "
+            f"Threats are based on file names only, not actual code.[/yellow]"
         )
 
     def synthesis_done(self, count: int) -> None:
@@ -125,6 +153,13 @@ class QueueProgress:
 
     def limit_reached(self, kind: str, current: int, maximum: int) -> None:
         self._put({"type": "limit_reached", "kind": kind, "current": current, "maximum": maximum})
+
+    def token_budget(self, model: str, limit: int, source: str) -> None:
+        self._put({"type": "token_budget", "model": model, "limit": limit,
+                    "source": source})
+
+    def no_tool_use_warning(self, subsystem: str) -> None:
+        self._put({"type": "no_tool_use_warning", "subsystem": subsystem})
 
     def synthesis_done(self, count: int) -> None:
         self._put({"type": "synthesis_done", "count": count})

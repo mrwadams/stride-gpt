@@ -439,26 +439,6 @@ def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
     return mermaid
 
 
-# Function to get attack tree from Ollama hosted LLM.
-def get_attack_tree_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
-    config = LLMConfig(
-        provider="Ollama",
-        model_name=ollama_model,
-        api_key="",
-        api_base=ollama_endpoint,
-        timeout=ollama_timeout,
-        response_format="json",
-    )
-    mermaid, response = generate_attack_tree(config, prompt)
-    # Ollama originally returned parsed JSON dict; try to parse mermaid back to dict
-    # but if the core already converted to mermaid, try to get raw JSON from response
-    try:
-        cleaned = clean_json_response(response.content)
-        return json.loads(cleaned)
-    except (json.JSONDecodeError, TypeError):
-        return mermaid
-
-
 # Function to get attack tree from Anthropic's Claude model.
 def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
     config = LLMConfig(

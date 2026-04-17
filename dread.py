@@ -277,19 +277,6 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     return parsed
 
 
-# Function to get DREAD risk assessment from Ollama hosted LLM.
-def get_dread_assessment_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
-    config = LLMConfig(
-        provider="Ollama",
-        model_name=ollama_model,
-        api_key="",
-        api_base=ollama_endpoint,
-        timeout=ollama_timeout,
-    )
-    parsed, _response = generate_dread_assessment(config, prompt)
-    return parsed
-
-
 # Function to get DREAD risk assessment from the Anthropic model's response.
 def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):
     config = LLMConfig(

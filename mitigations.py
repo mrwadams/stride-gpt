@@ -211,19 +211,6 @@ def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
     return content
 
 
-# Function to get mitigations from Ollama hosted LLM.
-def get_mitigations_ollama(ollama_endpoint, ollama_model, ollama_timeout, prompt):
-    config = LLMConfig(
-        provider="Ollama",
-        model_name=ollama_model,
-        api_key="",
-        api_base=ollama_endpoint,
-        timeout=ollama_timeout,
-    )
-    content, _response = generate_mitigations(config, prompt)
-    return content
-
-
 # Function to get mitigations from the Anthropic model's response.
 def get_mitigations_anthropic(anthropic_api_key, anthropic_model, prompt):
     config = LLMConfig(

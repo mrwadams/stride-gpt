@@ -14,7 +14,7 @@ class LLMConfig(BaseModel):
     provider: str  # "OpenAI API", "Anthropic API", "Google AI API", etc.
     model_name: str  # bare name e.g. "gpt-5.2", "claude-sonnet-4-5-20250929"
     api_key: str  # BYOK key, passed per-call
-    api_base: str | None = None  # For Ollama/LM Studio custom endpoints
+    api_base: str | None = None  # For LM Studio custom endpoints
     timeout: int | None = None  # Request timeout in seconds
     use_thinking: bool = False  # Anthropic extended thinking
     max_tokens: int | None = None  # Override default max tokens

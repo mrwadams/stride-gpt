@@ -16,12 +16,10 @@ _API_KEY_MAP = {
     "Google AI API": "google_api_key",
     "Mistral API": "mistral_api_key",
     "Groq API": "groq_api_key",
-    "Ollama": None,
     "LM Studio Server": "lm_studio_api_key",
 }
 
 _API_BASE_MAP = {
-    "Ollama": "ollama_endpoint",
     "LM Studio Server": "lm_studio_endpoint",
 }
 

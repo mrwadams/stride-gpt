@@ -57,14 +57,6 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "needs_api_key": True,
         "needs_api_base": False,
     },
-    "Ollama": {
-        "provider_key": "Ollama",
-        "models": [],
-        "env_var": None,
-        "needs_api_key": False,
-        "needs_api_base": True,
-        "default_api_base": "http://localhost:11434",
-    },
     "LM Studio": {
         "provider_key": "LM Studio Server",
         "models": [],
@@ -77,17 +69,12 @@ PROVIDERS: dict[str, dict[str, Any]] = {
 
 
 def fetch_local_models(provider_name: str, api_base: str) -> list[str]:
-    """Discover available models from a local Ollama or LM Studio instance.
+    """Discover available models from a local LM Studio instance.
 
     Returns a list of model name strings, or an empty list on failure.
     """
     try:
-        if provider_name == "Ollama":
-            url = api_base.rstrip("/") + "/api/tags"
-            resp = httpx.get(url, timeout=5)
-            resp.raise_for_status()
-            return [m["name"] for m in resp.json().get("models", [])]
-        elif provider_name == "LM Studio":
+        if provider_name == "LM Studio":
             url = api_base.rstrip("/") + "/v1/models"
             resp = httpx.get(url, timeout=5)
             resp.raise_for_status()
@@ -256,7 +243,7 @@ def run_setup(console: Console) -> dict[str, Any]:
             if not Confirm.ask("Continue setup without the key for now?", default=True):
                 return run_setup(console)
 
-    # Step 4: API base (for Ollama/LM Studio)
+    # Step 4: API base (for LM Studio)
     api_base = None
     if provider["needs_api_base"]:
         default_base = provider.get("default_api_base", "http://localhost:11434")

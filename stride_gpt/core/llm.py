@@ -19,7 +19,6 @@ PROVIDER_PREFIXES: dict[str, str] = {
     "Google AI API": "gemini/",
     "Mistral API": "mistral/",
     "Groq API": "groq/",
-    "Ollama": "ollama/",
     "LM Studio Server": "openai/",
 }
 
@@ -78,7 +77,7 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
         "api_key": config.api_key or None,
     }
 
-    # Custom endpoints for Ollama / LM Studio
+    # Custom endpoint for LM Studio
     if config.api_base:
         if config.provider == "LM Studio Server":
             kwargs["api_base"] = f"{config.api_base}/v1"
@@ -88,16 +87,14 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     # JSON mode
     if isinstance(config.response_format, dict):
         # Caller provided an explicit JSON schema — use json_schema mode.
-        # Ollama doesn't support structured output, so skip it there.
-        if config.provider != "Ollama":
-            kwargs["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "response", "schema": config.response_format},
-            }
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": config.response_format},
+        }
     elif config.response_format == "json":
         # Generic JSON mode — use json_object where supported.
-        # LM Studio only accepts json_schema or text; Ollama doesn't support either.
-        if config.provider not in ("Ollama", "LM Studio Server"):
+        # LM Studio only accepts json_schema or text.
+        if config.provider != "LM Studio Server":
             kwargs["response_format"] = {"type": "json_object"}
 
     # --- Google AI API specifics ---
@@ -122,12 +119,6 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     # LM Studio: conservative default
     elif config.provider == "LM Studio Server":
         kwargs["max_tokens"] = config.max_tokens or 4000
-
-    # Ollama: pass timeout and default max_tokens
-    elif config.provider == "Ollama":
-        if config.timeout:
-            kwargs["timeout"] = config.timeout
-        kwargs["max_tokens"] = config.max_tokens or 8192
 
     # Groq / Mistral: original code never set max_tokens — let the API decide
     elif config.provider in ("Groq API", "Mistral API"):

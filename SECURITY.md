@@ -69,7 +69,7 @@ When deploying STRIDE GPT:
 4. **Data Privacy**
    - Be aware that threat model inputs may be sent to third-party LLM providers
    - Review provider privacy policies and data handling practices
-   - Consider using local models (Ollama) for sensitive environments
+   - Consider using local models (LM Studio) for sensitive environments
    - **Critical**: Avoid including actual sensitive organizational details in threat modeling inputs
    - Use generic descriptions rather than specific system details when possible
 

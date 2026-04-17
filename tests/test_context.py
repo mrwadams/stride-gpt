@@ -15,15 +15,19 @@ from stride_gpt.agent.context import (
 from stride_gpt.core.schemas import LLMConfig, LLMResponse
 
 
+def _make_config(model: str = "claude-sonnet-4-5-20250929") -> LLMConfig:
+    return LLMConfig(provider="Anthropic API", model_name=model, api_key="test")
+
+
 @pytest.fixture
 def ctx():
-    return ContextManager(model="claude-sonnet-4-5-20250929")
+    return ContextManager(config=_make_config())
 
 
 @pytest.fixture
 def ctx_small():
     """Context manager with a tiny limit so compression triggers easily."""
-    return ContextManager(model="claude-sonnet-4-5-20250929", max_tokens=100)
+    return ContextManager(config=_make_config(), max_tokens=100)
 
 
 # ---------------------------------------------------------------------------
@@ -33,23 +37,23 @@ def ctx_small():
 
 class TestInferLimit:
     def test_claude_model(self):
-        ctx = ContextManager(model="claude-sonnet-4-5-20250929")
+        ctx = ContextManager(config=_make_config("claude-sonnet-4-5-20250929"))
         assert ctx.max_tokens == DEFAULT_LIMITS["claude"]
 
     def test_gpt_model(self):
-        ctx = ContextManager(model="gpt-5.2")
+        ctx = ContextManager(config=_make_config("gpt-5.2"))
         assert ctx.max_tokens == DEFAULT_LIMITS["gpt"]
 
     def test_gemini_model(self):
-        ctx = ContextManager(model="gemini-2.5-pro")
+        ctx = ContextManager(config=_make_config("gemini-2.5-pro"))
         assert ctx.max_tokens == DEFAULT_LIMITS["gemini"]
 
     def test_unknown_model(self):
-        ctx = ContextManager(model="some-obscure-model")
+        ctx = ContextManager(config=_make_config("some-obscure-model"))
         assert ctx.max_tokens == DEFAULT_LIMITS["default"]
 
     def test_explicit_override(self):
-        ctx = ContextManager(model="claude-sonnet-4-5-20250929", max_tokens=50_000)
+        ctx = ContextManager(config=_make_config(), max_tokens=50_000)
         assert ctx.max_tokens == 50_000
 
 
