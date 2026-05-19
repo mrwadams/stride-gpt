@@ -45,7 +45,7 @@ class TestInferLimit:
         assert ctx.max_tokens == DEFAULT_LIMITS["gpt"]
 
     def test_gemini_model(self):
-        ctx = ContextManager(config=_make_config("gemini-2.5-pro"))
+        ctx = ContextManager(config=_make_config("gemini-3.1-pro-preview"))
         assert ctx.max_tokens == DEFAULT_LIMITS["gemini"]
 
     def test_unknown_model(self):

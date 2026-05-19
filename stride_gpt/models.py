@@ -140,12 +140,20 @@ PROVIDERS: dict[str, ProviderInfo] = {
 MODELS: list[ModelInfo] = [
     # --- OpenAI ---
     ModelInfo(
+        model_id="gpt-5.5",
+        provider_key="OpenAI API",
+        default_tokens=128000,
+        max_tokens=1050000,
+        uses_max_completion_tokens=True,
+        help_text="GPT-5.5 is OpenAI's latest flagship model.",
+    ),
+    ModelInfo(
         model_id="gpt-5.4",
         provider_key="OpenAI API",
         default_tokens=128000,
         max_tokens=1050000,
         uses_max_completion_tokens=True,
-        help_text="GPT-5.4 is OpenAI's flagship model with 1M+ context.",
+        help_text="GPT-5.4 is OpenAI's previous flagship model with 1M+ context.",
     ),
     ModelInfo(
         model_id="gpt-5.4-pro",
@@ -181,12 +189,12 @@ MODELS: list[ModelInfo] = [
         help_text="Claude Sonnet 4.6 offers the best balance of performance and efficiency.",
     ),
     ModelInfo(
-        model_id="claude-opus-4-6",
+        model_id="claude-opus-4-7",
         provider_key="Anthropic API",
         default_tokens=64000,
         max_tokens=200000,
         supports_thinking=True,
-        help_text="Claude Opus 4.6 is the most capable Claude model.",
+        help_text="Claude Opus 4.7 is the most capable Claude model.",
     ),
     ModelInfo(
         model_id="claude-haiku-4-5-20251001",
@@ -205,28 +213,28 @@ MODELS: list[ModelInfo] = [
         help_text="Gemini 3.1 Pro is Google's most capable model with 1M context.",
     ),
     ModelInfo(
+        model_id="gemini-3.5-flash",
+        provider_key="Google AI API",
+        default_tokens=200000,
+        max_tokens=1000000,
+        supports_thinking=True,
+        help_text="Gemini 3.5 Flash is Google's latest fast model with 1M context.",
+    ),
+    ModelInfo(
+        model_id="gemini-3.1-flash-lite",
+        provider_key="Google AI API",
+        default_tokens=200000,
+        max_tokens=1000000,
+        supports_thinking=True,
+        help_text="Gemini 3.1 Flash Lite is the most cost-efficient option with 1M context.",
+    ),
+    ModelInfo(
         model_id="gemini-3-flash-preview",
         provider_key="Google AI API",
         default_tokens=200000,
         max_tokens=1000000,
         supports_thinking=True,
         help_text="Gemini 3 Flash is optimized for speed with 1M context.",
-    ),
-    ModelInfo(
-        model_id="gemini-2.5-pro",
-        provider_key="Google AI API",
-        default_tokens=200000,
-        max_tokens=1000000,
-        supports_thinking=True,
-        help_text="Gemini 2.5 Pro offers 1M context with enhanced reasoning.",
-    ),
-    ModelInfo(
-        model_id="gemini-2.5-flash",
-        provider_key="Google AI API",
-        default_tokens=200000,
-        max_tokens=1000000,
-        supports_thinking=True,
-        help_text="Gemini 2.5 Flash balances speed and capability with 1M context.",
     ),
     # --- Mistral ---
     ModelInfo(
@@ -242,6 +250,13 @@ MODELS: list[ModelInfo] = [
         default_tokens=64000,
         max_tokens=256000,
         help_text="Mistral Small 4 merges reasoning, vision, and coding in a 256k-context model.",
+    ),
+    ModelInfo(
+        model_id="mistral-medium-3-5",
+        provider_key="Mistral API",
+        default_tokens=64000,
+        max_tokens=128000,
+        help_text="Mistral Medium 3.5 provides balanced performance.",
     ),
     ModelInfo(
         model_id="mistral-medium-2508",
