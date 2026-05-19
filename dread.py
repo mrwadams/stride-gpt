@@ -7,7 +7,7 @@ import streamlit as st
 from anthropic import Anthropic
 from google import genai as google_genai
 from groq import Groq
-from mistralai import Mistral
+from mistralai.client import Mistral
 from openai import OpenAI
 
 from utils import create_reasoning_system_prompt, process_groq_response
