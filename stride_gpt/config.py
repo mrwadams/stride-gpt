@@ -36,6 +36,37 @@ def fetch_local_models(provider_name: str, api_base: str) -> list[str]:
 
 
 MIN_CONTEXT_LENGTH = 16384  # Minimum context length recommended for agentic analysis
+DEFAULT_LM_STUDIO_MAX_TOKENS = 4000  # Output cap when context length is unknown
+
+
+def get_lm_studio_context_length(api_base: str, model_name: str) -> int | None:
+    """Return the loaded context length for an LM Studio model, or None if unknown."""
+    try:
+        url = api_base.rstrip("/") + "/api/v1/models"
+        resp = httpx.get(url, timeout=5)
+        resp.raise_for_status()
+        for model in resp.json().get("models", []):
+            if model.get("key") != model_name:
+                continue
+            loaded_instances = model.get("loaded_instances", [])
+            if not loaded_instances:
+                return None
+            loaded = loaded_instances[0].get("config", {}).get("context_length")
+            return int(loaded) if loaded else None
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        return None
+    return None
+
+
+def suggest_max_tokens(context_length: int | None) -> int:
+    """Pick a sensible output token budget given a context window.
+
+    Defaults to ~25% of context, floored at DEFAULT_LM_STUDIO_MAX_TOKENS. Users
+    can override in the wizard or via --max-tokens.
+    """
+    if not context_length:
+        return DEFAULT_LM_STUDIO_MAX_TOKENS
+    return max(DEFAULT_LM_STUDIO_MAX_TOKENS, context_length // 4)
 
 
 def check_lm_studio_context(
@@ -269,11 +300,38 @@ def run_setup(console: Console) -> dict[str, Any] | None:
                     _cancel(console)
                     return None
 
+    # Step 5: Max output tokens (LM Studio only — cloud providers have sane defaults)
+    max_tokens: int | None = None
+    if provider.needs_api_base and model_name:
+        ctx = get_lm_studio_context_length(api_base, model_name) if api_base else None
+        suggested = suggest_max_tokens(ctx)
+        if ctx:
+            console.print(
+                f"  [dim]Loaded context window: {ctx:,} tokens. "
+                f"Suggested output budget: {suggested:,}.[/dim]"
+            )
+        else:
+            console.print(
+                f"  [dim]Could not read context length from LM Studio. "
+                f"Suggested output budget: {suggested:,}.[/dim]"
+            )
+        raw = Prompt.ask("Max output tokens", default=str(suggested))
+        if _is_quit(raw):
+            _cancel(console)
+            return None
+        try:
+            max_tokens = int(raw)
+        except ValueError:
+            console.print(f"  [yellow]Invalid number — using {suggested}.[/yellow]")
+            max_tokens = suggested
+        console.print()
+
     config = {
         "provider": provider_name,
         "provider_key": provider.provider_key,
         "model": model_name,
         "api_base": api_base,
+        "max_tokens": max_tokens,
     }
 
     save_config(config)
@@ -303,6 +361,8 @@ def show_config(console: Console, config: dict[str, Any]) -> None:
 
     if config.get("api_base"):
         table.add_row("[bold]API Base[/bold]", config["api_base"])
+    if config.get("max_tokens"):
+        table.add_row("[bold]Max output tokens[/bold]", f"{config['max_tokens']:,}")
     table.add_row("[bold]Config file[/bold]", str(CONFIG_FILE))
     console.print(table)
 
@@ -335,4 +395,5 @@ def config_to_llm_config(config: dict[str, Any]):
         model_name=config["model"],
         api_key=get_api_key(config),
         api_base=config.get("api_base"),
+        max_tokens=config.get("max_tokens"),
     )

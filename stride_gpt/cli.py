@@ -506,6 +506,7 @@ def analyze(
     model: Annotated[Optional[str], typer.Option(help="Model (e.g. anthropic/claude-sonnet-4-5). Uses saved config if omitted.")] = None,
     api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="API key.")] = None,
     api_base: Annotated[Optional[str], typer.Option(help="Custom API base URL.")] = None,
+    max_tokens: Annotated[Optional[int], typer.Option(help="Override per-call output token cap (mainly for LM Studio).")] = None,
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
     max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls (0 = unlimited).")] = 0,
@@ -519,7 +520,7 @@ def analyze(
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
     from stride_gpt.core.schemas import LLMConfig
 
-    llm_config = _build_config(model, api_key, api_base)
+    llm_config = _build_config(model, api_key, api_base, max_tokens)
 
     target = path.resolve()
     if not target.is_dir():
@@ -597,6 +598,7 @@ def analyze(
 def quick(
     model: Annotated[Optional[str], typer.Option(help="Model. Uses saved config if omitted.")] = None,
     api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="API key.")] = None,
+    max_tokens: Annotated[Optional[int], typer.Option(help="Override per-call output token cap (mainly for LM Studio).")] = None,
     input_file: Annotated[Optional[Path], typer.Option("-i", "--input", help="App description file.")] = None,
     app_type: Annotated[str, typer.Option(help="Application type.")] = "Web application",
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
@@ -604,7 +606,7 @@ def quick(
     """Quick single-shot threat model from a text description."""
     from stride_gpt.core.threat_model import generate_threat_model, json_to_markdown
 
-    llm_config = _build_config(model, api_key)
+    llm_config = _build_config(model, api_key, max_tokens=max_tokens)
 
     if input_file:
         if not input_file.is_file():
@@ -742,6 +744,7 @@ def _build_config(
     model: str | None = None,
     api_key: str | None = None,
     api_base: str | None = None,
+    max_tokens: int | None = None,
 ):
     """Build LLMConfig from CLI flags, falling back to saved config + env vars."""
     from stride_gpt.config import get_api_key
@@ -768,11 +771,15 @@ def _build_config(
     if not api_base and saved:
         api_base = saved.get("api_base")
 
+    if max_tokens is None and saved:
+        max_tokens = saved.get("max_tokens")
+
     return LLMConfig(
         provider=provider,
         model_name=model_name,
         api_key=api_key or "",
         api_base=api_base,
+        max_tokens=max_tokens,
     )
 
 
