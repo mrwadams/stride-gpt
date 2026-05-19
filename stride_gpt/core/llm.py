@@ -169,7 +169,18 @@ def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
     kwargs = _build_litellm_kwargs(config)
     response = litellm.completion(messages=messages, **kwargs)
 
-    content = response.choices[0].message.content or ""
+    message = response.choices[0].message
+    content = message.content or ""
+
+    # Some reasoning models (e.g. qwen3 via LM Studio) emit the full structured
+    # output into `reasoning_content` and leave `content` empty. When that
+    # happens, treat the reasoning text as the answer — providers with genuine
+    # thinking + answer separation (Anthropic, Google) populate content
+    # normally, so this fallback only triggers when there's nothing else to use.
+    if not content.strip():
+        fallback = getattr(message, "reasoning_content", None)
+        if fallback:
+            content = fallback
 
     thinking, reasoning = _extract_thinking(config, response)
 

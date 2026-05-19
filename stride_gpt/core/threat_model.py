@@ -12,6 +12,32 @@ from stride_gpt.core.schemas import LLMConfig, LLMResponse, ThreatModelOutput
 from stride_gpt.models import model_uses_completion_tokens
 
 
+THREAT_MODEL_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "threat_model": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "Threat Type": {"type": "string"},
+                    "Scenario": {"type": "string"},
+                    "Potential Impact": {"type": "string"},
+                    "OWASP_LLM": {"type": ["string", "null"]},
+                    "OWASP_ASI": {"type": ["string", "null"]},
+                },
+                "required": ["Threat Type", "Scenario", "Potential Impact"],
+            },
+        },
+        "improvement_suggestions": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "required": ["threat_model", "improvement_suggestions"],
+}
+
+
 def generate_threat_model(config: LLMConfig, prompt: str) -> tuple[ThreatModelOutput, LLMResponse]:
     """Generate a threat model using any supported LLM provider."""
     system_prompt = _get_system_prompt(config)
@@ -19,7 +45,14 @@ def generate_threat_model(config: LLMConfig, prompt: str) -> tuple[ThreatModelOu
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt},
     ]
-    json_config = config.model_copy(update={"response_format": "json"})
+    # LM Studio doesn't support json_object mode — without an explicit schema it
+    # gets no structured-output enforcement at all and frequently emits prose
+    # that fails JSON parsing. Hand it the schema; other providers keep the
+    # existing json_object path to avoid regressions in callers that depend on it.
+    if config.provider == "LM Studio Server":
+        json_config = config.model_copy(update={"response_format": THREAT_MODEL_SCHEMA})
+    else:
+        json_config = config.model_copy(update={"response_format": "json"})
     response = call_llm(json_config, messages)
     parsed = _parse_threat_model_response(response.content)
     return parsed, response
@@ -115,17 +148,22 @@ def _parse_threat_model_response(content: str) -> ThreatModelOutput:
             threat_model=data.get("threat_model", []),
             improvement_suggestions=data.get("improvement_suggestions", []),
         )
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        raw = (content or "").strip()
+        snippet = raw[:500].replace("\n", " ").replace("|", "\\|") or "(empty response)"
+        truncated = " ..." if len(raw) > 500 else ""
         return ThreatModelOutput(
             threat_model=[
                 {
                     "Threat Type": "Error",
-                    "Scenario": "Failed to parse LLM response",
+                    "Scenario": "Failed to parse LLM response as JSON",
                     "Potential Impact": "Unable to generate threat model",
                 }
             ],
             improvement_suggestions=[
-                "Try again - sometimes the model returns a properly formatted response on subsequent attempts",
+                f"JSON parse error: {e.msg} (line {e.lineno}, col {e.colno})",
+                f"Raw LLM response (first 500 chars): {snippet}{truncated}",
+                "Try again — local models sometimes need a second attempt to produce valid JSON",
             ],
         )
 
