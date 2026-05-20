@@ -441,8 +441,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
         return
 
     # Build prompt
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from threat_model import create_threat_model_prompt
+    from stride_gpt.core.prompts import create_threat_model_prompt
 
     prompt = create_threat_model_prompt(
         app_type=app_type,
@@ -621,8 +620,7 @@ def quick(
         console.print("[red]Error: Empty app description.[/red]")
         raise typer.Exit(1)
 
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from threat_model import create_threat_model_prompt
+    from stride_gpt.core.prompts import create_threat_model_prompt
 
     prompt = create_threat_model_prompt(
         app_type=app_type,
