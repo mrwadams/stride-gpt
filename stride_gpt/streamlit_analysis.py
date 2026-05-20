@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import queue
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -122,6 +123,7 @@ def _render_input_step() -> None:
                 except ValueError as e:
                     st.error(str(e))
                     return
+            st.session_state["deep_analysis_tmp_clone"] = str(resolved)
         else:
             expanded = Path(target_path).expanduser()
             if not expanded.is_absolute():
@@ -422,6 +424,10 @@ def _render_results_step() -> None:
 
 def _reset_state() -> None:
     """Clear all deep analysis session state."""
+    tmp_clone = st.session_state.pop("deep_analysis_tmp_clone", None)
+    if tmp_clone:
+        shutil.rmtree(tmp_clone, ignore_errors=True)
+
     keys_to_remove = [
         "deep_analysis_step",
         "deep_analysis_plan",

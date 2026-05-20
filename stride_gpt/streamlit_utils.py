@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -54,19 +55,24 @@ def clone_github_repo(url: str) -> Path:
     """Clone a GitHub repository to a temporary directory.
 
     Returns the path to the cloned repo.
-    Raises ValueError on failure.
+    Raises ValueError on failure (and removes the temp directory).
     """
+    if not (url.startswith("https://") or url.startswith("http://") or url.startswith("git@")):
+        raise ValueError("URL must start with https://, http://, or git@.")
+
     tmp_dir = tempfile.mkdtemp(prefix="stride_gpt_")
     try:
         subprocess.run(
-            ["git", "clone", "--depth", "1", url, tmp_dir],
+            ["git", "clone", "--depth", "1", "--", url, tmp_dir],
             check=True,
             capture_output=True,
             text=True,
             timeout=120,
         )
     except subprocess.CalledProcessError as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         raise ValueError(f"Failed to clone repository: {e.stderr.strip()}") from e
     except subprocess.TimeoutExpired:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         raise ValueError("Git clone timed out after 120 seconds.")
     return Path(tmp_dir)
