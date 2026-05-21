@@ -286,7 +286,7 @@ pip install stride-gpt[ui]
 docker pull mrwadams/stridegpt:latest
 ```
 
-The container runs the CLI by default. To launch the Streamlit UI instead, use `stride-gpt serve`.
+The container runs the CLI by default. To launch the Streamlit UI instead, override the entrypoint to run `streamlit run apps/web/main.py` (see the Docker section below).
 
 ## Repository layout
 
@@ -296,7 +296,7 @@ STRIDE-GPT is organised as a small monorepo: one shared Python library, one or m
 stride-gpt/
 ├── stride_gpt/    # shared library + Python CLI (core, agent loop, prompts, schemas, models)
 ├── apps/
-│   └── web/       # Streamlit web UI (the original tabs and the Deep Analysis tab)
+│   └── web/       # Streamlit web UI
 ├── tests/         # pytest suite
 └── pyproject.toml # single project file; install [ui] extra to add Streamlit
 ```
@@ -358,11 +358,7 @@ stride-gpt reports 1 -o r.json -f json  # Export a report
 
 ### Streamlit Web UI
 
-```bash
-stride-gpt serve
-```
-
-Or run directly:
+The web UI is a separate app from the CLI. Launch it with:
 
 ```bash
 streamlit run apps/web/main.py
@@ -376,8 +372,10 @@ Open the provided URL in your browser and follow the on-screen steps.
 # CLI (default entrypoint)
 docker run --env-file .env mrwadams/stridegpt analyze /app --model openai/gpt-5.2
 
-# Streamlit UI
-docker run -p 8501:8501 --env-file .env mrwadams/stridegpt serve
+# Streamlit UI (override entrypoint)
+docker run -p 8501:8501 --env-file .env \
+  --entrypoint streamlit mrwadams/stridegpt \
+  run apps/web/main.py --server.port=8501 --server.address=0.0.0.0
 ```
 
 ## Security Best Practices

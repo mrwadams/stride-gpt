@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from enum import Enum
 from pathlib import Path
@@ -51,7 +50,6 @@ HELP_TEXT = """
   [cyan]/quick[/cyan]               Quick threat model from a text description
   [cyan]/reports[/cyan]              List previous analysis reports
   [cyan]/config[/cyan]              View or change settings
-  [cyan]/serve[/cyan]               Launch the Streamlit web UI
   [cyan]/help[/cyan]                Show this help
   [cyan]/quit[/cyan]                Exit
 
@@ -147,9 +145,6 @@ def interactive(ctx: typer.Context) -> None:
         elif user_input.startswith("/reports"):
             args = user_input[len("/reports"):].strip()
             _handle_reports(args)
-
-        elif user_input == "/serve":
-            _handle_serve()
 
         elif user_input.startswith("/"):
             console.print(f"[red]Unknown command: {user_input.split()[0]}[/red]")
@@ -464,21 +459,6 @@ def _handle_quick(config: dict, args_str: str) -> None:
         console.print(Markdown(markdown))
 
 
-def _handle_serve() -> None:
-    """Launch Streamlit UI."""
-    main_py = Path(__file__).resolve().parent.parent / "apps" / "web" / "main.py"
-    if not main_py.is_file():
-        console.print("[red]Error: main.py not found. Install with [ui] extras.[/red]")
-        return
-
-    console.print("[dim]Starting Streamlit...[/dim]")
-    subprocess.run(
-        [sys.executable, "-m", "streamlit", "run", str(main_py),
-         "--server.port=8501", "--server.address=0.0.0.0"],
-        check=False,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Non-interactive subcommands (for CI / scripting)
 # ---------------------------------------------------------------------------
@@ -712,25 +692,6 @@ def reports(
             console.print(Markdown(rendered))
         else:
             console.print(rendered)
-
-
-@app.command()
-def serve(
-    port: Annotated[int, typer.Option(help="Port for Streamlit.")] = 8501,
-    host: Annotated[str, typer.Option(help="Host to bind to.")] = "0.0.0.0",
-) -> None:
-    """Launch the Streamlit web UI."""
-    main_py = Path(__file__).resolve().parent.parent / "apps" / "web" / "main.py"
-    if not main_py.is_file():
-        console.print("[red]Error: main.py not found.[/red]")
-        raise typer.Exit(1)
-
-    console.print(f"[dim]Starting Streamlit on {host}:{port}...[/dim]")
-    subprocess.run(
-        [sys.executable, "-m", "streamlit", "run", str(main_py),
-         f"--server.port={port}", f"--server.address={host}"],
-        check=False,
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,6 @@ COMMANDS: list[tuple[str, str]] = [
     ("/quick", "Quick threat model from a text description"),
     ("/reports", "List or view previous analysis reports"),
     ("/config", "View or change settings"),
-    ("/serve", "Launch the Streamlit web UI"),
     ("/help", "Show available commands"),
     ("/quit", "Exit"),
 ]

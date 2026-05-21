@@ -11,7 +11,7 @@ RUN groupadd --gid 1000 appuser && \
     pip install --no-cache-dir --upgrade pip && \
     mkdir -p /home/appuser/.local/bin /home/appuser/.local/lib
 
-# Expose port 8501 for Streamlit UI (used by `stride-gpt serve`)
+# Expose port 8501 for the Streamlit UI (when launched via `--entrypoint streamlit`)
 EXPOSE 8501
 
 # Set the working directory in the container
@@ -31,13 +31,14 @@ RUN python -m venv ${VIRTUAL_ENV}
 RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir ".[ui]" && \
     ${VIRTUAL_ENV}/bin/pip check
 
-# Healthcheck only applies when running in serve mode; harmless no-op in CLI mode
+# Healthcheck only applies when running the Streamlit UI; harmless no-op in CLI mode
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl --fail http://localhost:8501/_stcore/health || true
 
-# Default entrypoint is the CLI. Override CMD to use different commands:
-#   CLI (default):   docker run stride-gpt analyze --path /app
-#   Streamlit UI:    docker run stride-gpt serve
+# Default entrypoint is the CLI. Examples:
+#   CLI (default):   docker run stride-gpt analyze /app
 #   Interactive:     docker run -it stride-gpt
+#   Streamlit UI:    docker run -p 8501:8501 --entrypoint streamlit stride-gpt \
+#                      run apps/web/main.py --server.port=8501 --server.address=0.0.0.0
 ENTRYPOINT ["stride-gpt"]
 CMD ["--help"]
