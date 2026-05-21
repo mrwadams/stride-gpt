@@ -15,18 +15,6 @@ dependencies = [
     "prompt_toolkit>=3.0",
 ]
 
-[project.optional-dependencies]
-ui = [
-    "anthropic",
-    "groq",
-    "mistralai>=1.0.0",
-    "openai",
-    "pyGithub",
-    "python-dotenv",
-    "streamlit>=1.40",
-    "tiktoken",
-]
-
 [project.scripts]
 stride-gpt = "stride_gpt.cli:main"
 

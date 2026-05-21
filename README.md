@@ -256,23 +256,28 @@ Release highlights:
 pip install stride-gpt
 ```
 
-This installs the `stride-gpt` command with everything needed for CLI and agentic analysis. To also install the Streamlit web UI:
-
-```bash
-pip install stride-gpt[ui]
-```
+This installs the `stride-gpt` command. The CLI and the Streamlit web UI are now distinct products — `pip install stride-gpt` gives you the lean CLI with no Streamlit footprint. To run the web UI from source, see Option 2 below.
 
 ### Option 2: From source
 
-1. Clone and install:
+1. Clone the repo:
 
     ```bash
     git clone https://github.com/mrwadams/stride-gpt.git
     cd stride-gpt
-    pip install -e ".[ui]"
     ```
 
-2. (Optional) Set up environment variables:
+2. Install whichever app you need:
+
+   ```bash
+   # CLI
+   pip install -e .
+
+   # Streamlit web UI
+   pip install -r apps/web/requirements.txt
+   ```
+
+3. (Optional) Set up environment variables:
 
    ```bash
    cp .env.example .env
@@ -282,11 +287,12 @@ pip install stride-gpt[ui]
 
 ### Option 3: Docker
 
-```bash
-docker pull mrwadams/stridegpt:latest
-```
+The CLI and the web UI ship as separate images:
 
-The container runs the CLI by default. To launch the Streamlit UI instead, override the entrypoint to run `streamlit run apps/web/main.py` (see the Docker section below).
+```bash
+docker pull mrwadams/stridegpt:latest       # CLI
+docker pull mrwadams/stridegpt-ui:latest    # Streamlit web UI
+```
 
 ## Repository layout
 
@@ -369,13 +375,11 @@ Open the provided URL in your browser and follow the on-screen steps.
 ### Docker
 
 ```bash
-# CLI (default entrypoint)
+# CLI
 docker run --env-file .env mrwadams/stridegpt analyze /app --model openai/gpt-5.2
 
-# Streamlit UI (override entrypoint)
-docker run -p 8501:8501 --env-file .env \
-  --entrypoint streamlit mrwadams/stridegpt \
-  run apps/web/main.py --server.port=8501 --server.address=0.0.0.0
+# Streamlit UI
+docker run -p 8501:8501 --env-file .env mrwadams/stridegpt-ui
 ```
 
 ## Security Best Practices

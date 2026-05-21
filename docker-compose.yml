@@ -1,6 +1,8 @@
 services:
-  stride-gpt:
-    build: .
+  stridegpt-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
     ports:
       - "8501:8501"
 
