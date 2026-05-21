@@ -336,6 +336,81 @@ class TestRunAnalysis:
         # Verify tool call was reported to progress
         progress.tool_call.assert_called()
 
+    @patch("stride_gpt.agent.loop._synthesize", return_value=[])
+    @patch("stride_gpt.agent.loop._analyze_subsystem")
+    def test_per_subsystem_budget_is_remaining_not_global(
+        self, mock_analyze, _mock_synth, llm_config, tmp_path
+    ):
+        """Each subsystem should receive the remaining global budget, not the
+        original limit — otherwise N subsystems could each spend the full
+        budget independently."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name="A", description="A", key_files=[], focus_areas=[]),
+                Subsystem(name="B", description="B", key_files=[], focus_areas=[]),
+            ],
+        )
+
+        # Each subsystem "spends" 3 LLM calls and 2 tool calls.
+        def fake_analyze(**kwargs):
+            kwargs["call_counts"]["llm"] = 3
+            kwargs["call_counts"]["tool"] = 2
+            return SubsystemFinding(subsystem=kwargs["subsystem_name"], threats=[])
+
+        mock_analyze.side_effect = fake_analyze
+
+        progress = MagicMock()
+        run_analysis(
+            llm_config,
+            tmp_path,
+            plan=plan,
+            max_llm_calls=10,
+            max_tool_calls=8,
+            progress=progress,
+        )
+
+        # First subsystem call: full budget (10 llm, 8 tool) remains.
+        # Second subsystem call: 10-3=7 llm, 8-2=6 tool should be passed.
+        assert mock_analyze.call_count == 2
+        first_kwargs = mock_analyze.call_args_list[0].kwargs
+        second_kwargs = mock_analyze.call_args_list[1].kwargs
+        assert first_kwargs["max_llm_calls"] == 10
+        assert first_kwargs["max_tool_calls"] == 8
+        assert second_kwargs["max_llm_calls"] == 7
+        assert second_kwargs["max_tool_calls"] == 6
+
+    @patch("stride_gpt.agent.loop._synthesize", return_value=[])
+    @patch("stride_gpt.agent.loop._analyze_subsystem")
+    def test_unlimited_budget_passes_zero(
+        self, mock_analyze, _mock_synth, llm_config, tmp_path
+    ):
+        """When global budget is 0 (unlimited), each subsystem should also
+        receive 0 — not a negative remainder."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name="A", description="A", key_files=[], focus_areas=[]),
+                Subsystem(name="B", description="B", key_files=[], focus_areas=[]),
+            ],
+        )
+
+        def fake_analyze(**kwargs):
+            kwargs["call_counts"]["llm"] = 5
+            kwargs["call_counts"]["tool"] = 5
+            return SubsystemFinding(subsystem=kwargs["subsystem_name"], threats=[])
+
+        mock_analyze.side_effect = fake_analyze
+
+        progress = MagicMock()
+        run_analysis(llm_config, tmp_path, plan=plan, progress=progress)
+
+        for call in mock_analyze.call_args_list:
+            assert call.kwargs["max_llm_calls"] == 0
+            assert call.kwargs["max_tool_calls"] == 0
+
     @patch("stride_gpt.agent.loop.create_plan")
     def test_cancelled_analysis(self, mock_plan, llm_config, tmp_path):
         """Test cancellation via console.input (backward compat path)."""

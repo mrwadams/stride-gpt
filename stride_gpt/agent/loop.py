@@ -153,6 +153,11 @@ def run_analysis(
 
         progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
 
+        # Pass remaining budget so a single subsystem can't starve later
+        # subsystems (or the synthesis pass). 0 still means unlimited.
+        remaining_llm = max_llm_calls - llm_calls if max_llm_calls else 0
+        remaining_tool = max_tool_calls - tool_calls if max_tool_calls else 0
+
         try:
             sub_counts: dict[str, int] = {"llm": 0, "tool": 0}
             finding = _analyze_subsystem(
@@ -163,8 +168,8 @@ def run_analysis(
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
                 ctx=ctx,
-                max_llm_calls=max_llm_calls,
-                max_tool_calls=max_tool_calls,
+                max_llm_calls=remaining_llm,
+                max_tool_calls=remaining_tool,
                 progress=progress,
                 call_counts=sub_counts,
             )
