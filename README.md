@@ -327,6 +327,8 @@ stride-gpt analyze . -o report.json -f json
 stride-gpt analyze . -o report.sarif -f sarif
 ```
 
+> **Note on cost:** Agentic analysis is thorough — the agent makes many LLM calls and reads many files as it explores. Token usage and cost scale with codebase size and your chosen model, and a full run on a large repository against a frontier model can be expensive. Set spending limits in your provider dashboard before running, and consider faster/cheaper models for first passes.
+
 **Quick single-shot mode** — generate a threat model from a text description (like the Streamlit UI, but in the terminal):
 
 ```bash
