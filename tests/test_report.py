@@ -179,3 +179,117 @@ class TestReportPersistence:
             assert len(reports) == 2
             _, _, summary = reports[0]
             assert summary["threat_count"] == 3  # 2 subsystem + 1 cross-cutting
+
+
+# ---------------------------------------------------------------------------
+# OWASP column rendering — appears only when threats carry the codes
+# ---------------------------------------------------------------------------
+
+
+def _report_with_owasp(sample_plan, *, owasp_llm: str | None = None, owasp_asi: str | None = None):
+    from stride_gpt.core.schemas import SubsystemFinding
+
+    threat: dict = {
+        "Threat Type": "Tampering",
+        "Scenario": "Prompt injection via uploaded doc",
+        "Potential Impact": "Compromised analysis",
+    }
+    if owasp_llm is not None:
+        threat["OWASP_LLM"] = owasp_llm
+    if owasp_asi is not None:
+        threat["OWASP_ASI"] = owasp_asi
+    return AnalysisReport(
+        plan=sample_plan,
+        findings=[SubsystemFinding(subsystem="Auth", threats=[threat])],
+        metadata={},
+    )
+
+
+class TestOwaspColumns:
+    def test_columns_appear_when_codes_present(self, sample_plan):
+        report = _report_with_owasp(sample_plan, owasp_llm="LLM01", owasp_asi="ASI01")
+        md = render_markdown(report)
+        assert "OWASP LLM" in md
+        assert "OWASP ASI" in md
+        assert "LLM01" in md
+        assert "ASI01" in md
+
+    def test_only_llm_column_when_no_asi(self, sample_plan):
+        report = _report_with_owasp(sample_plan, owasp_llm="LLM05", owasp_asi=None)
+        md = render_markdown(report)
+        assert "OWASP LLM" in md
+        assert "OWASP ASI" not in md
+        assert "LLM05" in md
+
+    def test_columns_absent_for_web_report(self, sample_report):
+        """The default sample_report fixture is a web app — no OWASP codes."""
+        md = render_markdown(sample_report)
+        assert "OWASP LLM" not in md
+        assert "OWASP ASI" not in md
+        assert "Spoofing" in md  # smoke check the body still renders
+
+    def test_null_owasp_renders_as_empty_cell(self, sample_plan):
+        """A null OWASP_ASI on one threat alongside a non-null on another
+        must render as a blank cell, not the literal 'None'."""
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(subsystem="X", threats=[
+                {"Threat Type": "T", "Scenario": "s", "Potential Impact": "i",
+                 "OWASP_LLM": "LLM01", "OWASP_ASI": "ASI01"},
+                {"Threat Type": "T", "Scenario": "s2", "Potential Impact": "i2",
+                 "OWASP_LLM": "LLM02", "OWASP_ASI": None},
+            ])],
+            metadata={},
+        )
+        md = render_markdown(report)
+        assert "None" not in md.split("Threats")[-1].split("## ")[0]
+
+    def test_cross_cutting_table_includes_owasp(self, sample_plan):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="X",
+                threats=[{"Threat Type": "T", "Scenario": "s", "Potential Impact": "i",
+                          "OWASP_LLM": "LLM01"}],
+            )],
+            cross_cutting_threats=[{
+                "Threat Type": "Tampering",
+                "Scenario": "cc",
+                "Potential Impact": "cc impact",
+                "Affected Subsystems": ["X"],
+                "OWASP_LLM": "LLM01",
+            }],
+            metadata={},
+        )
+        md = render_markdown(report)
+        cc_section = md.split("Cross-Cutting Threats")[1]
+        assert "OWASP LLM" in cc_section
+        assert "Affected Subsystems" in cc_section
+
+    def test_from_json_renderer_picks_up_owasp(self, sample_plan):
+        """The disk-replay path (rendering a saved JSON report) must also
+        surface OWASP columns — that's the path /reports uses."""
+        report = _report_with_owasp(sample_plan, owasp_llm="LLM01", owasp_asi="ASI06")
+        data = render_json(report)
+        md = render_markdown_from_json(data)
+        assert "OWASP LLM" in md
+        assert "OWASP ASI" in md
+        assert "ASI06" in md
+
+    def test_sarif_properties_include_owasp(self, sample_plan):
+        report = _report_with_owasp(sample_plan, owasp_llm="LLM01", owasp_asi="ASI01")
+        sarif = render_sarif(report)
+        result = sarif["runs"][0]["results"][0]
+        assert result["properties"]["owasp_llm"] == "LLM01"
+        assert result["properties"]["owasp_asi"] == "ASI01"
+
+    def test_sarif_omits_owasp_when_null(self, sample_plan):
+        report = _report_with_owasp(sample_plan, owasp_llm="LLM01", owasp_asi=None)
+        sarif = render_sarif(report)
+        result = sarif["runs"][0]["results"][0]
+        assert result["properties"]["owasp_llm"] == "LLM01"
+        assert "owasp_asi" not in result["properties"]

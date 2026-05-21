@@ -116,6 +116,19 @@ def search_files(root: Path, pattern: str, path: str = ".") -> str:
     return json.dumps(matches)
 
 
+def load_reference(name: str) -> str:
+    """Return a packaged OWASP reference card by name.
+
+    Available cards: "genai" (Top 10 for LLM Applications) and "agentic" (Top 10
+    for Agentic Applications). The agent calls this when the subsystem it is
+    analysing has language-model or agentic behaviour in scope — see the
+    "Reference cards available" section of the base system prompt.
+    """
+    from stride_gpt.core.prompts.variants import load_reference as _load
+
+    return _load(name)
+
+
 def grep_content(
     root: Path, pattern: str, path: str = ".", max_results: int = MAX_GREP_RESULTS
 ) -> str:
@@ -221,6 +234,24 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "load_reference",
+            "description": "Load an OWASP threat reference card. Use 'genai' for the Top 10 for LLM Applications (LLM01-LLM10) when the subsystem uses LLMs; 'agentic' for the Top 10 for Agentic Applications (ASI01-ASI10) when it uses agent frameworks, tool-use loops, or persistent agent memory. Each card includes the JSON schema additions you must apply to your output. Call once per applicable card per subsystem.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the reference card to load.",
+                        "enum": ["genai", "agentic"],
+                    }
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grep_content",
             "description": "Search file contents for a regex pattern. Returns matching lines with file paths and line numbers.",
             "parameters": {
@@ -256,6 +287,9 @@ _TOOL_DISPATCH = {
     "grep_content": lambda root, args: grep_content(
         root, args["pattern"], args.get("path", ".")
     ),
+    # load_reference reads packaged content, not the user's filesystem — the
+    # root parameter is ignored.
+    "load_reference": lambda _root, args: load_reference(args["name"]),
 }
 
 

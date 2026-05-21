@@ -426,3 +426,155 @@ class TestRunAnalysis:
         report = run_analysis(llm_config, tmp_path, auto_approve=False, console=console)
         assert report.metadata.get("status") == "cancelled"
         assert report.findings == []
+
+
+# ---------------------------------------------------------------------------
+# App-type propagation (planner hint → agent prompt → metadata)
+# ---------------------------------------------------------------------------
+
+
+class TestAppTypeFlow:
+    @patch("stride_gpt.agent.loop.call_llm")
+    @patch("stride_gpt.agent.loop.call_llm_with_tools")
+    def test_agentic_hint_reaches_user_prompt(
+        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+    ):
+        """When the planner detects 'agentic', the per-subsystem user prompt
+        must tell the agent it can pull the agentic reference card. Without
+        this hint, the model has no reason to use load_reference."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="A LangGraph multi-agent app",
+            detected_app_type="agentic",
+            subsystems=[
+                Subsystem(name="Orchestrator", description="agent loop",
+                          key_files=["agent.py"], focus_areas=["ASI"]),
+            ],
+        )
+        mock_llm_tools.return_value = LLMResponse(
+            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+
+        run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+
+        # The first call carries the user prompt for the subsystem. It must
+        # include the agentic load_reference hint.
+        messages = mock_llm_tools.call_args_list[0].args[1]
+        user_msg = next(m for m in messages if m.get("role") == "user")
+        assert 'load_reference(name="agentic")' in user_msg["content"]
+        assert 'load_reference(name="genai")' in user_msg["content"]
+
+    @patch("stride_gpt.agent.loop.call_llm")
+    @patch("stride_gpt.agent.loop.call_llm_with_tools")
+    def test_genai_hint_excludes_agentic(
+        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+    ):
+        """A genai-classified app should be told about genai only, not agentic.
+        Otherwise the agent loads an irrelevant card and wastes tokens."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="An LLM-backed chatbot",
+            detected_app_type="genai",
+            subsystems=[
+                Subsystem(name="Chat", description="LLM endpoint",
+                          key_files=["chat.py"], focus_areas=["LLM"]),
+            ],
+        )
+        mock_llm_tools.return_value = LLMResponse(
+            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+
+        run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+
+        messages = mock_llm_tools.call_args_list[0].args[1]
+        user_msg = next(m for m in messages if m.get("role") == "user")
+        assert 'load_reference(name="genai")' in user_msg["content"]
+        assert 'load_reference(name="agentic")' not in user_msg["content"]
+
+    @patch("stride_gpt.agent.loop.call_llm")
+    @patch("stride_gpt.agent.loop.call_llm_with_tools")
+    def test_web_app_carries_no_hint(
+        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+    ):
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="A plain web app",
+            detected_app_type="web",
+            subsystems=[
+                Subsystem(name="Auth", description="login",
+                          key_files=["auth.py"], focus_areas=["Spoofing"]),
+            ],
+        )
+        mock_llm_tools.return_value = LLMResponse(
+            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+
+        run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+
+        messages = mock_llm_tools.call_args_list[0].args[1]
+        user_msg = next(m for m in messages if m.get("role") == "user")
+        assert "load_reference" not in user_msg["content"]
+
+    @patch("stride_gpt.agent.loop.call_llm")
+    @patch("stride_gpt.agent.loop.call_llm_with_tools")
+    def test_metadata_records_app_type(
+        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+    ):
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="X",
+            detected_app_type="agentic",
+            subsystems=[
+                Subsystem(name="A", description="A", key_files=[], focus_areas=[]),
+            ],
+        )
+        mock_llm_tools.return_value = LLMResponse(
+            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+
+        report = run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+        assert report.metadata["app_type"] == "agentic"
+
+    @patch("stride_gpt.agent.loop.call_llm")
+    @patch("stride_gpt.agent.loop.call_llm_with_tools")
+    def test_agent_can_call_load_reference_tool(
+        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+    ):
+        """End-to-end: agent calls load_reference, gets the card, then emits
+        findings. Verifies the tool is actually reachable via the dispatch."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="agentic",
+            detected_app_type="agentic",
+            subsystems=[
+                Subsystem(name="A", description="A", key_files=[], focus_areas=[]),
+            ],
+        )
+
+        tool_call_response = LLMResponse(
+            content="I need the agentic card",
+            thinking=None, reasoning=None, model="t",
+            tool_calls=[ToolCallResult(
+                id="tc1", function_name="load_reference",
+                arguments={"name": "agentic"},
+            )],
+        )
+        final_response = LLMResponse(
+            content='{"threats": [{"Threat Type": "Tampering", "Scenario": "ASI06 memory poisoning", "Potential Impact": "Bad", "OWASP_ASI": "ASI06"}], "improvement_suggestions": [], "files_analyzed": []}',
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+        mock_llm_tools.side_effect = [tool_call_response, final_response]
+
+        report = run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+
+        assert len(report.findings) == 1
+        assert report.findings[0].threats[0]["OWASP_ASI"] == "ASI06"
+        # The card content should now be in the messages history of the
+        # second call.
+        second_call_messages = mock_llm_tools.call_args_list[1].args[1]
+        tool_results = [m for m in second_call_messages if m.get("role") == "tool"]
+        assert any("ASI01" in m["content"] for m in tool_results)

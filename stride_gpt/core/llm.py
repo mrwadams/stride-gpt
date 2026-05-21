@@ -102,8 +102,11 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     # --- Google AI API specifics ---
     if config.provider == "Google AI API":
         kwargs["safety_settings"] = GEMINI_SAFETY_SETTINGS
-        if model_supports_thinking(config.provider, config.model_name):
-            kwargs["thinking"] = {"type": "enabled", "budget_tokens": 1024}
+        # Gemini thinking-capable models have thinking enabled by default and
+        # surface it via `thinking_blocks` on the response — no explicit
+        # opt-in kwarg is required. Don't send Anthropic's
+        # `thinking={"type": "enabled", ...}` shape here; litellm's Gemini
+        # provider rejects it for newer models (e.g. gemini-3.1-flash-lite).
 
     # --- Anthropic ---
     elif config.provider == "Anthropic API" and config.use_thinking:

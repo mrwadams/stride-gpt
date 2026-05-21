@@ -22,6 +22,12 @@ stride-gpt = "stride_gpt.cli:main"
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
+[tool.setuptools.packages.find]
+include = ["stride_gpt*"]
+
+[tool.setuptools.package-data]
+"stride_gpt.core.prompts.threat_model" = ["*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "apps/web"]

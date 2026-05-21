@@ -76,6 +76,14 @@ class OutputFormat(str, Enum):
     sarif = "sarif"
 
 
+class AppTypeOverride(str, Enum):
+    """Override for the planner's detected app type. `auto` keeps the planner's choice."""
+    auto = "auto"
+    web = "web"
+    genai = "genai"
+    agentic = "agentic"
+
+
 # ---------------------------------------------------------------------------
 # Interactive session
 # ---------------------------------------------------------------------------
@@ -491,6 +499,7 @@ def analyze(
     max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls (0 = unlimited).")] = 0,
     max_tool_calls: Annotated[int, typer.Option(help="Max tool executions (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
+    app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""
     from stride_gpt.agent.loop import create_analysis_plan, run_analysis
@@ -528,6 +537,16 @@ def analyze(
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
     plan = create_analysis_plan(llm_config, target)
+
+    # Apply --app-type override, if any.
+    if app_type != AppTypeOverride.auto and app_type.value != plan.detected_app_type:
+        console.print(
+            f"[dim]Overriding detected type "
+            f"[yellow]{plan.detected_app_type}[/yellow] → "
+            f"[yellow]{app_type.value}[/yellow] (--app-type).[/dim]"
+        )
+        plan = plan.model_copy(update={"detected_app_type": app_type.value})
+
     console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
 
     if not auto_approve:

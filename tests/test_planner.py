@@ -82,6 +82,34 @@ class TestBuildPlan:
         assert len(plan.subsystems) == 1
         assert plan.subsystems[0].name == "Real"
 
+    def test_app_type_defaults_to_web(self):
+        plan = _build_plan({"subsystems": [{"name": "A"}]}, "/tmp/test")
+        assert plan.detected_app_type == "web"
+
+    def test_app_type_passes_through_canonical_values(self):
+        for value in ("web", "genai", "agentic"):
+            plan = _build_plan(
+                {"detected_app_type": value, "subsystems": [{"name": "A"}]},
+                "/tmp/test",
+            )
+            assert plan.detected_app_type == value
+
+    def test_app_type_coerces_legacy_labels(self):
+        plan = _build_plan(
+            {"detected_app_type": "Agentic AI application",
+             "subsystems": [{"name": "A"}]},
+            "/tmp/test",
+        )
+        assert plan.detected_app_type == "agentic"
+
+    def test_app_type_falls_back_when_unknown(self):
+        plan = _build_plan(
+            {"detected_app_type": "Quantum mainframe",
+             "subsystems": [{"name": "A"}]},
+            "/tmp/test",
+        )
+        assert plan.detected_app_type == "web"
+
 
 # ---------------------------------------------------------------------------
 # create_plan retry behavior

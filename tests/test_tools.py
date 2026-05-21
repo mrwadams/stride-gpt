@@ -173,6 +173,19 @@ class TestExecuteTool:
         result = execute_tool(sandbox_dir, tc)
         assert "unknown tool" in result.lower()
 
+    def test_dispatches_load_reference(self, sandbox_dir: Path):
+        # load_reference is fs-independent — it reads packaged markdown, not
+        # the sandbox. Smoke-test both valid and invalid card names.
+        tc = ToolCallResult(id="4", function_name="load_reference",
+                            arguments={"name": "genai"})
+        result = execute_tool(sandbox_dir, tc)
+        assert "LLM01" in result
+
+        tc = ToolCallResult(id="5", function_name="load_reference",
+                            arguments={"name": "bogus"})
+        result = execute_tool(sandbox_dir, tc)
+        assert "Error" in result and "bogus" in result
+
 
 # ---------------------------------------------------------------------------
 # Tool definitions

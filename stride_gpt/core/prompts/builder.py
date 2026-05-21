@@ -118,168 +118,27 @@ def create_attack_tree_schema() -> dict:
 def create_llm_stride_prompt_section() -> str:
     """LLM-specific section of the threat model prompt.
 
-    Maps OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10) to STRIDE categories.
+    Maps OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10) to STRIDE
+    categories. Content is the packaged `genai.md` reference card so the
+    single-shot path and the agent's progressive-disclosure loader stay in
+    sync.
     """
-    return """
-LLM-SPECIFIC THREAT CATEGORIES (OWASP Top 10 for LLM Applications 2025):
-You MUST analyze threats from both traditional STRIDE categories AND the following LLM-specific threat categories. Map each LLM threat to its corresponding STRIDE category and include the OWASP_LLM code:
+    from stride_gpt.core.prompts.variants import load_reference
 
-SPOOFING (Traditional + LLM):
-- Traditional: Identity spoofing, credential theft
-- LLM01 (Prompt Injection): Attacker crafts inputs that override system prompts or instructions, making the LLM impersonate other entities or bypass intended behavior
-- LLM07 (System Prompt Leakage): Extraction of system prompts reveals intended identity/behavior, enabling more targeted spoofing
-
-TAMPERING (Traditional + LLM):
-- Traditional: Data modification, code injection
-- LLM01 (Prompt Injection): Direct or indirect injection that manipulates LLM behavior or outputs
-- LLM04 (Data and Model Poisoning): Malicious modification of training data, fine-tuning data, or embeddings
-- LLM08 (Vector and Embedding Weaknesses): Manipulation of RAG data or embeddings to alter retrieval results
-
-REPUDIATION (Traditional + LLM):
-- Traditional: Denial of actions, log manipulation
-- LLM09 (Misinformation): LLM generates false information that users act upon; difficult to attribute accountability
-- Lack of audit trails for LLM decision-making and content generation
-
-INFORMATION DISCLOSURE (Traditional + LLM):
-- Traditional: Data leaks, unauthorized access
-- LLM02 (Sensitive Information Disclosure): LLM reveals training data, PII, credentials, or proprietary information
-- LLM07 (System Prompt Leakage): Exposure of confidential system instructions, business logic, or secrets embedded in prompts
-- LLM08 (Vector and Embedding Weaknesses): Information leakage through embeddings or cross-tenant RAG data
-
-DENIAL OF SERVICE (Traditional + LLM):
-- Traditional: Resource exhaustion, service disruption
-- LLM10 (Unbounded Consumption): Resource exhaustion through expensive queries, long contexts, or repeated requests
-- LLM04 (Data and Model Poisoning): Model performance degradation through poisoned training data
-
-ELEVATION OF PRIVILEGE (Traditional + LLM):
-- Traditional: Privilege escalation, unauthorized access
-- LLM05 (Improper Output Handling): LLM output passed to downstream systems without validation enables command injection, XSS, SSRF
-- LLM06 (Excessive Agency): LLM granted excessive permissions or autonomy to perform actions
-- LLM03 (Supply Chain): Compromised models, plugins, or dependencies introduce backdoors or malicious capabilities
-
-CRITICAL LLM RISKS TO EVALUATE:
-1. LLM01 - Prompt Injection: Can users or external content manipulate the LLM's behavior through crafted inputs?
-2. LLM02 - Sensitive Information Disclosure: Could the LLM leak training data, PII, or secrets in its responses?
-3. LLM03 - Supply Chain: Are models, plugins, and dependencies from trusted sources with integrity verification?
-4. LLM04 - Data and Model Poisoning: Could training data, fine-tuning data, or RAG content be poisoned?
-5. LLM05 - Improper Output Handling: Is LLM output validated and sanitized before use in downstream systems?
-6. LLM06 - Excessive Agency: Does the LLM have appropriate limits on its actions and permissions?
-7. LLM07 - System Prompt Leakage: Could system prompts containing secrets or logic be extracted?
-8. LLM08 - Vector and Embedding Weaknesses: Are embeddings and RAG systems protected from manipulation and leakage?
-9. LLM09 - Misinformation: Could LLM hallucinations or false outputs cause harm if trusted?
-10. LLM10 - Unbounded Consumption: Are there limits on resource consumption to prevent DoS and cost overruns?
-"""
+    return "\n" + load_reference("genai")
 
 
 def create_agentic_stride_prompt_section() -> str:
     """Agentic-specific section of the threat model prompt.
 
     Maps OWASP ASI01-ASI10 to STRIDE categories and incorporates architectural
-    layer analysis for comprehensive threat coverage.
+    layer analysis. Content is the packaged `agentic.md` reference card so the
+    single-shot path and the agent's progressive-disclosure loader stay in
+    sync.
     """
-    return """
-ARCHITECTURAL PATTERN DETECTION:
-Before generating threats, analyze the application description to detect which architectural patterns are present. For each pattern detected, you MUST include threats specific to that pattern:
+    from stride_gpt.core.prompts.variants import load_reference
 
-1. RAG / RETRIEVAL SYSTEMS: Look for mentions of RAG, retrieval, vector databases, embeddings, knowledge bases, document ingestion, Pinecone, Weaviate, ChromaDB, FAISS, or similar. If detected:
-   - Include vector store poisoning threats (malicious documents injected into knowledge base)
-   - Include embedding manipulation threats (adversarial content designed to surface in retrieval)
-   - Include cross-tenant data leakage if multi-tenant RAG is implied
-   - Include stale/poisoned index threats if incremental updates are mentioned
-
-2. MULTI-AGENT SYSTEMS: Look for mentions of multiple agents, agent orchestration, agent-to-agent communication, CrewAI, AutoGen, LangGraph, swarms, hierarchical agents, or similar. If detected:
-   - Include agent impersonation threats (malicious agent posing as trusted agent)
-   - Include inter-agent message tampering threats
-   - Include malicious agent injection into the ecosystem
-   - Include goal conflicts and unintended emergent behaviors
-   - Include cascading failure propagation across agent chains
-
-3. CODE EXECUTION / SANDBOXING: Look for mentions of code generation, code execution, REPL, interpreter, sandbox, Docker, containers, or executing generated code. If detected:
-   - Include sandbox escape threats
-   - Include container breakout if containerized
-   - Include resource exhaustion via generated code (fork bombs, infinite loops)
-   - Include filesystem/network access beyond intended scope
-   - Include malicious dependency installation if package installation is possible
-
-4. TOOL/PLUGIN ECOSYSTEMS: Look for mentions of MCP servers, plugins, tools, function calling, external APIs, or third-party integrations. If detected:
-   - Include malicious tool provider threats (tool returning poisoned data)
-   - Include tool impersonation (fake tool masquerading as legitimate)
-   - Include supply chain attacks via compromised tool packages
-   - Include confused deputy attacks (agent tricked into misusing legitimate tools)
-
-5. PERSISTENT MEMORY / STATE: Look for mentions of memory, conversation history, session persistence, long-term memory, memory stores, or context carried across sessions. If detected:
-   - Include memory poisoning threats (past interactions corrupting future behavior)
-   - Include cross-session data leakage
-   - Include memory extraction attacks (retrieving other users' context)
-   - Include state manipulation to alter agent personality/goals over time
-
-6. FINE-TUNED / CUSTOM MODELS: Look for mentions of fine-tuning, custom training, LoRA, adapters, or proprietary models. If detected:
-   - Include training data poisoning threats
-   - Include backdoor trigger injection during fine-tuning
-   - Include model supply chain threats (compromised base model or training pipeline)
-   - Include intellectual property extraction from fine-tuned model
-
-AGENTIC-SPECIFIC THREAT CATEGORIES (OWASP Top 10 for Agentic Applications):
-You MUST analyze threats from both traditional STRIDE categories AND the following agentic-specific threat categories. Map each agentic threat to its corresponding STRIDE category and include the OWASP_ASI code:
-
-SPOOFING (Traditional + Agentic):
-- Traditional: Identity spoofing, credential theft
-- ASI07 (Insecure Inter-Agent Communication): Spoofed agent identities, fake agents joining multi-agent systems
-- ASI04 (Agentic Supply Chain Vulnerabilities): Malicious MCP servers or tool providers impersonating legitimate ones
-- Fake tool responses injected into agent context
-
-TAMPERING (Traditional + Agentic):
-- Traditional: Data modification, code injection
-- ASI06 (Memory and Context Poisoning): RAG poisoning, manipulated agent memory/state, cross-session contamination
-- ASI01 (Agent Goal Hijack): Prompt injection via poisoned documents, emails, or user inputs that alter agent objectives
-- ASI07: Message tampering in inter-agent communication channels
-
-REPUDIATION (Traditional + Agentic):
-- Traditional: Denial of actions, log manipulation
-- ASI09 (Human-Agent Trust Exploitation): Agent actions that circumvent audit trails by exploiting user over-trust
-- Untraceable autonomous agent decisions due to insufficient logging
-- Gaps in agent decision audit logs making forensics impossible
-
-INFORMATION DISCLOSURE (Traditional + Agentic):
-- Traditional: Data leaks, unauthorized access
-- ASI06: Context window leakage exposing sensitive data from previous sessions, cross-tenant data exposure
-- ASI01: Prompt injection attacks leading to data exfiltration via crafted outputs
-- Sensitive credentials or data exposed through agent tool call logs or persistent memory
-
-DENIAL OF SERVICE (Traditional + Agentic):
-- Traditional: Resource exhaustion, service disruption
-- ASI08 (Cascading Failures): Error propagation across agent chains causing system-wide outages
-- Agent loop attacks where malicious input causes infinite reasoning cycles
-- Resource exhaustion through repeated expensive tool invocations or runaway code execution
-
-ELEVATION OF PRIVILEGE (Traditional + Agentic):
-- Traditional: Privilege escalation, unauthorized access
-- ASI02 (Tool Misuse and Exploitation): Over-privileged tools executing destructive commands, unvalidated tool inputs
-- ASI03 (Identity and Privilege Abuse): Cached credential misuse, confused deputy attacks, cross-agent delegation abuse
-- ASI05 (Unexpected Code Execution): Unsafe eval/exec of generated code, shell injection, sandbox escape
-- ASI10 (Rogue Agents): Agents persisting beyond intended lifecycle, impersonating other agents or users
-
-CROSS-LAYER THREAT ANALYSIS:
-For each threat identified, consider how it could cascade across system boundaries:
-- How could a data poisoning attack (in retrieval/RAG) affect agent decision-making and tool usage?
-- How could a compromised tool provider affect the foundation model's outputs or agent memory?
-- How could an agent ecosystem attack (multi-agent manipulation) lead to infrastructure compromise?
-- How could observability gaps hide attack progression across components?
-
-Include at least 2-3 threats that explicitly describe cross-component attack chains where applicable.
-
-CRITICAL AGENTIC RISKS TO EVALUATE:
-1. ASI01 - Agent Goal Hijack: How could adversarial inputs (documents, emails, web content) redirect the agent's objectives?
-2. ASI02 - Tool Misuse: Are tools properly scoped with least privilege? Can the agent execute dangerous commands?
-3. ASI03 - Identity/Privilege Abuse: Can the agent abuse delegated permissions or cached credentials?
-4. ASI04 - Supply Chain: Are external tool providers (MCP servers, plugins) trusted, verified, and integrity-checked?
-5. ASI05 - Code Execution: Does the agent have code execution capabilities? Are they properly sandboxed?
-6. ASI06 - Memory Poisoning: Can persistent memory be poisoned to affect future sessions or other users?
-7. ASI07 - Inter-Agent Communication: In multi-agent systems, can agents be spoofed or messages tampered with?
-8. ASI08 - Cascading Failures: How do errors propagate through agent chains? Are there circuit breakers?
-9. ASI09 - Human-Agent Trust: Can the agent exploit user over-trust to perform harmful actions without scrutiny?
-10. ASI10 - Rogue Agents: Can the agent persist beyond its intended lifecycle, impersonate users, or resist shutdown?
-"""
+    return "\n" + load_reference("agentic")
 
 
 def create_threat_model_prompt(

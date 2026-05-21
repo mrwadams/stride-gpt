@@ -30,8 +30,17 @@ Good subsystem examples:
 - "Infrastructure" — Dockerfiles, CI/CD, Terraform, deployment configs
 - "Frontend" — client-side code, input handling, state management
 
+You must also classify the overall application type so the downstream STRIDE agent knows which OWASP reference cards apply. Choose exactly one of:
+
+- "web" — a traditional web/CRUD/data/infra application with no LLM-driven behaviour
+- "genai" — uses LLMs as a meaningful part of the application (LLM SDKs like openai/anthropic/mistralai/google-generativeai, RAG pipelines, embeddings, LLM-powered endpoints) but does NOT run autonomous agents
+- "agentic" — uses agent frameworks (langchain/langgraph, crewai, autogen, pydantic-ai, smolagents, llama-index agents) OR implements a tool-use / function-calling loop OR coordinates multiple agents OR persists agent memory across sessions
+
+Only classify as "genai" or "agentic" when the LLM/agent behaviour is core to the application's purpose — a one-off util script that calls an LLM does not promote the whole codebase. When in doubt, prefer the simpler classification.
+
 Respond with a JSON object:
 {
+    "detected_app_type": "web|genai|agentic",
     "overall_description": "Brief description of the overall application architecture",
     "subsystems": [
         {
@@ -159,6 +168,8 @@ def _extract_plan_json(content: str) -> dict | None:
 
 def _build_plan(data: dict, target_path: str) -> AnalysisPlan:
     """Build an AnalysisPlan from a parsed dict."""
+    from stride_gpt.core.prompts.variants import coerce_app_type
+
     subsystems = [
         Subsystem(
             name=s.get("name", "Unnamed"),
@@ -173,6 +184,7 @@ def _build_plan(data: dict, target_path: str) -> AnalysisPlan:
     return AnalysisPlan(
         target_path=target_path,
         overall_description=data.get("overall_description", ""),
+        detected_app_type=coerce_app_type(data.get("detected_app_type")),
         subsystems=subsystems or [
             Subsystem(
                 name="Full Codebase",
@@ -184,10 +196,19 @@ def _build_plan(data: dict, target_path: str) -> AnalysisPlan:
     )
 
 
+_APP_TYPE_LABELS = {
+    "web": "Web application",
+    "genai": "Generative AI application",
+    "agentic": "Agentic AI application",
+}
+
+
 def format_plan_for_display(plan: AnalysisPlan) -> str:
     """Format an analysis plan as a readable string."""
+    type_label = _APP_TYPE_LABELS.get(plan.detected_app_type, plan.detected_app_type)
     lines = [
         f"Target: {plan.target_path}",
+        f"Detected type: {type_label}",
         f"Overview: {plan.overall_description}",
         "",
         f"Subsystems ({len(plan.subsystems)}):",

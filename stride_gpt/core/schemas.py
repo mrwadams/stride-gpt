@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -69,6 +69,9 @@ class AnalysisPlan(BaseModel):
     target_path: str
     overall_description: str
     subsystems: list[Subsystem]
+    # Planner-detected application type. The agent uses this as a hint for
+    # which OWASP reference cards to load during per-subsystem analysis.
+    detected_app_type: Literal["web", "genai", "agentic"] = "web"
 
 
 class SubsystemFinding(BaseModel):

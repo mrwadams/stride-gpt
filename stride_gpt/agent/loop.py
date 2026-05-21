@@ -13,6 +13,7 @@ from stride_gpt.agent.planner import create_plan, format_plan_for_display
 from stride_gpt.agent.progress import ProgressCallback, RichProgress
 from stride_gpt.agent.tools import AGENT_TOOLS, execute_tool
 from stride_gpt.core.llm import call_llm, call_llm_with_tools
+from stride_gpt.core.prompts import base_system_prompt
 from stride_gpt.core.schemas import (
     AnalysisPlan,
     AnalysisReport,
@@ -20,33 +21,26 @@ from stride_gpt.core.schemas import (
     SubsystemFinding,
 )
 
-AGENT_SYSTEM_PROMPT = """You are a security expert performing STRIDE threat modeling on a codebase.
+# The agent's system prompt is the packaged `base.md` reference. It points to
+# optional `genai` and `agentic` reference cards that the agent loads on
+# demand via the `load_reference` tool — progressive disclosure rather than
+# eagerly stacking variant content.
+AGENT_SYSTEM_PROMPT = base_system_prompt()
 
-You have filesystem tools to explore the code. Your job is to:
-1. Read relevant source files for the current subsystem
-2. Understand the architecture, data flows, and trust boundaries
-3. Identify threats using the STRIDE framework:
-   - Spoofing: Can an attacker impersonate a user or component?
-   - Tampering: Can data be modified without detection?
-   - Repudiation: Can actions be denied without accountability?
-   - Information Disclosure: Can sensitive data leak?
-   - Denial of Service: Can the service be disrupted?
-   - Elevation of Privilege: Can an attacker gain unauthorized access?
-
-When you have gathered enough information, respond with your threat analysis as a JSON object:
-{
-    "threats": [
-        {
-            "Threat Type": "Spoofing|Tampering|Repudiation|Information Disclosure|Denial of Service|Elevation of Privilege",
-            "Scenario": "Description of the specific attack scenario",
-            "Potential Impact": "What damage could result"
-        }
-    ],
-    "improvement_suggestions": ["Actionable recommendation 1", "..."],
-    "files_analyzed": ["file1.py", "file2.py"]
+_APP_TYPE_HINTS = {
+    "genai": (
+        "The planner classified this codebase as a Generative AI application. "
+        "If this subsystem has language-model behaviour in scope, call "
+        "`load_reference(name=\"genai\")` to retrieve the OWASP LLM threat reference."
+    ),
+    "agentic": (
+        "The planner classified this codebase as an Agentic AI application. "
+        "If this subsystem has language-model behaviour in scope, call "
+        "`load_reference(name=\"genai\")` for the OWASP LLM reference. If it "
+        "uses agent frameworks, tool-use loops, or persistent agent memory, "
+        "also call `load_reference(name=\"agentic\")` for the OWASP Agentic reference."
+    ),
 }
-
-Be thorough but focused. Read code — don't guess. Use grep to find specific patterns like authentication checks, SQL queries, input validation, secret handling, etc."""
 
 SYNTHESIS_PROMPT = """You are a security architect reviewing threat model findings from multiple subsystems.
 
@@ -167,6 +161,7 @@ def run_analysis(
                 subsystem_description=subsystem.description,
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
+                app_type=plan.detected_app_type,
                 ctx=ctx,
                 max_llm_calls=remaining_llm,
                 max_tool_calls=remaining_tool,
@@ -212,6 +207,7 @@ def run_analysis(
         metadata={
             "model": config.model_name,
             "provider": config.provider,
+            "app_type": plan.detected_app_type,
             "llm_calls": llm_calls,
             "tool_calls": tool_calls,
             "subsystems_analyzed": len(findings),
@@ -248,6 +244,7 @@ def _analyze_subsystem(
     subsystem_description: str,
     key_files: list[str],
     focus_areas: list[str],
+    app_type: str,
     ctx: ContextManager,
     max_llm_calls: int,
     max_tool_calls: int,
@@ -255,13 +252,16 @@ def _analyze_subsystem(
     call_counts: dict[str, int],
 ) -> SubsystemFinding:
     """Analyze a single subsystem using the agent loop."""
+    hint = _APP_TYPE_HINTS.get(app_type, "")
+    hint_block = f"\n\n{hint}" if hint else ""
+
     user_prompt = f"""Analyze the "{subsystem_name}" subsystem for STRIDE threats.
 
 Description: {subsystem_description}
 Key files to examine: {', '.join(key_files) if key_files else 'Discover relevant files using search_files and list_directory'}
 Focus areas: {', '.join(focus_areas) if focus_areas else 'All STRIDE categories'}
 
-Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, encryption, and network calls."""
+Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, encryption, and network calls.{hint_block}"""
 
     messages: list[dict] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
