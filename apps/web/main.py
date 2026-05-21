@@ -1185,7 +1185,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         )
 
         # Clear thinking content when switching models or starting a new operation
-        if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+        if model_provider != "Anthropic API" or "thinking" not in selected_model.lower():
             st.session_state.pop("last_thinking_content", None)
 
         # Show a spinner while generating the threat model
@@ -1201,15 +1201,15 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         )
                     elif model_provider == "Google AI API":
                         model_output = get_threat_model_google(
-                            google_api_key, google_model, threat_model_prompt
+                            google_api_key, selected_model, threat_model_prompt
                         )
                     elif model_provider == "Mistral API":
                         model_output = get_threat_model_mistral(
-                            mistral_api_key, mistral_model, threat_model_prompt
+                            mistral_api_key, selected_model, threat_model_prompt
                         )
                     elif model_provider == "Anthropic API":
                         model_output = get_threat_model_anthropic(
-                            anthropic_api_key, anthropic_model, threat_model_prompt
+                            anthropic_api_key, selected_model, threat_model_prompt
                         )
                         # Check if we got a fallback response
                         if (
@@ -1232,7 +1232,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         )
                     elif model_provider == "Groq API":
                         model_output = get_threat_model_groq(
-                            groq_api_key, groq_model, threat_model_prompt
+                            groq_api_key, selected_model, threat_model_prompt
                         )
 
                     # Access the threat model and improvement suggestions from the parsed content
@@ -1273,7 +1273,7 @@ with tab1:
             and st.session_state["last_thinking_content"]
             and (
                 (model_provider == "Anthropic API" and st.session_state.get("use_thinking", False))
-                or (model_provider == "Google AI API" and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()))
+                or (model_provider == "Google AI API" and ("gemini-2.5" in selected_model.lower() or "gemini-3" in selected_model.lower()))
             )
         ):
             thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
@@ -1303,7 +1303,7 @@ vulnerabilities and prioritising mitigation efforts.
 """
     )
     st.markdown("""---""")
-    if model_provider == "Mistral API" and mistral_model == "mistral-small-2506":
+    if model_provider == "Mistral API" and selected_model == "mistral-small-2506":
         st.warning(
             "⚠️ Mistral Small doesn't reliably generate syntactically correct Mermaid code. Please use Mistral Large for generating attack trees, or select a different model provider."
         )
@@ -1330,7 +1330,7 @@ vulnerabilities and prioritising mitigation efforts.
             )
 
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider != "Anthropic API" or "thinking" not in selected_model.lower():
                 st.session_state.pop("last_thinking_content", None)
 
             # Show a spinner while generating the attack tree
@@ -1343,15 +1343,15 @@ vulnerabilities and prioritising mitigation efforts.
                         )
                     elif model_provider == "Google AI API":
                         mermaid_code = get_attack_tree_google(
-                            google_api_key, google_model, attack_tree_prompt
+                            google_api_key, selected_model, attack_tree_prompt
                         )
                     elif model_provider == "Mistral API":
                         mermaid_code = get_attack_tree_mistral(
-                            mistral_api_key, mistral_model, attack_tree_prompt
+                            mistral_api_key, selected_model, attack_tree_prompt
                         )
                     elif model_provider == "Anthropic API":
                         mermaid_code = get_attack_tree_anthropic(
-                            anthropic_api_key, anthropic_model, attack_tree_prompt
+                            anthropic_api_key, selected_model, attack_tree_prompt
                         )
                     elif model_provider == "LM Studio Server":
                         mermaid_code = get_attack_tree_lm_studio(
@@ -1362,7 +1362,7 @@ vulnerabilities and prioritising mitigation efforts.
                         )
                     elif model_provider == "Groq API":
                         mermaid_code = get_attack_tree_groq(
-                            groq_api_key, groq_model, attack_tree_prompt
+                            groq_api_key, selected_model, attack_tree_prompt
                         )
 
                     # Display thinking content in an expander if available
@@ -1372,11 +1372,11 @@ vulnerabilities and prioritising mitigation efforts.
                         and (
                             (
                                 model_provider == "Anthropic API"
-                                and "thinking" in anthropic_model.lower()
+                                and "thinking" in selected_model.lower()
                             )
                             or (
                                 model_provider == "Google AI API"
-                                and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower())
+                                and ("gemini-2.5" in selected_model.lower() or "gemini-3" in selected_model.lower())
                             )
                         )
                     ):
@@ -1455,7 +1455,7 @@ the security posture of the application and protect against potential attacks.
             mitigations_prompt = create_mitigations_prompt(threats_markdown, is_genai=is_genai, is_agentic=is_agentic)
 
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider != "Anthropic API" or "thinking" not in selected_model.lower():
                 st.session_state.pop("last_thinking_content", None)
 
             # Show a spinner while suggesting mitigations
@@ -1471,15 +1471,15 @@ the security posture of the application and protect against potential attacks.
                             )
                         elif model_provider == "Google AI API":
                             mitigations_markdown = get_mitigations_google(
-                                google_api_key, google_model, mitigations_prompt
+                                google_api_key, selected_model, mitigations_prompt
                             )
                         elif model_provider == "Mistral API":
                             mitigations_markdown = get_mitigations_mistral(
-                                mistral_api_key, mistral_model, mitigations_prompt
+                                mistral_api_key, selected_model, mitigations_prompt
                             )
                         elif model_provider == "Anthropic API":
                             mitigations_markdown = get_mitigations_anthropic(
-                                anthropic_api_key, anthropic_model, mitigations_prompt
+                                anthropic_api_key, selected_model, mitigations_prompt
                             )
                         elif model_provider == "LM Studio Server":
                             mitigations_markdown = get_mitigations_lm_studio(
@@ -1490,7 +1490,7 @@ the security posture of the application and protect against potential attacks.
                             )
                         elif model_provider == "Groq API":
                             mitigations_markdown = get_mitigations_groq(
-                                groq_api_key, groq_model, mitigations_prompt
+                                groq_api_key, selected_model, mitigations_prompt
                             )
 
                         # Display thinking content in an expander if available and using a model with thinking capabilities
@@ -1500,11 +1500,11 @@ the security posture of the application and protect against potential attacks.
                             and (
                                 (
                                     model_provider == "Anthropic API"
-                                    and "thinking" in anthropic_model.lower()
+                                    and "thinking" in selected_model.lower()
                                 )
                                 or (
                                     model_provider == "Google AI API"
-                                    and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower())
+                                    and ("gemini-2.5" in selected_model.lower() or "gemini-3" in selected_model.lower())
                                 )
                             )
                         ):
@@ -1570,7 +1570,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
             # Generate the prompt using the create_dread_assessment_prompt function
             dread_assessment_prompt = create_dread_assessment_prompt(threats_markdown, is_genai=is_genai, is_agentic=is_agentic)
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider != "Anthropic API" or "thinking" not in selected_model.lower():
                 st.session_state.pop("last_thinking_content", None)
 
             # Show a spinner while generating DREAD Risk Assessment
@@ -1586,15 +1586,15 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                             )
                         elif model_provider == "Google AI API":
                             dread_assessment = get_dread_assessment_google(
-                                google_api_key, google_model, dread_assessment_prompt
+                                google_api_key, selected_model, dread_assessment_prompt
                             )
                         elif model_provider == "Mistral API":
                             dread_assessment = get_dread_assessment_mistral(
-                                mistral_api_key, mistral_model, dread_assessment_prompt
+                                mistral_api_key, selected_model, dread_assessment_prompt
                             )
                         elif model_provider == "Anthropic API":
                             dread_assessment = get_dread_assessment_anthropic(
-                                anthropic_api_key, anthropic_model, dread_assessment_prompt
+                                anthropic_api_key, selected_model, dread_assessment_prompt
                             )
                         elif model_provider == "LM Studio Server":
                             dread_assessment = get_dread_assessment_lm_studio(
@@ -1605,7 +1605,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                             )
                         elif model_provider == "Groq API":
                             dread_assessment = get_dread_assessment_groq(
-                                groq_api_key, groq_model, dread_assessment_prompt
+                                groq_api_key, selected_model, dread_assessment_prompt
                             )
 
                         # Save the DREAD assessment to the session state for later use in test cases
@@ -1641,7 +1641,7 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                 and st.session_state["last_thinking_content"]
                 and (
                     (model_provider == "Anthropic API" and st.session_state.get("use_thinking", False))
-                    or (model_provider == "Google AI API" and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower()))
+                    or (model_provider == "Google AI API" and ("gemini-2.5" in selected_model.lower() or "gemini-3" in selected_model.lower()))
                 )
             ):
                 thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
@@ -1700,7 +1700,7 @@ scenarios.
             test_cases_prompt = create_test_cases_prompt(threats_markdown, is_genai=is_genai, is_agentic=is_agentic)
 
             # Clear thinking content when switching models or starting a new operation
-            if model_provider != "Anthropic API" or "thinking" not in anthropic_model.lower():
+            if model_provider != "Anthropic API" or "thinking" not in selected_model.lower():
                 st.session_state.pop("last_thinking_content", None)
 
             # Show a spinner while generating test cases
@@ -1716,15 +1716,15 @@ scenarios.
                             )
                         elif model_provider == "Google AI API":
                             test_cases_markdown = get_test_cases_google(
-                                google_api_key, google_model, test_cases_prompt
+                                google_api_key, selected_model, test_cases_prompt
                             )
                         elif model_provider == "Mistral API":
                             test_cases_markdown = get_test_cases_mistral(
-                                mistral_api_key, mistral_model, test_cases_prompt
+                                mistral_api_key, selected_model, test_cases_prompt
                             )
                         elif model_provider == "Anthropic API":
                             test_cases_markdown = get_test_cases_anthropic(
-                                anthropic_api_key, anthropic_model, test_cases_prompt
+                                anthropic_api_key, selected_model, test_cases_prompt
                             )
                         elif model_provider == "LM Studio Server":
                             test_cases_markdown = get_test_cases_lm_studio(
@@ -1735,7 +1735,7 @@ scenarios.
                             )
                         elif model_provider == "Groq API":
                             test_cases_markdown = get_test_cases_groq(
-                                groq_api_key, groq_model, test_cases_prompt
+                                groq_api_key, selected_model, test_cases_prompt
                             )
 
                         # Display thinking content in an expander if available and using a model with thinking capabilities
@@ -1745,11 +1745,11 @@ scenarios.
                             and (
                                 (
                                     model_provider == "Anthropic API"
-                                    and "thinking" in anthropic_model.lower()
+                                    and "thinking" in selected_model.lower()
                                 )
                                 or (
                                     model_provider == "Google AI API"
-                                    and ("gemini-2.5" in google_model.lower() or "gemini-3" in google_model.lower())
+                                    and ("gemini-2.5" in selected_model.lower() or "gemini-3" in selected_model.lower())
                                 )
                             )
                         ):
