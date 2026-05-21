@@ -27,7 +27,7 @@ def ctx():
 @pytest.fixture
 def ctx_small():
     """Context manager with a tiny limit so compression triggers easily."""
-    return ContextManager(config=_make_config(), max_tokens=100)
+    return ContextManager(config=_make_config(), context_window=100)
 
 
 # ---------------------------------------------------------------------------
@@ -35,26 +35,34 @@ def ctx_small():
 # ---------------------------------------------------------------------------
 
 
-class TestInferLimit:
-    def test_claude_model(self):
+class TestResolveLimit:
+    def test_registered_claude_model(self):
+        from stride_gpt.models import get_model
+
+        ctx = ContextManager(config=_make_config("claude-sonnet-4-6"))
+        expected = get_model("Anthropic API", "claude-sonnet-4-6").max_tokens
+        assert ctx.context_window == expected
+
+    def test_registered_gemini_model(self):
+        from stride_gpt.models import get_model
+
+        cfg = LLMConfig(provider="Google AI API", model_name="gemini-3.1-pro-preview", api_key="test")
+        ctx = ContextManager(config=cfg)
+        expected = get_model("Google AI API", "gemini-3.1-pro-preview").max_tokens
+        assert ctx.context_window == expected
+
+    def test_unregistered_claude_falls_back_to_name_inference(self):
+        # Old/custom Claude model not in the registry → keyword match wins
         ctx = ContextManager(config=_make_config("claude-sonnet-4-5-20250929"))
-        assert ctx.max_tokens == DEFAULT_LIMITS["claude"]
-
-    def test_gpt_model(self):
-        ctx = ContextManager(config=_make_config("gpt-5.2"))
-        assert ctx.max_tokens == DEFAULT_LIMITS["gpt"]
-
-    def test_gemini_model(self):
-        ctx = ContextManager(config=_make_config("gemini-3.1-pro-preview"))
-        assert ctx.max_tokens == DEFAULT_LIMITS["gemini"]
+        assert ctx.context_window == DEFAULT_LIMITS["claude"]
 
     def test_unknown_model(self):
         ctx = ContextManager(config=_make_config("some-obscure-model"))
-        assert ctx.max_tokens == DEFAULT_LIMITS["default"]
+        assert ctx.context_window == DEFAULT_LIMITS["default"]
 
     def test_explicit_override(self):
-        ctx = ContextManager(config=_make_config(), max_tokens=50_000)
-        assert ctx.max_tokens == 50_000
+        ctx = ContextManager(config=_make_config(), context_window=50_000)
+        assert ctx.context_window == 50_000
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +99,7 @@ class TestNeedsCompression:
 
     @patch("stride_gpt.agent.context.litellm")
     def test_over_threshold(self, mock_litellm, ctx):
-        threshold = int(ctx.max_tokens * COMPRESSION_THRESHOLD) + 1
+        threshold = int(ctx.context_window * COMPRESSION_THRESHOLD) + 1
         mock_litellm.token_counter.return_value = threshold
         assert ctx.needs_compression([{"role": "user", "content": "hi"}]) is True
 

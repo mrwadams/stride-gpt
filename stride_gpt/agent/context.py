@@ -9,6 +9,7 @@ import litellm
 
 from stride_gpt.core.llm import call_llm
 from stride_gpt.core.schemas import LLMConfig
+from stride_gpt.models import get_model
 
 # Default context limits per model family (input tokens).
 # Conservative — leaves room for output.
@@ -30,19 +31,19 @@ class TokenBudgetSource(Enum):
 
     QUERIED = "queried"  # Got the actual configured value from the provider API
     INFERRED = "inferred"  # Guessed from model name
-    EXPLICIT = "explicit"  # Caller provided max_tokens directly
+    EXPLICIT = "explicit"  # Caller provided context_window directly
 
 
 class ContextManager:
     """Track token usage and compress messages when approaching the context limit."""
 
-    def __init__(self, config: LLMConfig, max_tokens: int | None = None):
+    def __init__(self, config: LLMConfig, context_window: int | None = None):
         self.model = config.model_name
-        if max_tokens:
-            self.max_tokens = max_tokens
+        if context_window:
+            self.context_window = context_window
             self.budget_source = TokenBudgetSource.EXPLICIT
         else:
-            self.max_tokens, self.budget_source = self._resolve_limit(config)
+            self.context_window, self.budget_source = self._resolve_limit(config)
 
     def count_tokens(self, messages: list[dict]) -> int:
         """Count tokens in a message list using LiteLLM's counter."""
@@ -56,7 +57,7 @@ class ContextManager:
     def needs_compression(self, messages: list[dict]) -> bool:
         """Check if messages are approaching the context limit."""
         tokens = self.count_tokens(messages)
-        return tokens > int(self.max_tokens * COMPRESSION_THRESHOLD)
+        return tokens > int(self.context_window * COMPRESSION_THRESHOLD)
 
     def compress(self, config: LLMConfig, messages: list[dict]) -> list[dict]:
         """Compress older messages by summarizing tool results.
@@ -118,12 +119,17 @@ class ContextManager:
         """Resolve the context token limit for the model.
 
         Queries LM Studio for the actual loaded context length.
-        Falls back to name-based inference for cloud providers.
+        Otherwise reads the per-model context window from the registry,
+        falling back to name-based inference for unregistered models.
         """
         if config.provider == "LM Studio Server" and config.api_base:
             result = _query_lm_studio_context(config.api_base, config.model_name)
             if result:
                 return result, TokenBudgetSource.QUERIED
+
+        registered = get_model(config.provider, config.model_name)
+        if registered is not None:
+            return registered.max_tokens, TokenBudgetSource.QUERIED
 
         return _infer_limit_from_name(config.model_name), TokenBudgetSource.INFERRED
 

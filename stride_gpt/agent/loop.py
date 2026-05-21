@@ -137,7 +137,7 @@ def run_analysis(
             # (caller should use the split API for interactive approval)
 
     # Report token budget so the user knows what context limit is in effect
-    progress.token_budget(config.model_name, ctx.max_tokens, source=ctx.budget_source.value)
+    progress.token_budget(config.model_name, ctx.context_window, source=ctx.budget_source.value)
 
     # --- Phase 2: Per-subsystem analysis ---
     progress.phase_start("Phase 2", "Analyzing Subsystems")

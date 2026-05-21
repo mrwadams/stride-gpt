@@ -36,7 +36,7 @@ def fetch_local_models(provider_name: str, api_base: str) -> list[str]:
 
 
 MIN_CONTEXT_LENGTH = 16384  # Minimum context length recommended for agentic analysis
-DEFAULT_LM_STUDIO_MAX_TOKENS = 4000  # Output cap when context length is unknown
+DEFAULT_LM_STUDIO_MAX_TOKENS = 8000  # Output cap when context length is unknown
 
 
 def get_lm_studio_context_length(api_base: str, model_name: str) -> int | None:

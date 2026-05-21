@@ -8,7 +8,22 @@ import re
 import litellm
 
 from stride_gpt.core.schemas import LLMConfig, LLMResponse, ToolCallResult
-from stride_gpt.models import get_litellm_prefix, model_supports_thinking, model_uses_completion_tokens
+from stride_gpt.models import (
+    get_litellm_prefix,
+    get_model,
+    model_supports_thinking,
+    model_uses_completion_tokens,
+)
+
+
+def _default_output_tokens(config: LLMConfig, fallback: int) -> int:
+    """Resolve the output-token cap: caller override > registry default > fallback."""
+    if config.max_tokens:
+        return config.max_tokens
+    registered = get_model(config.provider, config.model_name)
+    if registered is not None:
+        return registered.default_tokens
+    return fallback
 
 # Suppress LiteLLM's verbose logging
 litellm.suppress_debug_info = True
@@ -57,6 +72,11 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     kwargs: dict = {
         "model": model,
         "api_key": config.api_key or None,
+        # Retry transient errors (429 rate limits, timeouts, 5xx). LiteLLM delegates
+        # to the provider SDK, which uses exponential backoff and respects the
+        # Retry-After header. Necessary because the agent loop bursts many calls
+        # in close succession and easily trips TPM caps on tight org tiers.
+        "num_retries": 3,
     }
 
     # Custom endpoint for LM Studio
@@ -88,19 +108,20 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
     # --- Anthropic ---
     elif config.provider == "Anthropic API" and config.use_thinking:
         kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16000}
-        kwargs["max_tokens"] = 48000
+        # max_tokens must exceed budget_tokens; never go below 48000 here.
+        kwargs["max_tokens"] = max(_default_output_tokens(config, 48000), 48000)
         kwargs["timeout"] = config.timeout or 600
     elif config.provider == "Anthropic API":
-        kwargs["max_tokens"] = config.max_tokens or 32768
+        kwargs["max_tokens"] = _default_output_tokens(config, 32768)
         kwargs["timeout"] = config.timeout or 300
 
     # GPT-5 series: max_completion_tokens instead of max_tokens
     elif model_uses_completion_tokens(config.model_name):
-        kwargs["max_completion_tokens"] = config.max_tokens or 20000
+        kwargs["max_completion_tokens"] = _default_output_tokens(config, 20000)
 
     # LM Studio: conservative default
     elif config.provider == "LM Studio Server":
-        kwargs["max_tokens"] = config.max_tokens or 4000
+        kwargs["max_tokens"] = config.max_tokens or 8000
 
     # Groq / Mistral: original code never set max_tokens — let the API decide
     elif config.provider in ("Groq API", "Mistral API"):
