@@ -114,8 +114,15 @@ def _build_keybindings() -> KeyBindings:
 
     @kb.add("c-l")
     def _clear(event):
-        """Ctrl+L — clear the screen."""
-        event.app.renderer.clear()
+        """Ctrl+L — clear the screen and scrollback, then redraw the prompt."""
+        # Order matters: most terminals push the visible screen *into*
+        # scrollback when they receive ESC[2J. So we must clear the visible
+        # screen first, then wipe scrollback. ESC[3J is the xterm/vt sequence
+        # for "erase scrollback"; the iTerm2 OSC 1337 is a harmless fallback
+        # that some older terminals honor when ESC[3J is ignored.
+        event.app.renderer.clear()  # ESC[2J + cursor home + schedule redraw
+        event.app.output.write_raw("\x1b[3J\x1b]1337;ClearScrollback\x07")
+        event.app.output.flush()
 
     return kb
 
