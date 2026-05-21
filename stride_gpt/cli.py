@@ -466,7 +466,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
 
 def _handle_serve() -> None:
     """Launch Streamlit UI."""
-    main_py = Path(__file__).resolve().parent.parent / "main.py"
+    main_py = Path(__file__).resolve().parent.parent / "apps" / "web" / "main.py"
     if not main_py.is_file():
         console.print("[red]Error: main.py not found. Install with [ui] extras.[/red]")
         return
@@ -720,7 +720,7 @@ def serve(
     host: Annotated[str, typer.Option(help="Host to bind to.")] = "0.0.0.0",
 ) -> None:
     """Launch the Streamlit web UI."""
-    main_py = Path(__file__).resolve().parent.parent / "main.py"
+    main_py = Path(__file__).resolve().parent.parent / "apps" / "web" / "main.py"
     if not main_py.is_file():
         console.print("[red]Error: main.py not found.[/red]")
         raise typer.Exit(1)

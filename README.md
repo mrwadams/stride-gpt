@@ -288,6 +288,21 @@ docker pull mrwadams/stridegpt:latest
 
 The container runs the CLI by default. To launch the Streamlit UI instead, use `stride-gpt serve`.
 
+## Repository layout
+
+STRIDE-GPT is organised as a small monorepo: one shared Python library, one or more apps that consume it.
+
+```
+stride-gpt/
+├── stride_gpt/    # shared library + Python CLI (core, agent loop, prompts, schemas, models)
+├── apps/
+│   └── web/       # Streamlit web UI (the original tabs and the Deep Analysis tab)
+├── tests/         # pytest suite
+└── pyproject.toml # single project file; install [ui] extra to add Streamlit
+```
+
+The `apps/` directory is the slot for additional deployable frontends — for example, a future Node/TypeScript CLI would live alongside `apps/web/`. The Python CLI itself stays in `stride_gpt/cli.py` because it's tightly coupled to the shared library.
+
 ## Usage
 
 ### CLI
@@ -350,7 +365,7 @@ stride-gpt serve
 Or run directly:
 
 ```bash
-streamlit run main.py
+streamlit run apps/web/main.py
 ```
 
 Open the provided URL in your browser and follow the on-screen steps.

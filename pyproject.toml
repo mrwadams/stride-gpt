@@ -36,7 +36,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", "apps/web"]
 
 [tool.black]
 line-length = 100

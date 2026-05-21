@@ -1,5 +1,14 @@
 # main.py
 
+# Ensure the repo root (containing the stride_gpt/ package) is importable
+# when this file is launched directly with `streamlit run apps/web/main.py`.
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 import base64
 import json
 import os
@@ -975,8 +984,8 @@ with st.sidebar:
 
 # ------------------ Main App UI ------------------ #
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases", "Deep Analysis"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"]
 )
 
 with tab1:
@@ -1780,8 +1789,3 @@ scenarios.
 
         else:
             st.error("Please generate a threat model first before requesting test cases.")
-
-with tab6:
-    from stride_gpt.streamlit_analysis import render_deep_analysis_tab
-
-    render_deep_analysis_tab()
