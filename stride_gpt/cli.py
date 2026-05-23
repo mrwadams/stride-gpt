@@ -22,7 +22,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from stride_gpt.config import (
-    config_to_llm_config,
+    config_to_model_pair,
     load_config,
     run_setup,
     save_config,
@@ -106,9 +106,19 @@ def interactive(ctx: typer.Context) -> None:
             raise typer.Exit()
     else:
         console.print()
-        console.print(
-            f"  Model: [cyan]{config.get('provider', '')} / {config.get('model', '')}[/cyan]"
-        )
+        worker_provider = config.get("worker_provider", "")
+        worker_model = config.get("worker_model", "")
+        architect_provider = config.get("architect_provider", "")
+        architect_model = config.get("architect_model", "")
+        if architect_model:
+            console.print(
+                f"  Architect: [cyan]{architect_provider} / {architect_model}[/cyan]"
+            )
+            console.print(
+                f"  Worker:    [cyan]{worker_provider} / {worker_model}[/cyan]"
+            )
+        else:
+            console.print(f"  Model: [cyan]{worker_provider} / {worker_model}[/cyan]")
         console.print(f"  Type [cyan]/help[/cyan] for commands, [cyan]/config[/cyan] to change settings.")
     console.print()
 
@@ -172,7 +182,7 @@ def _handle_config(config: dict) -> None:
     show_config(console, config)
     console.print()
     if Confirm.ask("Reconfigure?", default=False):
-        result = run_setup(console)
+        result = run_setup(console, existing=config)
         if result is None:
             console.print("[dim]Keeping existing configuration.[/dim]")
 
@@ -213,37 +223,24 @@ def _handle_analyze(config: dict, args_str: str) -> None:
             i += 1
 
     auto_approve = "-y" in args_str or "--yes" in args_str
-    llm_config = config_to_llm_config(config)
-
-    if not llm_config.api_key and config.get("provider") != "LM Studio":
-        from stride_gpt.config import PROVIDERS
-
-        provider_info = PROVIDERS.get(config.get("provider", ""), {})
-        env_var = provider_info.get("env_var", "STRIDE_GPT_API_KEY")
-        console.print(f"[red]API key not found. Set {env_var} in your environment.[/red]")
+    models = config_to_model_pair(config)
+    if models is None:
+        console.print("[red]No model configured. Run /config to set one up.[/red]")
         return
 
-    if config.get("provider") == "LM Studio" and config.get("api_base"):
-        from stride_gpt.config import check_lm_studio_context
+    if not _check_tier_api_keys(config, models):
+        return
 
-        if not check_lm_studio_context(config["api_base"], config["model"], console):
-            return
+    _check_lm_studio_context_for(config, models, console)
 
-    console.print(
-        Panel(
-            f"Analyzing [cyan]{target_path}[/cyan]\n"
-            f"Model: [cyan]{config.get('provider', '')} / {config.get('model', '')}[/cyan]",
-            title="[bold]Agentic Analysis[/bold]",
-            style="blue",
-        )
-    )
+    console.print(Panel(_panel_target_body(target_path, models), title="[bold]Agentic Analysis[/bold]", style="blue"))
 
     progress = RichProgress(console)
 
     # Phase 1: Plan
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
-    plan = create_analysis_plan(llm_config, target_path)
+    plan = create_analysis_plan(models, target_path)
     console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
 
     if not auto_approve:
@@ -254,7 +251,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
 
     # Phases 2+3: Analyze with pre-approved plan
     report = run_analysis(
-        config=llm_config,
+        models=models,
         target_path=target_path,
         plan=plan,
         progress=progress,
@@ -458,25 +455,32 @@ def _handle_quick(config: dict, args_str: str) -> None:
         console.print("[red]Error: Empty app description.[/red]")
         return
 
-    llm_config = config_to_llm_config(config)
-
-    if not llm_config.api_key and config.get("provider") != "LM Studio":
-        from stride_gpt.config import PROVIDERS
-
-        provider_info = PROVIDERS.get(config.get("provider", ""), {})
-        env_var = provider_info.get("env_var", "STRIDE_GPT_API_KEY")
-        console.print(f"[red]API key not found. Set {env_var} in your environment.[/red]")
+    models = config_to_model_pair(config)
+    if models is None:
+        console.print("[red]No model configured. Run /config to set one up.[/red]")
         return
 
+    if not _check_tier_api_keys(config, models):
+        return
+
+    source = str(input_file) if input_file else "typed description"
+    console.print(
+        Panel(
+            f"Source: [cyan]{source}[/cyan]\n{_panel_models_body(models)}"
+            + (f"\nType hint: [cyan]{hint}[/cyan]" if hint else ""),
+            title="[bold]Quick Threat Model[/bold]",
+            style="blue",
+        )
+    )
+
     with console.status("Analysing description..."):
-        result = run_quick_analysis(llm_config, app_description, hint=hint)
+        result = run_quick_analysis(models, app_description, hint=hint)
 
     saved_path = save_quick_report(
         result,
         report_name,
         app_type_hint=hint,
-        model=llm_config.model_name,
-        provider=llm_config.provider,
+        models=models,
     )
 
     markdown = json_to_markdown(result.threat_model, result.improvement_suggestions)
@@ -515,13 +519,18 @@ def _resolve_provider(model: str) -> tuple[str, str]:
 @app.command()
 def analyze(
     path: Annotated[Path, typer.Argument(help="Path to the codebase to analyze.")] = Path("."),
-    model: Annotated[Optional[str], typer.Option(help="Model (e.g. anthropic/claude-sonnet-4-5). Uses saved config if omitted.")] = None,
-    api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="API key.")] = None,
-    api_base: Annotated[Optional[str], typer.Option(help="Custom API base URL.")] = None,
-    max_tokens: Annotated[Optional[int], typer.Option(help="Override per-call output token cap (mainly for LM Studio).")] = None,
+    worker_model: Annotated[Optional[str], typer.Option(help="Worker model — default tier, handles the bulk of calls (e.g. anthropic/claude-sonnet-4-5). A fast, low-cost model usually pays off here. Uses saved config if omitted.")] = None,
+    worker_api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="Worker API key.")] = None,
+    worker_api_base: Annotated[Optional[str], typer.Option(help="Worker API base URL (LM Studio).")] = None,
+    worker_max_tokens: Annotated[Optional[int], typer.Option(help="Worker per-call output token cap.")] = None,
+    architect_model: Annotated[Optional[str], typer.Option(help="Architect model — used only for the reasoning-heavy moments (planning, cross-cutting synthesis, context summarization). Infrequent but high-leverage; a stronger model is worth the cost. Uses saved config if omitted.")] = None,
+    architect_api_key: Annotated[Optional[str], typer.Option(help="Architect API key.")] = None,
+    architect_api_base: Annotated[Optional[str], typer.Option(help="Architect API base URL.")] = None,
+    architect_max_tokens: Annotated[Optional[int], typer.Option(help="Architect per-call output token cap.")] = None,
+    no_architect: Annotated[bool, typer.Option("--no-architect", help="Bypass any saved architect tier for this run; worker handles every call.")] = False,
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
-    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls (0 = unlimited).")] = 0,
+    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls across both tiers (0 = unlimited).")] = 0,
     max_tool_calls: Annotated[int, typer.Option(help="Max tool executions (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
@@ -531,26 +540,31 @@ def analyze(
     from stride_gpt.agent.planner import format_plan_for_display
     from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
-    from stride_gpt.core.schemas import LLMConfig
 
-    llm_config = _build_config(model, api_key, api_base, max_tokens)
+    models = _build_model_pair(
+        worker_model=worker_model,
+        worker_api_key=worker_api_key,
+        worker_api_base=worker_api_base,
+        worker_max_tokens=worker_max_tokens,
+        architect_model=architect_model,
+        architect_api_key=architect_api_key,
+        architect_api_base=architect_api_base,
+        architect_max_tokens=architect_max_tokens,
+        no_architect=no_architect,
+    )
 
     target = path.resolve()
     if not target.is_dir():
         console.print(f"[red]Error: {path} is not a directory.[/red]")
         raise typer.Exit(1)
 
-    if llm_config.provider == "LM Studio Server" and llm_config.api_base:
-        from stride_gpt.config import check_lm_studio_context
-
-        if not check_lm_studio_context(llm_config.api_base, llm_config.model_name, console):
-            raise typer.Exit(1)
+    _check_lm_studio_context_for(load_config() or {}, models, console, exit_on_fail=True)
 
     console.print(
         Panel(
             f"[bold]STRIDE-GPT[/bold] Agentic Threat Modeling\n\n"
             f"Target: [cyan]{target}[/cyan]\n"
-            f"Model: [cyan]{llm_config.provider} / {llm_config.model_name}[/cyan]\n"
+            f"{_panel_models_body(models)}\n"
             f"Format: [cyan]{output_format.value}[/cyan]",
             style="blue",
         )
@@ -561,7 +575,7 @@ def analyze(
     # Phase 1: Plan
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
-    plan = create_analysis_plan(llm_config, target)
+    plan = create_analysis_plan(models, target)
 
     # Apply --app-type override, if any.
     if app_type != AppTypeOverride.auto and app_type.value != plan.detected_app_type:
@@ -582,7 +596,7 @@ def analyze(
 
     # Phases 2+3: Analyze with pre-approved plan
     report = run_analysis(
-        config=llm_config,
+        models=models,
         target_path=target,
         plan=plan,
         max_llm_calls=max_llm_calls,
@@ -619,9 +633,15 @@ def analyze(
 
 @app.command()
 def quick(
-    model: Annotated[Optional[str], typer.Option(help="Model. Uses saved config if omitted.")] = None,
-    api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="API key.")] = None,
-    max_tokens: Annotated[Optional[int], typer.Option(help="Override per-call output token cap (mainly for LM Studio).")] = None,
+    worker_model: Annotated[Optional[str], typer.Option(help="Worker model — default tier, handles fallback / retry calls. A fast, low-cost model is usually fine here. Uses saved config if omitted.")] = None,
+    worker_api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="Worker API key.")] = None,
+    worker_api_base: Annotated[Optional[str], typer.Option(help="Worker API base URL (LM Studio).")] = None,
+    worker_max_tokens: Annotated[Optional[int], typer.Option(help="Worker per-call output token cap.")] = None,
+    architect_model: Annotated[Optional[str], typer.Option(help="Architect model — drives the main single-shot threat-model judgment. A stronger reasoning model is worth the cost here. Uses saved config if omitted.")] = None,
+    architect_api_key: Annotated[Optional[str], typer.Option(help="Architect API key.")] = None,
+    architect_api_base: Annotated[Optional[str], typer.Option(help="Architect API base URL.")] = None,
+    architect_max_tokens: Annotated[Optional[int], typer.Option(help="Architect per-call output token cap.")] = None,
+    no_architect: Annotated[bool, typer.Option("--no-architect", help="Bypass any saved architect tier for this run; worker handles every call.")] = False,
     input_file: Annotated[Optional[Path], typer.Option("-i", "--input", help="App description file.")] = None,
     app_type: Annotated[Optional[str], typer.Option(help="Optional hint about the application type (Web / Generative AI / Agentic AI application). Leave unset to let the agent decide which reference cards to load.")] = None,
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
@@ -631,7 +651,17 @@ def quick(
     from stride_gpt.agent.report import save_quick_report
     from stride_gpt.core.threat_model import json_to_markdown
 
-    llm_config = _build_config(model, api_key, max_tokens=max_tokens)
+    models = _build_model_pair(
+        worker_model=worker_model,
+        worker_api_key=worker_api_key,
+        worker_api_base=worker_api_base,
+        worker_max_tokens=worker_max_tokens,
+        architect_model=architect_model,
+        architect_api_key=architect_api_key,
+        architect_api_base=architect_api_base,
+        architect_max_tokens=architect_max_tokens,
+        no_architect=no_architect,
+    )
 
     if input_file:
         if not input_file.is_file():
@@ -648,15 +678,25 @@ def quick(
         console.print("[red]Error: Empty app description.[/red]")
         raise typer.Exit(1)
 
+    source = str(input_file) if input_file else "stdin"
+    console.print(
+        Panel(
+            f"[bold]STRIDE-GPT[/bold] Quick Threat Model\n\n"
+            f"Source: [cyan]{source}[/cyan]\n"
+            f"{_panel_models_body(models)}"
+            + (f"\nType hint: [cyan]{app_type}[/cyan]" if app_type else ""),
+            style="blue",
+        )
+    )
+
     with console.status("Analysing description..."):
-        result = run_quick_analysis(llm_config, app_description, hint=app_type)
+        result = run_quick_analysis(models, app_description, hint=app_type)
 
     saved_path = save_quick_report(
         result,
         report_name,
         app_type_hint=app_type,
-        model=llm_config.model_name,
-        provider=llm_config.provider,
+        models=models,
     )
 
     markdown = json_to_markdown(result.threat_model, result.improvement_suggestions)
@@ -757,46 +797,175 @@ def reports(
 # ---------------------------------------------------------------------------
 
 
-def _build_config(
-    model: str | None = None,
-    api_key: str | None = None,
-    api_base: str | None = None,
-    max_tokens: int | None = None,
+def _build_model_pair(
+    *,
+    worker_model: str | None = None,
+    worker_api_key: str | None = None,
+    worker_api_base: str | None = None,
+    worker_max_tokens: int | None = None,
+    architect_model: str | None = None,
+    architect_api_key: str | None = None,
+    architect_api_base: str | None = None,
+    architect_max_tokens: int | None = None,
+    no_architect: bool = False,
 ):
-    """Build LLMConfig from CLI flags, falling back to saved config + env vars."""
+    """Build a ModelPair from CLI flags, falling back to saved config + env vars.
+
+    Validations (any failure exits before LLM calls):
+      - any --architect-* flag without --architect-model
+      - --architect-model with --no-architect
+      - missing API key for either tier
+    """
     from stride_gpt.config import get_api_key
-    from stride_gpt.core.schemas import LLMConfig
+    from stride_gpt.core.schemas import LLMConfig, ModelPair
 
     saved = load_config()
 
-    if model:
-        provider, model_name = _resolve_provider(model)
+    architect_flag_set = any([
+        architect_model, architect_api_key, architect_api_base, architect_max_tokens,
+    ])
+    if architect_flag_set and not architect_model:
+        console.print("[red]--architect-* flags require --architect-model.[/red]")
+        raise typer.Exit(2)
+    if architect_model and no_architect:
+        console.print("[red]--architect-model and --no-architect are mutually exclusive.[/red]")
+        raise typer.Exit(2)
+
+    # ---- Worker tier ----
+    if worker_model:
+        worker_provider, worker_model_name = _resolve_provider(worker_model)
     elif saved:
-        provider = saved["provider_key"]
-        model_name = saved["model"]
+        worker_provider = saved["worker_provider_key"]
+        worker_model_name = saved["worker_model"]
     else:
-        console.print("[red]No model specified and no saved config. Run stride-gpt to set up.[/red]")
+        console.print("[red]No --worker-model specified and no saved config. Run stride-gpt to set up.[/red]")
         raise typer.Exit(1)
 
-    if not api_key:
-        api_key = get_api_key(saved or {})
+    worker_key = worker_api_key or get_api_key(saved or {}, tier="worker")
+    if not worker_key and worker_provider != "LM Studio Server":
+        console.print("[red]No worker API key found. Set the appropriate env var (e.g. ANTHROPIC_API_KEY) or pass --worker-api-key.[/red]")
+        raise typer.Exit(1)
 
+    if worker_api_base is None and saved:
+        worker_api_base = saved.get("worker_api_base")
+    if worker_max_tokens is None and saved:
+        worker_max_tokens = saved.get("worker_max_tokens")
+
+    worker = LLMConfig(
+        provider=worker_provider,
+        model_name=worker_model_name,
+        api_key=worker_key or "",
+        api_base=worker_api_base,
+        max_tokens=worker_max_tokens,
+    )
+
+    # ---- Architect tier ----
+    architect: LLMConfig | None = None
+    if no_architect:
+        architect = None
+    elif architect_model:
+        a_provider, a_model_name = _resolve_provider(architect_model)
+        a_key = architect_api_key or _resolve_explicit_api_key(a_provider) or ""
+        if not a_key and a_provider != "LM Studio Server":
+            console.print(
+                f"[red]Architect API key for {a_provider} could not be resolved. "
+                f"Set the provider's env var or pass --architect-api-key.[/red]"
+            )
+            raise typer.Exit(1)
+        architect = LLMConfig(
+            provider=a_provider,
+            model_name=a_model_name,
+            api_key=a_key,
+            api_base=architect_api_base,
+            max_tokens=architect_max_tokens,
+        )
+    elif saved and saved.get("architect_model"):
+        architect = _tier_to_llm_config_from_saved(saved, "architect")
+        if architect is None:
+            # Saved architect block present but couldn't be built — usually a missing key.
+            architect_provider = saved.get("architect_provider", "")
+            console.print(
+                f"[red]Saved architect tier ({architect_provider}/{saved['architect_model']}) "
+                f"could not be built — API key missing. Set the env var or pass --no-architect.[/red]"
+            )
+            raise typer.Exit(1)
+
+    return ModelPair(worker=worker, architect=architect)
+
+
+def _tier_to_llm_config_from_saved(saved: dict, tier: str):
+    """Build an LLMConfig for a saved tier; returns None if no API key resolvable."""
+    from stride_gpt.config import get_api_key
+    from stride_gpt.core.schemas import LLMConfig
+
+    provider = saved.get(f"{tier}_provider_key", "")
+    api_key = get_api_key(saved, tier=tier)
     if not api_key and provider != "LM Studio Server":
-        console.print("[red]No API key found in environment. Set the appropriate env var (e.g. ANTHROPIC_API_KEY).[/red]")
-        raise typer.Exit(1)
-
-    if not api_base and saved:
-        api_base = saved.get("api_base")
-
-    if max_tokens is None and saved:
-        max_tokens = saved.get("max_tokens")
-
+        return None
     return LLMConfig(
         provider=provider,
-        model_name=model_name,
-        api_key=api_key or "",
-        api_base=api_base,
-        max_tokens=max_tokens,
+        model_name=saved[f"{tier}_model"],
+        api_key=api_key,
+        api_base=saved.get(f"{tier}_api_base"),
+        max_tokens=saved.get(f"{tier}_max_tokens"),
+    )
+
+
+def _resolve_explicit_api_key(provider: str) -> str:
+    """Look up an env var key for the given provider, by provider_key."""
+    import os
+
+    from stride_gpt.config import PROVIDERS
+
+    for info in PROVIDERS.values():
+        if info.provider_key == provider and info.env_var:
+            return os.environ.get(info.env_var, "")
+    return ""
+
+
+def _check_tier_api_keys(saved: dict, models) -> bool:
+    """For interactive `_handle_*` paths: verify both tiers have keys when needed."""
+    if models.worker.provider != "LM Studio Server" and not models.worker.api_key:
+        console.print("[red]Worker API key missing. Set the appropriate env var or run /config.[/red]")
+        return False
+    if models.tiered and models.architect.provider != "LM Studio Server" and not models.architect.api_key:
+        console.print("[red]Architect API key missing. Set the appropriate env var or run /config.[/red]")
+        return False
+    return True
+
+
+def _check_lm_studio_context_for(saved: dict, models, console_, *, exit_on_fail: bool = False) -> None:
+    """Verify LM Studio context window for any LM Studio tier in `models`."""
+    from stride_gpt.config import check_lm_studio_context
+
+    for cfg in (models.worker, models.architect):
+        if cfg is None:
+            continue
+        if cfg.provider == "LM Studio Server" and cfg.api_base:
+            if not check_lm_studio_context(cfg.api_base, cfg.model_name, console_):
+                if exit_on_fail:
+                    raise typer.Exit(1)
+
+
+def _panel_target_body(target_path, models) -> str:
+    """Render the body of the interactive analyze panel."""
+    return f"Analyzing [cyan]{target_path}[/cyan]\n{_panel_models_body(models)}"
+
+
+def _panel_models_body(models) -> str:
+    """Render model info lines for the analysis panel."""
+    from stride_gpt.config import friendly_provider
+
+    if models.tiered:
+        a = models.architect
+        w = models.worker
+        return (
+            f"Architect: [cyan]{friendly_provider(a.provider)} / {a.model_name}[/cyan]\n"
+            f"Worker:    [cyan]{friendly_provider(w.provider)} / {w.model_name}[/cyan]"
+        )
+    return (
+        f"Model: [cyan]{friendly_provider(models.worker.provider)} / "
+        f"{models.worker.model_name}[/cyan]"
     )
 
 

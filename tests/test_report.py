@@ -398,14 +398,14 @@ class TestSplitReportFolders:
             assert path.parent == tmp_path / "analyze"
             assert path.exists()
 
-    def test_quick_saves_to_quick_subdir(self, tmp_path):
+    def test_quick_saves_to_quick_subdir(self, tmp_path, model_pair):
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
             output = ThreatModelOutput(
                 threat_model=[{"Threat Type": "S", "Scenario": "x", "Potential Impact": "y"}],
                 improvement_suggestions=["test"],
             )
-            path = save_quick_report(output, "atlas", model="claude-sonnet-4-6")
+            path = save_quick_report(output, "atlas", models=model_pair)
             assert path.parent == tmp_path / "quick"
             assert path.exists()
             # The saved JSON must be loadable and carry the kind marker so
@@ -413,6 +413,8 @@ class TestSplitReportFolders:
             data = load_report(path)
             assert data["kind"] == "quick"
             assert data["metadata"]["kind"] == "quick"
+            assert data["metadata"]["worker_model"] == model_pair.worker.model_name
+            assert data["metadata"]["architect_model"] is None
 
     def test_list_reports_defaults_to_analyze(self, sample_report, tmp_path):
         """The default /reports behaviour is the analyze-only view — quick

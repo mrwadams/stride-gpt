@@ -13,7 +13,7 @@ from stride_gpt.core.report_utils import (
     threat_table_header,
     threat_table_row,
 )
-from stride_gpt.core.schemas import AnalysisReport, SubsystemFinding, ThreatModelOutput
+from stride_gpt.core.schemas import AnalysisReport, ModelPair, SubsystemFinding, ThreatModelOutput
 
 
 def render_markdown(report: AnalysisReport) -> str:
@@ -101,6 +101,15 @@ def render_markdown(report: AnalysisReport) -> str:
     if report.metadata:
         lines.append(f"- **LLM calls**: {report.metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {report.metadata.get('tool_calls', 'N/A')}")
+        worker = report.metadata.get("worker_model")
+        worker_provider = report.metadata.get("worker_provider", "")
+        architect = report.metadata.get("architect_model")
+        architect_provider = report.metadata.get("architect_provider", "")
+        if architect:
+            lines.append(f"- **Architect model**: {architect_provider}/{architect}")
+            lines.append(f"- **Worker model**: {worker_provider}/{worker}")
+        elif worker:
+            lines.append(f"- **Model**: {worker_provider}/{worker}")
     lines.append("")
 
     return "\n".join(lines)
@@ -266,8 +275,7 @@ def save_quick_report(
     name: str,
     *,
     app_type_hint: str | None = None,
-    model: str | None = None,
-    provider: str | None = None,
+    models: ModelPair | None = None,
 ) -> Path:
     """Auto-save a /quick threat model to ~/.stride-gpt/reports/quick/.
 
@@ -286,10 +294,15 @@ def save_quick_report(
     filename = f"{safe_name}_{timestamp}.json"
 
     metadata: dict[str, Any] = {"kind": "quick"}
-    if model:
-        metadata["model"] = model
-    if provider:
-        metadata["provider"] = provider
+    if models is not None:
+        metadata["worker_model"] = models.worker.model_name
+        metadata["worker_provider"] = models.worker.provider
+        metadata["architect_model"] = (
+            models.architect.model_name if models.tiered else None
+        )
+        metadata["architect_provider"] = (
+            models.architect.provider if models.tiered else None
+        )
     if app_type_hint:
         metadata["app_type_hint"] = app_type_hint
 
@@ -379,7 +392,7 @@ def list_reports(
                 "generated_at": data.get("generated_at", ""),
                 "target": data.get("target", ""),
                 "threat_count": threat_count,
-                "model": data.get("metadata", {}).get("model", ""),
+                "model": data.get("metadata", {}).get("worker_model", ""),
                 "subsystem_count": len(data.get("subsystems", [])),
                 "kind": path_kind,
             }
@@ -472,6 +485,15 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     if metadata:
         lines.append(f"- **LLM calls**: {metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {metadata.get('tool_calls', 'N/A')}")
+        worker = metadata.get("worker_model")
+        worker_provider = metadata.get("worker_provider", "")
+        architect = metadata.get("architect_model")
+        architect_provider = metadata.get("architect_provider", "")
+        if architect:
+            lines.append(f"- **Architect model**: {architect_provider}/{architect}")
+            lines.append(f"- **Worker model**: {worker_provider}/{worker}")
+        elif worker:
+            lines.append(f"- **Model**: {worker_provider}/{worker}")
     lines.append("")
 
     return "\n".join(lines)

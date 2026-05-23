@@ -18,7 +18,7 @@ from pathlib import Path
 from stride_gpt.agent.tools import AGENT_TOOLS, execute_tool
 from stride_gpt.core.llm import call_llm, call_llm_with_tools
 from stride_gpt.core.prompts import quick_base_prompt
-from stride_gpt.core.schemas import LLMConfig, ThreatModelOutput
+from stride_gpt.core.schemas import LLMConfig, ModelPair, ThreatModelOutput
 
 # Quick analysis only gets the load_reference tool — no filesystem since
 # there's no codebase to explore.
@@ -28,7 +28,7 @@ QUICK_TOOLS = [
 
 
 def run_quick_analysis(
-    config: LLMConfig,
+    models: ModelPair,
     app_description: str,
     *,
     hint: str | None = None,
@@ -37,7 +37,9 @@ def run_quick_analysis(
     """Produce a STRIDE threat model from an application description.
 
     Args:
-        config: LLM configuration.
+        models: Worker + optional architect LLM configuration. The main
+            single-shot threat-model judgment uses the architect tier
+            (reasoning-heavy); the JSON-coercion retry uses the worker.
         app_description: Free-form description of the application to model.
         hint: Optional declared application type (``"Web application"`` /
             ``"Generative AI application"`` / ``"Agentic AI application"``).
@@ -65,7 +67,7 @@ def run_quick_analysis(
     target_path = Path("/")  # load_reference ignores the root parameter
 
     while llm_calls < max_llm_calls:
-        response = call_llm_with_tools(config, messages, QUICK_TOOLS)
+        response = call_llm_with_tools(models.for_architect(), messages, QUICK_TOOLS)
         llm_calls += 1
 
         if response.tool_calls:
@@ -102,7 +104,7 @@ def run_quick_analysis(
         if parsed is not None:
             return parsed
         # JSON parse failed — one retry with forced JSON mode.
-        return _retry_as_json(config, messages)
+        return _retry_as_json(models.worker, messages)
 
     # Hit the call cap before getting a final JSON — coerce one last attempt.
     messages.append({
@@ -113,7 +115,7 @@ def run_quick_analysis(
             "Do not call any more tools."
         ),
     })
-    return _retry_as_json(config, messages)
+    return _retry_as_json(models.worker, messages)
 
 
 def _build_user_content(app_description: str, hint: str | None) -> str:

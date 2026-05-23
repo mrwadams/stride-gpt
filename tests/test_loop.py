@@ -223,7 +223,7 @@ class TestPrepareForPlainLlm:
 
 class TestSynthesize:
     @patch("stride_gpt.agent.loop.call_llm")
-    def test_returns_cross_cutting_threats(self, mock_call_llm, llm_config):
+    def test_returns_cross_cutting_threats(self, mock_call_llm, model_pair):
         mock_call_llm.return_value = LLMResponse(
             content=json.dumps({
                 "cross_cutting_threats": [
@@ -239,18 +239,18 @@ class TestSynthesize:
             SubsystemFinding(subsystem="Auth", threats=[{"Threat Type": "Spoofing"}]),
             SubsystemFinding(subsystem="API", threats=[{"Threat Type": "Tampering"}]),
         ]
-        result = _synthesize(llm_config, findings)
+        result = _synthesize(model_pair, findings)
         assert len(result) == 1
         assert result[0]["Threat Type"] == "Tampering"
 
     @patch("stride_gpt.agent.loop.call_llm")
-    def test_returns_empty_on_parse_failure(self, mock_call_llm, llm_config):
+    def test_returns_empty_on_parse_failure(self, mock_call_llm, model_pair):
         mock_call_llm.return_value = LLMResponse(
             content="I can't produce valid JSON right now",
             thinking=None, reasoning=None, model="test",
         )
         findings = [SubsystemFinding(subsystem="A", threats=[])]
-        result = _synthesize(llm_config, findings)
+        result = _synthesize(model_pair, findings)
         assert result == []
 
 
@@ -262,7 +262,7 @@ class TestSynthesize:
 class TestRunAnalysis:
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
-    def test_full_analysis_with_plan(self, mock_llm_tools, mock_llm, llm_config, tmp_path):
+    def test_full_analysis_with_plan(self, mock_llm_tools, mock_llm, model_pair, tmp_path):
         """Test analysis with a pre-approved plan (the split API)."""
         plan = AnalysisPlan(
             target_path=str(tmp_path),
@@ -285,7 +285,7 @@ class TestRunAnalysis:
 
         # Synthesis skipped (only 1 subsystem)
         progress = MagicMock()
-        report = run_analysis(llm_config, tmp_path, plan=plan, progress=progress)
+        report = run_analysis(model_pair, tmp_path, plan=plan, progress=progress)
 
         assert len(report.findings) == 1
         assert report.findings[0].subsystem == "Auth"
@@ -299,7 +299,7 @@ class TestRunAnalysis:
 
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
-    def test_tool_call_flow(self, mock_llm_tools, mock_llm, llm_config, sandbox_dir):
+    def test_tool_call_flow(self, mock_llm_tools, mock_llm, model_pair, sandbox_dir):
         """Test that the agent executes tool calls before producing findings."""
         plan = AnalysisPlan(
             target_path=str(sandbox_dir),
@@ -328,7 +328,7 @@ class TestRunAnalysis:
         mock_llm_tools.side_effect = [tool_call_response, final_response]
 
         progress = MagicMock()
-        report = run_analysis(llm_config, sandbox_dir, plan=plan, progress=progress)
+        report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
 
         assert len(report.findings) == 1
         assert report.findings[0].threats[0]["Threat Type"] == "Information Disclosure"
@@ -339,7 +339,7 @@ class TestRunAnalysis:
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     @patch("stride_gpt.agent.loop._analyze_subsystem")
     def test_per_subsystem_budget_is_remaining_not_global(
-        self, mock_analyze, _mock_synth, llm_config, tmp_path
+        self, mock_analyze, _mock_synth, model_pair, tmp_path
     ):
         """Each subsystem should receive the remaining global budget, not the
         original limit — otherwise N subsystems could each spend the full
@@ -363,7 +363,7 @@ class TestRunAnalysis:
 
         progress = MagicMock()
         run_analysis(
-            llm_config,
+            model_pair,
             tmp_path,
             plan=plan,
             max_llm_calls=10,
@@ -384,7 +384,7 @@ class TestRunAnalysis:
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     @patch("stride_gpt.agent.loop._analyze_subsystem")
     def test_unlimited_budget_passes_zero(
-        self, mock_analyze, _mock_synth, llm_config, tmp_path
+        self, mock_analyze, _mock_synth, model_pair, tmp_path
     ):
         """When global budget is 0 (unlimited), each subsystem should also
         receive 0 — not a negative remainder."""
@@ -405,14 +405,14 @@ class TestRunAnalysis:
         mock_analyze.side_effect = fake_analyze
 
         progress = MagicMock()
-        run_analysis(llm_config, tmp_path, plan=plan, progress=progress)
+        run_analysis(model_pair, tmp_path, plan=plan, progress=progress)
 
         for call in mock_analyze.call_args_list:
             assert call.kwargs["max_llm_calls"] == 0
             assert call.kwargs["max_tool_calls"] == 0
 
     @patch("stride_gpt.agent.loop.create_plan")
-    def test_cancelled_analysis(self, mock_plan, llm_config, tmp_path):
+    def test_cancelled_analysis(self, mock_plan, model_pair, tmp_path):
         """Test cancellation via console.input (backward compat path)."""
         mock_plan.return_value = AnalysisPlan(
             target_path=str(tmp_path),
@@ -423,7 +423,7 @@ class TestRunAnalysis:
         console = MagicMock()
         console.input.return_value = "n"
 
-        report = run_analysis(llm_config, tmp_path, auto_approve=False, console=console)
+        report = run_analysis(model_pair, tmp_path, auto_approve=False, console=console)
         assert report.metadata.get("status") == "cancelled"
         assert report.findings == []
 
@@ -437,7 +437,7 @@ class TestAppTypeFlow:
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
     def test_agentic_hint_reaches_user_prompt(
-        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
     ):
         """When the planner detects 'agentic', the per-subsystem user prompt
         must tell the agent it can pull the agentic reference card. Without
@@ -456,7 +456,7 @@ class TestAppTypeFlow:
             thinking=None, reasoning=None, model="t", tool_calls=None,
         )
 
-        run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+        run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
 
         # The first call carries the user prompt for the subsystem. It must
         # include the agentic load_reference hint.
@@ -468,7 +468,7 @@ class TestAppTypeFlow:
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
     def test_genai_hint_excludes_agentic(
-        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
     ):
         """A genai-classified app should be told about genai only, not agentic.
         Otherwise the agent loads an irrelevant card and wastes tokens."""
@@ -486,7 +486,7 @@ class TestAppTypeFlow:
             thinking=None, reasoning=None, model="t", tool_calls=None,
         )
 
-        run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+        run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
 
         messages = mock_llm_tools.call_args_list[0].args[1]
         user_msg = next(m for m in messages if m.get("role") == "user")
@@ -496,7 +496,7 @@ class TestAppTypeFlow:
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
     def test_web_app_carries_no_hint(
-        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
     ):
         plan = AnalysisPlan(
             target_path=str(tmp_path),
@@ -512,7 +512,7 @@ class TestAppTypeFlow:
             thinking=None, reasoning=None, model="t", tool_calls=None,
         )
 
-        run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+        run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
 
         messages = mock_llm_tools.call_args_list[0].args[1]
         user_msg = next(m for m in messages if m.get("role") == "user")
@@ -521,7 +521,7 @@ class TestAppTypeFlow:
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
     def test_metadata_records_app_type(
-        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
     ):
         plan = AnalysisPlan(
             target_path=str(tmp_path),
@@ -536,13 +536,13 @@ class TestAppTypeFlow:
             thinking=None, reasoning=None, model="t", tool_calls=None,
         )
 
-        report = run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+        report = run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
         assert report.metadata["app_type"] == "agentic"
 
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
     def test_agent_can_call_load_reference_tool(
-        self, mock_llm_tools, _mock_llm, llm_config, tmp_path,
+        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
     ):
         """End-to-end: agent calls load_reference, gets the card, then emits
         findings. Verifies the tool is actually reachable via the dispatch."""
@@ -569,7 +569,7 @@ class TestAppTypeFlow:
         )
         mock_llm_tools.side_effect = [tool_call_response, final_response]
 
-        report = run_analysis(llm_config, tmp_path, plan=plan, progress=MagicMock())
+        report = run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
 
         assert len(report.findings) == 1
         assert report.findings[0].threats[0]["OWASP_ASI"] == "ASI06"
@@ -578,3 +578,108 @@ class TestAppTypeFlow:
         second_call_messages = mock_llm_tools.call_args_list[1].args[1]
         tool_results = [m for m in second_call_messages if m.get("role") == "tool"]
         assert any("ASI01" in m["content"] for m in tool_results)
+
+
+# ---------------------------------------------------------------------------
+# Tier routing — verify which LLMConfig reaches which call site
+# ---------------------------------------------------------------------------
+
+
+class TestTierRouting:
+    """When the user configures a separate architect, the architect must drive
+    planning, synthesis, and compression — the worker must drive per-subsystem
+    tool-use iteration and the JSON-coercion fallback. With no architect set,
+    every call falls through to the worker."""
+
+    @patch("stride_gpt.agent.loop.create_plan")
+    @patch("stride_gpt.agent.loop.call_llm")
+    @patch("stride_gpt.agent.loop.call_llm_with_tools")
+    def test_tiered_routes_to_correct_tiers(
+        self, mock_llm_tools, mock_llm, mock_plan, tiered_pair, tmp_path,
+    ):
+        """planner → architect; tool-loop → worker; synthesis → architect."""
+        mock_plan.return_value = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="X",
+            subsystems=[
+                Subsystem(name="A", description="A", key_files=[], focus_areas=[]),
+                Subsystem(name="B", description="B", key_files=[], focus_areas=[]),
+            ],
+        )
+        mock_llm_tools.return_value = LLMResponse(
+            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+        # Synthesis call returns JSON
+        mock_llm.return_value = LLMResponse(
+            content='{"cross_cutting_threats": []}',
+            thinking=None, reasoning=None, model="t",
+        )
+
+        run_analysis(tiered_pair, tmp_path, progress=MagicMock(), auto_approve=True)
+
+        # planner.create_plan called with architect
+        assert mock_plan.call_args.args[0].model_name == tiered_pair.architect.model_name
+
+        # Per-subsystem call_llm_with_tools always uses worker
+        for call in mock_llm_tools.call_args_list:
+            assert call.args[0].model_name == tiered_pair.worker.model_name
+
+        # _synthesize call (via call_llm in JSON mode) uses architect
+        # The synthesis call is the only call_llm invocation when no
+        # JSON-fallback fires; assert at least one is architect.
+        architect_models = {c.args[0].model_name for c in mock_llm.call_args_list}
+        assert tiered_pair.architect.model_name in architect_models
+
+    @patch("stride_gpt.agent.loop.create_plan")
+    @patch("stride_gpt.agent.loop.call_llm")
+    @patch("stride_gpt.agent.loop.call_llm_with_tools")
+    def test_single_tier_uses_worker_everywhere(
+        self, mock_llm_tools, mock_llm, mock_plan, model_pair, tmp_path,
+    ):
+        """With architect=None, every call routes to worker."""
+        mock_plan.return_value = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="X",
+            subsystems=[
+                Subsystem(name="A", description="A", key_files=[], focus_areas=[]),
+                Subsystem(name="B", description="B", key_files=[], focus_areas=[]),
+            ],
+        )
+        mock_llm_tools.return_value = LLMResponse(
+            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+        mock_llm.return_value = LLMResponse(
+            content='{"cross_cutting_threats": []}',
+            thinking=None, reasoning=None, model="t",
+        )
+
+        run_analysis(model_pair, tmp_path, progress=MagicMock(), auto_approve=True)
+
+        worker_name = model_pair.worker.model_name
+        assert mock_plan.call_args.args[0].model_name == worker_name
+        for call in mock_llm_tools.call_args_list:
+            assert call.args[0].model_name == worker_name
+        for call in mock_llm.call_args_list:
+            assert call.args[0].model_name == worker_name
+
+    def test_metadata_records_both_tiers(self, tiered_pair, model_pair, tmp_path):
+        """Metadata shape is worker_*/architect_* for both tier states."""
+        from stride_gpt.agent.loop import _build_metadata
+
+        plan = AnalysisPlan(
+            target_path=str(tmp_path), overall_description="X",
+            subsystems=[Subsystem(name="A", description="A", key_files=[], focus_areas=[])],
+        )
+
+        m1 = _build_metadata(tiered_pair, plan, llm_calls=2, tool_calls=3, subsystems_analyzed=1)
+        assert m1["worker_model"] == tiered_pair.worker.model_name
+        assert m1["worker_provider"] == tiered_pair.worker.provider
+        assert m1["architect_model"] == tiered_pair.architect.model_name
+        assert m1["architect_provider"] == tiered_pair.architect.provider
+
+        m2 = _build_metadata(model_pair, plan, llm_calls=0, tool_calls=0, subsystems_analyzed=0)
+        assert m2["worker_model"] == model_pair.worker.model_name
+        assert m2["architect_model"] is None
+        assert m2["architect_provider"] is None

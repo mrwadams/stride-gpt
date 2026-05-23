@@ -140,11 +140,20 @@ def build_session(
 
     def bottom_toolbar() -> HTML:
         cfg = config_provider() or {}
-        provider = cfg.get("provider", "not configured")
-        model = cfg.get("model", "—")
+        worker_provider = cfg.get("worker_provider", "not configured")
+        worker_model = cfg.get("worker_model", "—")
+        architect_provider = cfg.get("architect_provider", "")
+        architect_model = cfg.get("architect_model", "")
         cwd = Path.cwd().name or str(Path.cwd())
+        if architect_model:
+            tier_line = (
+                f" Architect: <b>{architect_provider}</b>/<ansigreen>{architect_model}</ansigreen>"
+                f" · Worker: <b>{worker_provider}</b>/<ansigreen>{worker_model}</ansigreen>"
+            )
+        else:
+            tier_line = f" <b>{worker_provider}</b> / <ansigreen>{worker_model}</ansigreen>"
         return HTML(
-            f" <b>{provider}</b> / <ansigreen>{model}</ansigreen>  "
+            f"{tier_line}  "
             f"<ansicyan>cwd:</ansicyan> {cwd}  "
             f"<ansibrightblack>·  Tab to complete  ·  Ctrl+L to clear  ·  /help</ansibrightblack>"
         )

@@ -10,6 +10,7 @@ from stride_gpt.core.schemas import (
     AnalysisReport,
     LLMConfig,
     LLMResponse,
+    ModelPair,
     SubsystemFinding,
     Subsystem,
     ToolCallResult,
@@ -24,6 +25,28 @@ def llm_config() -> LLMConfig:
         model_name="claude-sonnet-4-5-20250929",
         api_key="sk-test-fake-key",
     )
+
+
+@pytest.fixture
+def architect_config() -> LLMConfig:
+    """Architect-tier LLMConfig — a distinct model so tier routing is observable."""
+    return LLMConfig(
+        provider="Anthropic API",
+        model_name="claude-opus-4-7",
+        api_key="sk-test-fake-key-architect",
+    )
+
+
+@pytest.fixture
+def model_pair(llm_config) -> ModelPair:
+    """Single-tier ModelPair — worker only, no architect."""
+    return ModelPair(worker=llm_config)
+
+
+@pytest.fixture
+def tiered_pair(llm_config, architect_config) -> ModelPair:
+    """Two-tier ModelPair — distinct worker and architect."""
+    return ModelPair(worker=llm_config, architect=architect_config)
 
 
 @pytest.fixture
@@ -83,8 +106,10 @@ def sample_report(sample_plan, sample_finding) -> AnalysisReport:
             }
         ],
         metadata={
-            "model": "claude-sonnet-4-5-20250929",
-            "provider": "Anthropic API",
+            "worker_model": "claude-sonnet-4-5-20250929",
+            "worker_provider": "Anthropic API",
+            "architect_model": None,
+            "architect_provider": None,
             "llm_calls": 5,
             "tool_calls": 12,
             "subsystems_analyzed": 2,

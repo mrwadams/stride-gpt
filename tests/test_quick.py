@@ -62,20 +62,20 @@ def _final_response(threats=None, suggestions=None) -> LLMResponse:
 
 class TestRunQuickAnalysis:
     @patch("stride_gpt.agent.quick.call_llm_with_tools")
-    def test_single_turn_emits_threats(self, mock_tools, llm_config):
+    def test_single_turn_emits_threats(self, mock_tools, model_pair):
         """A web-shaped description should produce findings in one turn —
         the model has no reason to load LLM/agentic reference cards."""
         mock_tools.return_value = _final_response(
             threats=[{"Threat Type": "Spoofing", "Scenario": "s", "Potential Impact": "i"}],
             suggestions=["clarify auth"],
         )
-        out = run_quick_analysis(llm_config, "A Flask CRUD app.")
+        out = run_quick_analysis(model_pair, "A Flask CRUD app.")
         assert len(out.threat_model) == 1
         assert out.improvement_suggestions == ["clarify auth"]
         assert mock_tools.call_count == 1
 
     @patch("stride_gpt.agent.quick.call_llm_with_tools")
-    def test_two_turn_with_load_reference(self, mock_tools, llm_config):
+    def test_two_turn_with_load_reference(self, mock_tools, model_pair):
         """End-to-end: agent calls load_reference, then on the next turn emits
         a threat carrying an OWASP_LLM code derived from the loaded card."""
         turn1 = LLMResponse(
@@ -94,7 +94,7 @@ class TestRunQuickAnalysis:
         }])
         mock_tools.side_effect = [turn1, turn2]
 
-        out = run_quick_analysis(llm_config, "A RAG-backed chatbot using OpenAI.")
+        out = run_quick_analysis(model_pair, "A RAG-backed chatbot using OpenAI.")
         assert mock_tools.call_count == 2
         assert out.threat_model[0]["OWASP_LLM"] == "LLM01"
         # The tool result should be in the messages list on the second call.
@@ -103,7 +103,7 @@ class TestRunQuickAnalysis:
         assert any("LLM01" in m["content"] for m in tool_results)
 
     @patch("stride_gpt.agent.quick.call_llm_with_tools")
-    def test_repeated_load_reference_uses_cache(self, mock_tools, llm_config):
+    def test_repeated_load_reference_uses_cache(self, mock_tools, model_pair):
         """If the model calls load_reference for the same card twice in one
         turn, the second call should be served from cache, not re-execute the
         tool. Stops the model burning context on duplicated 13 KB cards."""
@@ -120,7 +120,7 @@ class TestRunQuickAnalysis:
         turn2 = _final_response()
         mock_tools.side_effect = [turn1, turn2]
 
-        run_quick_analysis(llm_config, "Any description.")
+        run_quick_analysis(model_pair, "Any description.")
         # Inspect tool messages in the second call's message list.
         msgs = mock_tools.call_args_list[1].args[1]
         tool_msgs = [m for m in msgs if m.get("role") == "tool"]
@@ -131,7 +131,7 @@ class TestRunQuickAnalysis:
 
     @patch("stride_gpt.agent.quick.call_llm")
     @patch("stride_gpt.agent.quick.call_llm_with_tools")
-    def test_bad_json_triggers_retry(self, mock_tools, mock_llm, llm_config):
+    def test_bad_json_triggers_retry(self, mock_tools, mock_llm, model_pair):
         """If the model's final response isn't parseable JSON, we retry once
         with forced JSON mode."""
         mock_tools.return_value = LLMResponse(
@@ -145,13 +145,13 @@ class TestRunQuickAnalysis:
             }),
             thinking=None, reasoning=None, model="t",
         )
-        out = run_quick_analysis(llm_config, "Anything.")
+        out = run_quick_analysis(model_pair, "Anything.")
         assert mock_llm.call_count == 1
         assert len(out.threat_model) == 1
 
     @patch("stride_gpt.agent.quick.call_llm")
     @patch("stride_gpt.agent.quick.call_llm_with_tools")
-    def test_hits_max_llm_calls_coerces_final(self, mock_tools, mock_llm, llm_config):
+    def test_hits_max_llm_calls_coerces_final(self, mock_tools, mock_llm, model_pair):
         """If the model keeps calling tools forever, we cap it and force a
         final JSON output."""
         looper = LLMResponse(
@@ -168,7 +168,7 @@ class TestRunQuickAnalysis:
             }),
             thinking=None, reasoning=None, model="t",
         )
-        out = run_quick_analysis(llm_config, "Description.", max_llm_calls=2)
+        out = run_quick_analysis(model_pair, "Description.", max_llm_calls=2)
         # Two tool-using turns then forced JSON retry — the cap holds.
         assert mock_tools.call_count == 2
         assert mock_llm.call_count == 1
@@ -213,3 +213,52 @@ class TestStripToolArtifacts:
         roles = [m["role"] for m in cleaned]
         assert "tool" not in roles
         assert not any("tool_calls" in m for m in cleaned)
+
+
+# ---------------------------------------------------------------------------
+# Tier routing — main call → architect; retry → worker
+# ---------------------------------------------------------------------------
+
+
+class TestTierRouting:
+    @patch("stride_gpt.agent.quick.call_llm")
+    @patch("stride_gpt.agent.quick.call_llm_with_tools")
+    def test_main_call_uses_architect_retry_uses_worker(
+        self, mock_tools, mock_llm, tiered_pair,
+    ):
+        """The main single-shot judgment hits the architect tier. If JSON
+        parse fails, the retry hits the worker tier (same task, stricter
+        formatting — no reason to escalate)."""
+        mock_tools.return_value = LLMResponse(
+            content="not parseable",
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+        mock_llm.return_value = LLMResponse(
+            content=json.dumps({"threat_model": [], "improvement_suggestions": []}),
+            thinking=None, reasoning=None, model="t",
+        )
+
+        run_quick_analysis(tiered_pair, "Anything.")
+
+        assert mock_tools.call_args.args[0].model_name == tiered_pair.architect.model_name
+        assert mock_llm.call_args.args[0].model_name == tiered_pair.worker.model_name
+
+    @patch("stride_gpt.agent.quick.call_llm")
+    @patch("stride_gpt.agent.quick.call_llm_with_tools")
+    def test_single_tier_uses_worker_everywhere(
+        self, mock_tools, mock_llm, model_pair,
+    ):
+        mock_tools.return_value = LLMResponse(
+            content="not parseable",
+            thinking=None, reasoning=None, model="t", tool_calls=None,
+        )
+        mock_llm.return_value = LLMResponse(
+            content=json.dumps({"threat_model": [], "improvement_suggestions": []}),
+            thinking=None, reasoning=None, model="t",
+        )
+
+        run_quick_analysis(model_pair, "Anything.")
+
+        worker_name = model_pair.worker.model_name
+        assert mock_tools.call_args.args[0].model_name == worker_name
+        assert mock_llm.call_args.args[0].model_name == worker_name

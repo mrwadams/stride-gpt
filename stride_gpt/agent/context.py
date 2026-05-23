@@ -64,6 +64,10 @@ class ContextManager:
 
         Keeps the system prompt, the analysis plan context, and recent messages
         intact. Summarizes everything in between into a condensed findings block.
+
+        `config` is the LLM used to *perform* the summarization (an architect-
+        tier reasoning task). The context window the ContextManager tracks is
+        the worker's — that's the model whose conversation we're compressing.
         """
         if len(messages) <= KEEP_RECENT + 2:
             return messages  # Nothing worth compressing

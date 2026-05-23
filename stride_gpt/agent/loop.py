@@ -18,6 +18,7 @@ from stride_gpt.core.schemas import (
     AnalysisPlan,
     AnalysisReport,
     LLMConfig,
+    ModelPair,
     SubsystemFinding,
 )
 
@@ -63,17 +64,18 @@ Respond with a JSON object:
 }"""
 
 
-def create_analysis_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
+def create_analysis_plan(models: ModelPair, target_path: Path) -> AnalysisPlan:
     """Run Phase 1 only: scan the codebase and generate an analysis plan.
 
     This is separated from run_analysis() so callers can inspect/approve
-    the plan before committing to the full analysis.
+    the plan before committing to the full analysis. Uses the architect
+    tier — planning is reasoning-heavy.
     """
-    return create_plan(config, target_path)
+    return create_plan(models.for_architect(), target_path)
 
 
 def run_analysis(
-    config: LLMConfig,
+    models: ModelPair,
     target_path: Path,
     *,
     plan: AnalysisPlan | None = None,
@@ -86,7 +88,9 @@ def run_analysis(
     """Run a full agentic threat model analysis on a codebase.
 
     Args:
-        config: LLM configuration.
+        models: Worker + optional architect LLM configuration. Worker drives
+            per-subsystem exploration; architect (if set) drives planning,
+            cross-cutting synthesis, and context summarization.
         target_path: Path to the codebase root.
         plan: Pre-approved analysis plan. If None, creates one (Phase 1).
         max_llm_calls: Hard limit on total LLM calls (0 = unlimited).
@@ -101,7 +105,7 @@ def run_analysis(
     if progress is None:
         progress = RichProgress(console or Console())
 
-    ctx = ContextManager(config=config)
+    ctx = ContextManager(config=models.worker)
     llm_calls = 0
     tool_calls = 0
 
@@ -109,7 +113,7 @@ def run_analysis(
     if plan is None:
         progress.phase_start("Phase 1", "Planning")
         progress.status("Scanning codebase and generating plan...")
-        plan = create_plan(config, target_path)
+        plan = create_plan(models.for_architect(), target_path)
         llm_calls += 1
 
         progress.status(format_plan_for_display(plan))
@@ -125,13 +129,24 @@ def run_analysis(
                     return AnalysisReport(
                         plan=plan,
                         findings=[],
-                        metadata={"status": "cancelled"},
+                        metadata=_build_metadata(
+                            models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
+                            subsystems_analyzed=0, status="cancelled",
+                        ),
                     )
             # If no console and not auto_approve, proceed anyway
             # (caller should use the split API for interactive approval)
 
     # Report token budget so the user knows what context limit is in effect
-    progress.token_budget(config.model_name, ctx.context_window, source=ctx.budget_source.value)
+    progress.token_budget(models.worker.model_name, ctx.context_window, source=ctx.budget_source.value)
+    if models.tiered:
+        from stride_gpt.config import friendly_provider
+
+        architect = models.architect
+        progress.status(
+            f"Architect: {friendly_provider(architect.provider)}/{architect.model_name} "
+            f"(planning, synthesis, summarization)"
+        )
 
     # --- Phase 2: Per-subsystem analysis ---
     progress.phase_start("Phase 2", "Analyzing Subsystems")
@@ -155,7 +170,7 @@ def run_analysis(
         try:
             sub_counts: dict[str, int] = {"llm": 0, "tool": 0}
             finding = _analyze_subsystem(
-                config=config,
+                models=models,
                 target_path=target_path,
                 subsystem_name=subsystem.name,
                 subsystem_description=subsystem.description,
@@ -196,7 +211,7 @@ def run_analysis(
     if len(findings) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
-        cross_cutting = _synthesize(config, findings)
+        cross_cutting = _synthesize(models, findings)
         llm_calls += 1
         progress.synthesis_done(len(cross_cutting))
 
@@ -204,14 +219,10 @@ def run_analysis(
         plan=plan,
         findings=findings,
         cross_cutting_threats=cross_cutting,
-        metadata={
-            "model": config.model_name,
-            "provider": config.provider,
-            "app_type": plan.detected_app_type,
-            "llm_calls": llm_calls,
-            "tool_calls": tool_calls,
-            "subsystems_analyzed": len(findings),
-        },
+        metadata=_build_metadata(
+            models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
+            subsystems_analyzed=len(findings),
+        ),
     )
 
     total_threats = sum(len(f.threats) for f in findings) + len(cross_cutting)
@@ -237,8 +248,33 @@ def run_analysis(
     return report
 
 
+def _build_metadata(
+    models: ModelPair,
+    plan: AnalysisPlan,
+    *,
+    llm_calls: int,
+    tool_calls: int,
+    subsystems_analyzed: int,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """Build the metadata block stored on an AnalysisReport."""
+    meta: dict[str, Any] = {
+        "worker_model": models.worker.model_name,
+        "worker_provider": models.worker.provider,
+        "architect_model": models.architect.model_name if models.tiered else None,
+        "architect_provider": models.architect.provider if models.tiered else None,
+        "app_type": plan.detected_app_type,
+        "llm_calls": llm_calls,
+        "tool_calls": tool_calls,
+        "subsystems_analyzed": subsystems_analyzed,
+    }
+    if status:
+        meta["status"] = status
+    return meta
+
+
 def _analyze_subsystem(
-    config: LLMConfig,
+    models: ModelPair,
     target_path: Path,
     subsystem_name: str,
     subsystem_description: str,
@@ -275,7 +311,7 @@ Start by reading the key files. Use grep to find security-relevant patterns like
     while (not max_llm_calls or llm_calls < max_llm_calls) and \
           (not max_tool_calls or tool_calls < max_tool_calls):
         progress.status(f"Thinking about {subsystem_name}...")
-        response = call_llm_with_tools(config, messages, AGENT_TOOLS)
+        response = call_llm_with_tools(models.worker, messages, AGENT_TOOLS)
         llm_calls += 1
 
         if response.tool_calls:
@@ -313,7 +349,7 @@ Start by reading the key files. Use grep to find security-relevant patterns like
 
             # Check context and compress if needed
             if ctx.needs_compression(messages):
-                messages = ctx.compress(config, messages)
+                messages = ctx.compress(models.for_architect(), messages)
                 llm_calls += 1  # Compression uses an LLM call
         else:
             # No tool calls — the model is done analyzing
@@ -323,16 +359,16 @@ Start by reading the key files. Use grep to find security-relevant patterns like
             if finding is not None:
                 return finding
             # JSON parse failed — retry with forced JSON output
-            return _retry_as_json(config, messages, subsystem_name, call_counts)
+            return _retry_as_json(models, messages, subsystem_name, call_counts)
 
     # Hit limits — summarize findings and ask model to produce final analysis
-    clean_msgs = _prepare_for_plain_llm(config, messages)
+    clean_msgs = _prepare_for_plain_llm(models.for_architect(), messages)
     llm_calls += 1  # summarization call
     clean_msgs.append({
         "role": "user",
         "content": "You've reached the tool call limit. Please provide your STRIDE threat analysis now based on what you've gathered so far. Respond with the JSON format specified.",
     })
-    json_config = config.model_copy(update={"response_format": "json"})
+    json_config = models.worker.model_copy(update={"response_format": "json"})
     response = call_llm(json_config, clean_msgs)
     call_counts["llm"] = llm_calls + 1
     call_counts["tool"] = tool_calls
@@ -391,19 +427,24 @@ def _try_parse_json(text: str) -> dict | None:
 
 
 def _retry_as_json(
-    config: LLMConfig,
+    models: ModelPair,
     messages: list[dict],
     subsystem_name: str,
     call_counts: dict[str, int],
 ) -> SubsystemFinding:
-    """Retry the final analysis with forced JSON output."""
-    clean_msgs = _prepare_for_plain_llm(config, messages)
+    """Retry the final analysis with forced JSON output.
+
+    Summarization uses the architect (a reasoning task). The JSON-forced
+    final call uses the worker (it's the same task as the original
+    exploration's final-answer call, just with stricter formatting).
+    """
+    clean_msgs = _prepare_for_plain_llm(models.for_architect(), messages)
     call_counts["llm"] = call_counts.get("llm", 0) + 1  # summarization call
     clean_msgs.append({
         "role": "user",
         "content": "Please respond with ONLY a valid JSON object in the format specified in your instructions. No other text.",
     })
-    json_config = config.model_copy(update={"response_format": "json"})
+    json_config = models.worker.model_copy(update={"response_format": "json"})
     response = call_llm(json_config, clean_msgs)
     call_counts["llm"] = call_counts.get("llm", 0) + 1
 
@@ -417,8 +458,11 @@ def _retry_as_json(
     )
 
 
-def _synthesize(config: LLMConfig, findings: list[SubsystemFinding]) -> list[dict[str, Any]]:
-    """Identify cross-cutting threats across all subsystem findings."""
+def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dict[str, Any]]:
+    """Identify cross-cutting threats across all subsystem findings.
+
+    Uses the architect tier — synthesis is a cross-cutting reasoning task.
+    """
     findings_summary = json.dumps(
         [
             {
@@ -431,7 +475,14 @@ def _synthesize(config: LLMConfig, findings: list[SubsystemFinding]) -> list[dic
         indent=2,
     )
 
-    json_config = config.model_copy(update={"response_format": "json"})
+    architect = models.for_architect()
+
+    # Guard against the architect having a smaller context window than the
+    # raw findings summary — trim per-finding if so. Worker's window drives
+    # the agent loop, but the architect handles the synthesis call.
+    findings_summary = _truncate_findings_to_fit(architect, findings, findings_summary)
+
+    json_config = architect.model_copy(update={"response_format": "json"})
     messages: list[dict] = [
         {"role": "system", "content": SYNTHESIS_PROMPT},
         {"role": "user", "content": f"Per-subsystem findings:\n{findings_summary}"},
@@ -460,6 +511,43 @@ def _synthesize(config: LLMConfig, findings: list[SubsystemFinding]) -> list[dic
     if data is None:
         return []
     return data.get("cross_cutting_threats", [])
+
+
+def _truncate_findings_to_fit(
+    architect: LLMConfig,
+    findings: list[SubsystemFinding],
+    rendered: str,
+) -> str:
+    """If the rendered findings JSON exceeds the architect's context window,
+    trim per-finding `files_analyzed` lists (cheapest content) until it fits.
+    Falls through unchanged on any sizing error — better to send too much
+    and let the provider error than crash mid-synthesis here.
+    """
+    try:
+        import litellm
+        ctx = ContextManager(config=architect)
+        budget = int(ctx.context_window * COMPRESSION_BUDGET)
+        messages = [{"role": "user", "content": rendered}]
+        if litellm.token_counter(model=architect.model_name, messages=messages) <= budget:
+            return rendered
+
+        trimmed = json.dumps(
+            [
+                {
+                    "subsystem": f.subsystem,
+                    "threats": f.threats,
+                    "files_analyzed": f.files_analyzed[:5],
+                }
+                for f in findings
+            ],
+            indent=2,
+        )
+        return trimmed
+    except Exception:
+        return rendered
+
+
+COMPRESSION_BUDGET = 0.75  # leave headroom for the system prompt + response
 
 
 SUMMARIZE_TRUNCATION = 6_000  # chars per message when building summary input

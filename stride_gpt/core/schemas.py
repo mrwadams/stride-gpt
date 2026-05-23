@@ -90,3 +90,23 @@ class AnalysisReport(BaseModel):
     findings: list[SubsystemFinding]
     cross_cutting_threats: list[dict[str, Any]] = []
     metadata: dict[str, Any] = {}
+
+
+class ModelPair(BaseModel):
+    """Two-tier model assignment for a single analysis run.
+
+    Worker handles bulk/repetitive calls (per-subsystem agentic iteration,
+    JSON-coercion retries). Architect handles reasoning-heavy moments
+    (planning, cross-cutting synthesis, context summarization). When
+    architect is None, worker is used for everything.
+    """
+
+    worker: LLMConfig
+    architect: LLMConfig | None = None
+
+    def for_architect(self) -> LLMConfig:
+        return self.architect or self.worker
+
+    @property
+    def tiered(self) -> bool:
+        return self.architect is not None
