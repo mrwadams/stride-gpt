@@ -14,10 +14,11 @@ from stride_gpt.agent.report import (
     render_markdown_from_json,
     render_sarif_from_json,
     save_report,
+    save_quick_report,
     load_report,
     list_reports,
 )
-from stride_gpt.core.schemas import AnalysisReport
+from stride_gpt.core.schemas import AnalysisReport, ThreatModelOutput
 
 
 # ---------------------------------------------------------------------------
@@ -378,3 +379,95 @@ class TestInsiderCategoryColumn:
         md = render_markdown_from_json(data)
         assert "Insider Category" in md
         assert "Infrastructure Sabotage" in md
+
+
+# ---------------------------------------------------------------------------
+# Report persistence — separate folders for /analyze and /quick
+# ---------------------------------------------------------------------------
+
+
+class TestSplitReportFolders:
+    """/analyze and /quick reports must live in separate subdirectories so a
+    coding agent pointed at the 'analyze' folder doesn't see unrelated
+    description-based analyses mixed in."""
+
+    def test_analyze_saves_to_analyze_subdir(self, sample_report, tmp_path):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            path = save_report(sample_report)
+            assert path.parent == tmp_path / "analyze"
+            assert path.exists()
+
+    def test_quick_saves_to_quick_subdir(self, tmp_path):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            output = ThreatModelOutput(
+                threat_model=[{"Threat Type": "S", "Scenario": "x", "Potential Impact": "y"}],
+                improvement_suggestions=["test"],
+            )
+            path = save_quick_report(output, "atlas", model="claude-sonnet-4-6")
+            assert path.parent == tmp_path / "quick"
+            assert path.exists()
+            # The saved JSON must be loadable and carry the kind marker so
+            # downstream tools can tell quick from analyze reports.
+            data = load_report(path)
+            assert data["kind"] == "quick"
+            assert data["metadata"]["kind"] == "quick"
+
+    def test_list_reports_defaults_to_analyze(self, sample_report, tmp_path):
+        """The default /reports behaviour is the analyze-only view — quick
+        reports must not bleed in unless --quick or --all is passed."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            save_report(sample_report)
+            save_quick_report(
+                ThreatModelOutput(threat_model=[], improvement_suggestions=[]),
+                "atlas",
+            )
+            analyze_only = list_reports(limit=10)
+            assert len(analyze_only) == 1
+            assert analyze_only[0][2]["kind"] == "analyze"
+
+    def test_list_reports_quick_filter(self, sample_report, tmp_path):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            save_report(sample_report)
+            save_quick_report(
+                ThreatModelOutput(threat_model=[], improvement_suggestions=[]),
+                "atlas",
+            )
+            quick_only = list_reports(limit=10, kind="quick")
+            assert len(quick_only) == 1
+            assert quick_only[0][2]["kind"] == "quick"
+
+    def test_list_reports_all(self, sample_report, tmp_path):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            save_report(sample_report)
+            save_quick_report(
+                ThreatModelOutput(threat_model=[], improvement_suggestions=[]),
+                "atlas",
+            )
+            both = list_reports(limit=10, kind="all")
+            assert {r[2]["kind"] for r in both} == {"analyze", "quick"}
+
+    def test_legacy_root_reports_still_surfaced(self, sample_report, tmp_path):
+        """Reports saved before the split (sitting in reports/ root) must
+        still appear in the listing — tagged 'legacy' — so users can find
+        old work without manual migration."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            tmp_path.mkdir(parents=True, exist_ok=True)
+            (tmp_path / "old_report.json").write_text(json.dumps({
+                "version": "1.0",
+                "generated_at": "2026-01-01T00:00:00Z",
+                "target": "/some/old/path",
+                "subsystems": [{"threats": [{}]}],
+                "cross_cutting_threats": [],
+                "metadata": {},
+            }))
+            save_report(sample_report)
+            all_reports = list_reports(limit=10)
+            kinds = {r[2]["kind"] for r in all_reports}
+            assert "legacy" in kinds
+            assert "analyze" in kinds

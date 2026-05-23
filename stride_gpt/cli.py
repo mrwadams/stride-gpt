@@ -299,26 +299,44 @@ def _handle_reports(args_str: str) -> None:
 
     parts = args_str.split() if args_str else []
 
+    # Pull out --quick / --all kind filters (default: analyze).
+    kind = "analyze"
+    filtered_parts: list[str] = []
+    for tok in parts:
+        if tok == "--quick":
+            kind = "quick"
+        elif tok == "--all":
+            kind = "all"
+        else:
+            filtered_parts.append(tok)
+    parts = filtered_parts
+
     if not parts:
         # List mode
-        reports = list_reports(limit=10)
+        reports = list_reports(limit=10, kind=kind)
         if not reports:
             console.print("[dim]No saved reports found.[/dim]")
             return
 
-        table = Table(title="Recent Reports", box=None, padding=(0, 2))
+        title_suffix = {"analyze": "", "quick": " (quick)", "all": " (all)"}[kind]
+        table = Table(title=f"Recent Reports{title_suffix}", box=None, padding=(0, 2))
         table.add_column("#", style="bold", width=3)
         table.add_column("Date", width=20)
+        table.add_column("Kind", style="magenta", width=8)
         table.add_column("Target", style="cyan")
         table.add_column("Threats", justify="right")
         table.add_column("Model", style="dim")
 
         for idx, _path, summary in reports:
             date_str = summary["generated_at"][:19].replace("T", " ") if summary["generated_at"] else "?"
+            target = summary["target"] or "?"
+            # /analyze targets are filesystem paths; /quick targets are bare names.
+            display_target = Path(target).name if "/" in target or "\\" in target else target
             table.add_row(
                 str(idx),
                 date_str,
-                Path(summary["target"]).name if summary["target"] else "?",
+                summary.get("kind", "?"),
+                display_target,
                 str(summary["threat_count"]),
                 summary.get("model", ""),
             )
@@ -326,7 +344,10 @@ def _handle_reports(args_str: str) -> None:
         console.print()
         console.print(table)
         console.print()
-        console.print("[dim]View a report: /reports <number>[/dim]")
+        view_hint = "/reports <number>"
+        if kind == "analyze":
+            view_hint += "   |   /reports --quick   to list quick reports"
+        console.print(f"[dim]View a report: {view_hint}[/dim]")
         return
 
     # View/export mode — first arg is the report number
@@ -336,7 +357,7 @@ def _handle_reports(args_str: str) -> None:
         console.print(f"[red]Invalid report number: {parts[0]}[/red]")
         return
 
-    reports = list_reports(limit=max(report_idx, 10))
+    reports = list_reports(limit=max(report_idx, 10), kind=kind)
     match = [r for r in reports if r[0] == report_idx]
     if not match:
         console.print(f"[red]Report #{report_idx} not found.[/red]")
@@ -382,14 +403,16 @@ def _handle_reports(args_str: str) -> None:
 
 
 def _handle_quick(config: dict, args_str: str) -> None:
-    """Run quick single-shot threat model from interactive session."""
-    from stride_gpt.core.threat_model import generate_threat_model, json_to_markdown
+    """Run quick threat model from a description via the mini agent loop."""
+    from stride_gpt.agent.quick import run_quick_analysis
+    from stride_gpt.agent.report import save_quick_report
+    from stride_gpt.core.threat_model import json_to_markdown
 
-    # Parse -i flag
+    # Parse flags
     parts = args_str.split() if args_str else []
-    input_file = None
-    output_path = None
-    app_type = "Web application"
+    input_file: Path | None = None
+    output_path: Path | None = None
+    hint: str | None = None  # `-t/--type` is now an optional hint, not a switch
 
     i = 0
     while i < len(parts):
@@ -400,7 +423,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
             output_path = Path(parts[i + 1])
             i += 2
         elif parts[i] in ("-t", "--type") and i + 1 < len(parts):
-            app_type = parts[i + 1]
+            hint = parts[i + 1]
             i += 2
         else:
             i += 1
@@ -411,6 +434,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
             console.print(f"[red]Error: {input_file} not found.[/red]")
             return
         app_description = input_file.read_text()
+        report_name = input_file.stem
     else:
         console.print("[bold]Describe your application[/bold] (press Enter twice to finish):")
         lines: list[str] = []
@@ -428,6 +452,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
             except (EOFError, KeyboardInterrupt):
                 break
         app_description = "\n".join(lines)
+        report_name = "quick-analysis"
 
     if not app_description.strip():
         console.print("[red]Error: Empty app description.[/red]")
@@ -443,19 +468,16 @@ def _handle_quick(config: dict, args_str: str) -> None:
         console.print(f"[red]API key not found. Set {env_var} in your environment.[/red]")
         return
 
-    # Build prompt
-    from stride_gpt.core.prompts import create_threat_model_prompt
+    with console.status("Analysing description..."):
+        result = run_quick_analysis(llm_config, app_description, hint=hint)
 
-    prompt = create_threat_model_prompt(
-        app_type=app_type,
-        authentication="Unknown",
-        internet_facing="Unknown",
-        sensitive_data="Unknown",
-        app_input=app_description,
+    saved_path = save_quick_report(
+        result,
+        report_name,
+        app_type_hint=hint,
+        model=llm_config.model_name,
+        provider=llm_config.provider,
     )
-
-    with console.status("Generating threat model..."):
-        result, response = generate_threat_model(llm_config, prompt)
 
     markdown = json_to_markdown(result.threat_model, result.improvement_suggestions)
 
@@ -465,6 +487,9 @@ def _handle_quick(config: dict, args_str: str) -> None:
     else:
         console.print()
         console.print(Markdown(markdown))
+
+    console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+    console.print("[dim]View previous quick reports with /reports --quick[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -598,11 +623,13 @@ def quick(
     api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="API key.")] = None,
     max_tokens: Annotated[Optional[int], typer.Option(help="Override per-call output token cap (mainly for LM Studio).")] = None,
     input_file: Annotated[Optional[Path], typer.Option("-i", "--input", help="App description file.")] = None,
-    app_type: Annotated[str, typer.Option(help="Application type.")] = "Web application",
+    app_type: Annotated[Optional[str], typer.Option(help="Optional hint about the application type (Web / Generative AI / Agentic AI application). Leave unset to let the agent decide which reference cards to load.")] = None,
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
 ) -> None:
-    """Quick single-shot threat model from a text description."""
-    from stride_gpt.core.threat_model import generate_threat_model, json_to_markdown
+    """Quick threat model from a text description, via the mini agent loop."""
+    from stride_gpt.agent.quick import run_quick_analysis
+    from stride_gpt.agent.report import save_quick_report
+    from stride_gpt.core.threat_model import json_to_markdown
 
     llm_config = _build_config(model, api_key, max_tokens=max_tokens)
 
@@ -611,26 +638,26 @@ def quick(
             console.print(f"[red]Error: {input_file} not found.[/red]")
             raise typer.Exit(1)
         app_description = input_file.read_text()
+        report_name = input_file.stem
     else:
         console.print("[dim]Reading app description from stdin (Ctrl+D to finish)...[/dim]")
         app_description = sys.stdin.read()
+        report_name = "quick-analysis"
 
     if not app_description.strip():
         console.print("[red]Error: Empty app description.[/red]")
         raise typer.Exit(1)
 
-    from stride_gpt.core.prompts import create_threat_model_prompt
+    with console.status("Analysing description..."):
+        result = run_quick_analysis(llm_config, app_description, hint=app_type)
 
-    prompt = create_threat_model_prompt(
-        app_type=app_type,
-        authentication="Unknown",
-        internet_facing="Unknown",
-        sensitive_data="Unknown",
-        app_input=app_description,
+    saved_path = save_quick_report(
+        result,
+        report_name,
+        app_type_hint=app_type,
+        model=llm_config.model_name,
+        provider=llm_config.provider,
     )
-
-    with console.status("Generating threat model..."):
-        result, response = generate_threat_model(llm_config, prompt)
 
     markdown = json_to_markdown(result.threat_model, result.improvement_suggestions)
 
@@ -641,6 +668,9 @@ def quick(
         console.print()
         console.print(Markdown(markdown))
 
+    console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+    console.print("[dim]View previous quick reports with: stride-gpt reports --quick[/dim]")
+
 
 @app.command()
 def reports(
@@ -648,6 +678,8 @@ def reports(
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Export report to file.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
     limit: Annotated[int, typer.Option("-n", "--limit", help="Number of reports to list.")] = 10,
+    quick: Annotated[bool, typer.Option("--quick", help="List description-based /quick reports instead of codebase analyses.")] = False,
+    all_kinds: Annotated[bool, typer.Option("--all", help="List both /analyze and /quick reports.")] = False,
 ) -> None:
     """List or view previous analysis reports."""
     from stride_gpt.agent.report import (
@@ -657,26 +689,33 @@ def reports(
         render_sarif_from_json,
     )
 
+    kind = "all" if all_kinds else ("quick" if quick else "analyze")
+
     if number is None:
         # List mode
-        report_list = list_reports(limit=limit)
+        report_list = list_reports(limit=limit, kind=kind)
         if not report_list:
             console.print("[dim]No saved reports found.[/dim]")
             raise typer.Exit(0)
 
-        table = Table(title="Recent Reports", box=None, padding=(0, 2))
+        title_suffix = {"analyze": "", "quick": " (quick)", "all": " (all)"}[kind]
+        table = Table(title=f"Recent Reports{title_suffix}", box=None, padding=(0, 2))
         table.add_column("#", style="bold", width=3)
         table.add_column("Date", width=20)
+        table.add_column("Kind", style="magenta", width=8)
         table.add_column("Target", style="cyan")
         table.add_column("Threats", justify="right")
         table.add_column("Model", style="dim")
 
         for idx, _path, summary in report_list:
             date_str = summary["generated_at"][:19].replace("T", " ") if summary["generated_at"] else "?"
+            target = summary["target"] or "?"
+            display_target = Path(target).name if "/" in target or "\\" in target else target
             table.add_row(
                 str(idx),
                 date_str,
-                Path(summary["target"]).name if summary["target"] else "?",
+                summary.get("kind", "?"),
+                display_target,
                 str(summary["threat_count"]),
                 summary.get("model", ""),
             )
@@ -686,7 +725,7 @@ def reports(
         return
 
     # View/export mode
-    report_list = list_reports(limit=max(number, 10))
+    report_list = list_reports(limit=max(number, 10), kind=kind)
     match = [r for r in report_list if r[0] == number]
     if not match:
         console.print(f"[red]Report #{number} not found.[/red]")

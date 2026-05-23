@@ -4,71 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from stride_gpt.core.schemas import AnalysisReport, SubsystemFinding
-
-
-def _detect_extra_columns(
-    all_threats: Iterable[dict[str, Any]],
-) -> tuple[bool, bool, bool]:
-    """Decide which optional columns (OWASP LLM / OWASP ASI / Insider) to
-    surface in the rendered tables.
-
-    A column is shown only if at least one threat in the whole report carries
-    a non-empty value for it. Computed once at the report level so every
-    per-subsystem table has the same shape — partial columns per subsystem
-    would look broken.
-    """
-    threats = list(all_threats)
-    show_llm = any(t.get("OWASP_LLM") for t in threats)
-    show_asi = any(t.get("OWASP_ASI") for t in threats)
-    show_insider = any(t.get("INSIDER_CATEGORY") for t in threats)
-    return show_llm, show_asi, show_insider
-
-
-def _threat_table_header(
-    show_llm: bool, show_asi: bool, show_insider: bool, *, cross_cutting: bool = False
-) -> tuple[str, str]:
-    cols = ["Threat Type", "Scenario", "Potential Impact"]
-    if show_llm:
-        cols.append("OWASP LLM")
-    if show_asi:
-        cols.append("OWASP ASI")
-    if show_insider:
-        cols.append("Insider Category")
-    if cross_cutting:
-        cols.append("Affected Subsystems")
-    header = "| " + " | ".join(cols) + " |"
-    separator = "|" + "|".join("-" * (len(c) + 2) for c in cols) + "|"
-    return header, separator
-
-
-def _threat_table_row(
-    threat: dict[str, Any],
-    show_llm: bool,
-    show_asi: bool,
-    show_insider: bool,
-    *,
-    cross_cutting: bool = False,
-) -> str:
-    cells = [
-        threat.get("Threat Type", "Unknown"),
-        str(threat.get("Scenario", "")).replace("|", "\\|"),
-        str(threat.get("Potential Impact", "")).replace("|", "\\|"),
-    ]
-    if show_llm:
-        cells.append(threat.get("OWASP_LLM") or "")
-    if show_asi:
-        cells.append(threat.get("OWASP_ASI") or "")
-    if show_insider:
-        cells.append(threat.get("INSIDER_CATEGORY") or "")
-    if cross_cutting:
-        cells.append(", ".join(threat.get("Affected Subsystems", [])))
-    return "| " + " | ".join(cells) + " |"
+from stride_gpt.core.report_utils import (
+    detect_extra_columns,
+    threat_table_header,
+    threat_table_row,
+)
+from stride_gpt.core.schemas import AnalysisReport, SubsystemFinding, ThreatModelOutput
 
 
 def render_markdown(report: AnalysisReport) -> str:
@@ -96,7 +41,7 @@ def render_markdown(report: AnalysisReport) -> str:
         lines.append(f"- **{sub.name}**: {sub.description}")
     lines.append("")
 
-    show_llm, show_asi, show_insider = _detect_extra_columns(
+    show_llm, show_asi, show_insider = detect_extra_columns(
         [t for f in report.findings for t in f.threats] + list(report.cross_cutting_threats)
     )
 
@@ -115,11 +60,11 @@ def render_markdown(report: AnalysisReport) -> str:
         if finding.threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = _threat_table_header(show_llm, show_asi, show_insider)
+            header, separator = threat_table_header(show_llm, show_asi, show_insider)
             lines.append(header)
             lines.append(separator)
             for threat in finding.threats:
-                lines.append(_threat_table_row(threat, show_llm, show_asi, show_insider))
+                lines.append(threat_table_row(threat, show_llm, show_asi, show_insider))
             lines.append("")
 
         if finding.improvement_suggestions:
@@ -133,14 +78,14 @@ def render_markdown(report: AnalysisReport) -> str:
     if report.cross_cutting_threats:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
-        header, separator = _threat_table_header(
+        header, separator = threat_table_header(
             show_llm, show_asi, show_insider, cross_cutting=True
         )
         lines.append(header)
         lines.append(separator)
         for threat in report.cross_cutting_threats:
             lines.append(
-                _threat_table_row(
+                threat_table_row(
                     threat, show_llm, show_asi, show_insider, cross_cutting=True
                 )
             )
@@ -297,18 +242,77 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
 
 
 def save_report(report: AnalysisReport) -> Path:
-    """Auto-save report JSON to ~/.stride-gpt/reports/. Returns saved path."""
-    from stride_gpt.config import REPORTS_DIR
+    """Auto-save a codebase analysis to ~/.stride-gpt/reports/analyze/.
 
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    Returns the saved path.
+    """
+    from stride_gpt.config import analyze_reports_dir
+
+    target_dir = analyze_reports_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     target_name = Path(report.plan.target_path).name
     name = re.sub(r"[^a-zA-Z0-9_-]", "-", target_name) or "analysis"
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
     filename = f"{name}_{timestamp}.json"
 
-    path = REPORTS_DIR / filename
+    path = target_dir / filename
     path.write_text(json.dumps(render_json(report), indent=2) + "\n")
+    return path
+
+
+def save_quick_report(
+    output: ThreatModelOutput,
+    name: str,
+    *,
+    app_type_hint: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+) -> Path:
+    """Auto-save a /quick threat model to ~/.stride-gpt/reports/quick/.
+
+    The serialised shape mirrors the agentic report just enough for
+    ``list_reports`` and ``render_markdown_from_json`` to work without
+    special-casing — `kind: "quick"`, a single synthetic subsystem named
+    "Application", and a metadata block. Returns the saved path.
+    """
+    from stride_gpt.config import quick_reports_dir
+
+    target_dir = quick_reports_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "-", name) or "quick-analysis"
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    filename = f"{safe_name}_{timestamp}.json"
+
+    metadata: dict[str, Any] = {"kind": "quick"}
+    if model:
+        metadata["model"] = model
+    if provider:
+        metadata["provider"] = provider
+    if app_type_hint:
+        metadata["app_type_hint"] = app_type_hint
+
+    data = {
+        "version": "1.0",
+        "kind": "quick",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "target": name,
+        "overview": "",
+        "subsystems": [
+            {
+                "name": "Application",
+                "threats": output.threat_model,
+                "improvement_suggestions": output.improvement_suggestions,
+                "files_analyzed": [],
+            }
+        ],
+        "cross_cutting_threats": [],
+        "metadata": metadata,
+    }
+
+    path = target_dir / filename
+    path.write_text(json.dumps(data, indent=2) + "\n")
     return path
 
 
@@ -317,21 +321,56 @@ def load_report(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
-def list_reports(limit: int = 10) -> list[tuple[int, Path, dict[str, Any]]]:
+def list_reports(
+    limit: int = 10,
+    *,
+    kind: str = "analyze",
+) -> list[tuple[int, Path, dict[str, Any]]]:
     """List recent saved reports, newest first.
 
-    Returns list of (index, path, summary_dict) tuples.
-    summary_dict has: generated_at, target, threat_count, model.
+    Args:
+        limit: Maximum number of reports to return.
+        kind: ``"analyze"`` (default) for codebase analyses,
+            ``"quick"`` for description-based analyses, or ``"all"`` to merge
+            both directories. Legacy reports living at the root of
+            ``~/.stride-gpt/reports/`` (pre-split layout) are always included
+            for backwards compatibility and tagged with ``kind: "legacy"`` in
+            the summary.
+
+    Returns list of ``(index, path, summary_dict)`` tuples.
+    ``summary_dict`` has: ``generated_at``, ``target``, ``threat_count``,
+    ``model``, ``subsystem_count``, ``kind``.
     """
-    from stride_gpt.config import REPORTS_DIR
+    from stride_gpt.config import (
+        REPORTS_DIR,
+        analyze_reports_dir,
+        quick_reports_dir,
+    )
 
-    if not REPORTS_DIR.is_dir():
-        return []
+    dirs: list[tuple[Path, str]] = []
+    if kind in ("analyze", "all"):
+        dirs.append((analyze_reports_dir(), "analyze"))
+    if kind in ("quick", "all"):
+        dirs.append((quick_reports_dir(), "quick"))
 
-    report_files = sorted(REPORTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    # Pre-split reports live in the root reports/ dir. Surface them whenever
+    # /reports is called so users can find their old work, tagged as legacy.
+    legacy_files: list[Path] = []
+    if REPORTS_DIR.is_dir():
+        legacy_files = [
+            p for p in REPORTS_DIR.glob("*.json") if p.is_file()
+        ]
+
+    candidates: list[tuple[Path, str]] = []
+    for d, d_kind in dirs:
+        if d.is_dir():
+            candidates.extend((p, d_kind) for p in d.glob("*.json"))
+    candidates.extend((p, "legacy") for p in legacy_files)
+
+    candidates.sort(key=lambda pair: pair[0].stat().st_mtime, reverse=True)
 
     results: list[tuple[int, Path, dict[str, Any]]] = []
-    for i, path in enumerate(report_files[:limit], 1):
+    for i, (path, path_kind) in enumerate(candidates[:limit], 1):
         try:
             data = json.loads(path.read_text())
             threat_count = sum(len(s.get("threats", [])) for s in data.get("subsystems", []))
@@ -342,6 +381,7 @@ def list_reports(limit: int = 10) -> list[tuple[int, Path, dict[str, Any]]]:
                 "threat_count": threat_count,
                 "model": data.get("metadata", {}).get("model", ""),
                 "subsystem_count": len(data.get("subsystems", [])),
+                "kind": path_kind,
             }
             results.append((i, path, summary))
         except (json.JSONDecodeError, OSError):
@@ -372,7 +412,7 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     for sub in data.get("subsystems", []):
         all_threats.extend(sub.get("threats", []))
     all_threats.extend(cross_cutting)
-    show_llm, show_asi, show_insider = _detect_extra_columns(all_threats)
+    show_llm, show_asi, show_insider = detect_extra_columns(all_threats)
 
     for sub in data.get("subsystems", []):
         lines.append(f"## {sub['name']}")
@@ -390,11 +430,11 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         if threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = _threat_table_header(show_llm, show_asi, show_insider)
+            header, separator = threat_table_header(show_llm, show_asi, show_insider)
             lines.append(header)
             lines.append(separator)
             for threat in threats:
-                lines.append(_threat_table_row(threat, show_llm, show_asi, show_insider))
+                lines.append(threat_table_row(threat, show_llm, show_asi, show_insider))
             lines.append("")
 
         suggestions = sub.get("improvement_suggestions", [])
@@ -408,14 +448,14 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     if cross_cutting:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
-        header, separator = _threat_table_header(
+        header, separator = threat_table_header(
             show_llm, show_asi, show_insider, cross_cutting=True
         )
         lines.append(header)
         lines.append(separator)
         for threat in cross_cutting:
             lines.append(
-                _threat_table_row(
+                threat_table_row(
                     threat, show_llm, show_asi, show_insider, cross_cutting=True
                 )
             )

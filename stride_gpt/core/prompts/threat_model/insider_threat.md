@@ -87,7 +87,18 @@ When proposing `improvement_suggestions` for an insider-threat-relevant threat, 
 
 ## Schema additions
 
-Each threat object in `"threats"` for which an insider-threat category applies must additionally include:
-- `"INSIDER_CATEGORY"`: one of `"Credential Compromise"`, `"Supply Chain Sabotage"`, `"Data Exfiltration"`, `"Infrastructure Sabotage"`, `"Deception & Evasion"`, or `null` if no category applies.
+Each threat object in `"threats"` for which an insider-threat category applies must additionally include an `"INSIDER_CATEGORY"` field. The value **must be EXACTLY one of these five literal strings, or `null`**:
+
+```
+"Credential Compromise"
+"Supply Chain Sabotage"
+"Data Exfiltration"
+"Infrastructure Sabotage"
+"Deception & Evasion"
+```
+
+**Do not put a STRIDE category name (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege) in this field.** The STRIDE category goes in `"Threat Type"`; `"INSIDER_CATEGORY"` is a separate axis answering "what insider archetype best describes this threat?". An Elevation of Privilege threat where the agent abuses its IAM credentials is `"Credential Compromise"`; an Elevation of Privilege threat where the agent escapes the container to compromise the host is `"Infrastructure Sabotage"`. The two fields are not synonyms.
+
+If a threat genuinely doesn't fit any of the five insider categories (for example, a purely external attack with no insider-style framing), set `"INSIDER_CATEGORY"` to `null`.
 
 A threat may simultaneously carry `"OWASP_LLM"`, `"OWASP_ASI"`, and `"INSIDER_CATEGORY"` codes. The three lenses are complementary — when a single threat crosses framings, report all applicable codes.

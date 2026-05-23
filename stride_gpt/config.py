@@ -16,7 +16,22 @@ from stride_gpt.models import PROVIDERS, get_models_for_provider
 
 CONFIG_DIR = Path.home() / ".stride-gpt"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+# Reports are split by kind so a coding agent pointed at the "analyze" folder
+# only sees codebase-grounded reports (which all relate to the same project),
+# not unrelated /quick analyses of arbitrary application descriptions. The
+# subdir accessors below are computed at call time (not module-load) so tests
+# that monkeypatch REPORTS_DIR redirect the kind-specific dirs too.
 REPORTS_DIR = CONFIG_DIR / "reports"
+
+
+def analyze_reports_dir() -> Path:
+    """Return the directory holding codebase-grounded reports (/analyze)."""
+    return REPORTS_DIR / "analyze"
+
+
+def quick_reports_dir() -> Path:
+    """Return the directory holding description-based reports (/quick)."""
+    return REPORTS_DIR / "quick"
 
 
 def fetch_local_models(provider_name: str, api_base: str) -> list[str]:

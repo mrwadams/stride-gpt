@@ -20,6 +20,7 @@ from stride_gpt.core.prompts.variants import (
     base_system_prompt,
     coerce_app_type,
     load_reference,
+    quick_base_prompt,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "create_reasoning_system_prompt",
     "create_threat_model_prompt",
     "load_reference",
+    "quick_base_prompt",
 ]

@@ -27,8 +27,19 @@ def _read(name: str) -> str:
 
 
 def base_system_prompt() -> str:
-    """Return the agent's always-loaded base system prompt."""
+    """Return the agent's always-loaded base system prompt (codebase mode)."""
     return _read("base.md")
+
+
+def quick_base_prompt() -> str:
+    """Return the system prompt for the description-driven `/quick` path.
+
+    Same progressive-disclosure pattern as :func:`base_system_prompt` — points
+    at the same reference cards via the ``load_reference`` tool — but framed
+    around reasoning from a written description rather than exploring a
+    codebase via filesystem tools.
+    """
+    return _read("quick_base.md")
 
 
 def load_reference(name: str) -> str:

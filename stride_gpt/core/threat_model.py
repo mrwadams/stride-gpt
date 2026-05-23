@@ -25,6 +25,7 @@ THREAT_MODEL_SCHEMA: dict = {
                     "Potential Impact": {"type": "string"},
                     "OWASP_LLM": {"type": ["string", "null"]},
                     "OWASP_ASI": {"type": ["string", "null"]},
+                    "INSIDER_CATEGORY": {"type": ["string", "null"]},
                 },
                 "required": ["Threat Type", "Scenario", "Potential Impact"],
             },
@@ -69,54 +70,31 @@ def analyze_image(
 
 
 def json_to_markdown(threat_model, improvement_suggestions):
-    markdown_output = "## Threat Model\n\n"
+    """Render a single-shot threat model as markdown.
 
-    # Check which OWASP fields are present
-    has_owasp_llm = any(threat.get("OWASP_LLM") for threat in threat_model)
-    has_owasp_asi = any(threat.get("OWASP_ASI") for threat in threat_model)
+    Optional columns (OWASP LLM, OWASP ASI, Insider Category) appear only when
+    at least one threat carries a value for them — same conditional shape as
+    the agent's per-subsystem renderer, via shared helpers.
+    """
+    from stride_gpt.core.report_utils import (
+        detect_extra_columns,
+        threat_table_header,
+        threat_table_row,
+    )
 
-    if has_owasp_llm and has_owasp_asi:
-        # Full table with both OWASP columns (agentic applications)
-        markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP LLM | OWASP ASI |\n"
-        markdown_output += "|-------------|----------|------------------|-----------|------------|\n"
-        for threat in threat_model:
-            owasp_llm = threat.get("OWASP_LLM") or "-"
-            owasp_asi = threat.get("OWASP_ASI") or "-"
-            markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_llm} | {owasp_asi} |\n"
-            )
-    elif has_owasp_llm:
-        # Table with OWASP LLM column only (GenAI applications)
-        markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP LLM |\n"
-        markdown_output += "|-------------|----------|------------------|------------|\n"
-        for threat in threat_model:
-            owasp_llm = threat.get("OWASP_LLM") or "-"
-            markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_llm} |\n"
-            )
-    elif has_owasp_asi:
-        # Table with OWASP ASI column only (edge case)
-        markdown_output += "| Threat Type | Scenario | Potential Impact | OWASP ASI |\n"
-        markdown_output += "|-------------|----------|------------------|------------|\n"
-        for threat in threat_model:
-            owasp_asi = threat.get("OWASP_ASI") or "-"
-            markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_asi} |\n"
-            )
-    else:
-        # Standard table without OWASP columns
-        markdown_output += "| Threat Type | Scenario | Potential Impact |\n"
-        markdown_output += "|-------------|----------|------------------|\n"
-        for threat in threat_model:
-            markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} |\n"
-            )
+    show_llm, show_asi, show_insider = detect_extra_columns(threat_model)
+    header, separator = threat_table_header(show_llm, show_asi, show_insider)
 
-    markdown_output += "\n\n## Improvement Suggestions\n\n"
+    lines = ["## Threat Model", "", header, separator]
+    for threat in threat_model:
+        lines.append(threat_table_row(threat, show_llm, show_asi, show_insider))
+
+    lines.extend(["", "", "## Improvement Suggestions", ""])
     for suggestion in improvement_suggestions:
-        markdown_output += f"- {suggestion}\n"
+        lines.append(f"- {suggestion}")
+    lines.append("")
 
-    return markdown_output
+    return "\n".join(lines)
 
 
 def _get_system_prompt(config: LLMConfig) -> str:
