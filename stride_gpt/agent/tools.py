@@ -235,14 +235,14 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "load_reference",
-            "description": "Load an OWASP threat reference card. Use 'genai' for the Top 10 for LLM Applications (LLM01-LLM10) when the subsystem uses LLMs; 'agentic' for the Top 10 for Agentic Applications (ASI01-ASI10) when it uses agent frameworks, tool-use loops, or persistent agent memory. Each card includes the JSON schema additions you must apply to your output. Call once per applicable card per subsystem.",
+            "description": "Load a threat reference card. Use 'genai' for OWASP Top 10 for LLM Applications (LLM01-LLM10) when the subsystem uses LLMs; 'agentic' for OWASP Top 10 for Agentic Applications (ASI01-ASI10) when it uses agent frameworks, tool-use loops, or persistent agent memory; 'insider_threat' for the AI Insider Threat framework (treats the agent as a potentially-untrusted insider) when the subsystem grants the agent meaningful autonomy, persistent credentials, or broad tool access. Each card includes the JSON schema additions you must apply to your output. Call once per applicable card per subsystem.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
                         "description": "Name of the reference card to load.",
-                        "enum": ["genai", "agentic"],
+                        "enum": ["genai", "agentic", "insider_threat"],
                     }
                 },
                 "required": ["name"],

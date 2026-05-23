@@ -12,8 +12,11 @@ from typing import Any
 from stride_gpt.core.schemas import AnalysisReport, SubsystemFinding
 
 
-def _detect_owasp_columns(all_threats: Iterable[dict[str, Any]]) -> tuple[bool, bool]:
-    """Decide which OWASP columns to surface in the rendered tables.
+def _detect_extra_columns(
+    all_threats: Iterable[dict[str, Any]],
+) -> tuple[bool, bool, bool]:
+    """Decide which optional columns (OWASP LLM / OWASP ASI / Insider) to
+    surface in the rendered tables.
 
     A column is shown only if at least one threat in the whole report carries
     a non-empty value for it. Computed once at the report level so every
@@ -23,17 +26,20 @@ def _detect_owasp_columns(all_threats: Iterable[dict[str, Any]]) -> tuple[bool, 
     threats = list(all_threats)
     show_llm = any(t.get("OWASP_LLM") for t in threats)
     show_asi = any(t.get("OWASP_ASI") for t in threats)
-    return show_llm, show_asi
+    show_insider = any(t.get("INSIDER_CATEGORY") for t in threats)
+    return show_llm, show_asi, show_insider
 
 
 def _threat_table_header(
-    show_llm: bool, show_asi: bool, *, cross_cutting: bool = False
+    show_llm: bool, show_asi: bool, show_insider: bool, *, cross_cutting: bool = False
 ) -> tuple[str, str]:
     cols = ["Threat Type", "Scenario", "Potential Impact"]
     if show_llm:
         cols.append("OWASP LLM")
     if show_asi:
         cols.append("OWASP ASI")
+    if show_insider:
+        cols.append("Insider Category")
     if cross_cutting:
         cols.append("Affected Subsystems")
     header = "| " + " | ".join(cols) + " |"
@@ -45,6 +51,7 @@ def _threat_table_row(
     threat: dict[str, Any],
     show_llm: bool,
     show_asi: bool,
+    show_insider: bool,
     *,
     cross_cutting: bool = False,
 ) -> str:
@@ -57,6 +64,8 @@ def _threat_table_row(
         cells.append(threat.get("OWASP_LLM") or "")
     if show_asi:
         cells.append(threat.get("OWASP_ASI") or "")
+    if show_insider:
+        cells.append(threat.get("INSIDER_CATEGORY") or "")
     if cross_cutting:
         cells.append(", ".join(threat.get("Affected Subsystems", [])))
     return "| " + " | ".join(cells) + " |"
@@ -87,7 +96,7 @@ def render_markdown(report: AnalysisReport) -> str:
         lines.append(f"- **{sub.name}**: {sub.description}")
     lines.append("")
 
-    show_llm, show_asi = _detect_owasp_columns(
+    show_llm, show_asi, show_insider = _detect_extra_columns(
         [t for f in report.findings for t in f.threats] + list(report.cross_cutting_threats)
     )
 
@@ -106,11 +115,11 @@ def render_markdown(report: AnalysisReport) -> str:
         if finding.threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = _threat_table_header(show_llm, show_asi)
+            header, separator = _threat_table_header(show_llm, show_asi, show_insider)
             lines.append(header)
             lines.append(separator)
             for threat in finding.threats:
-                lines.append(_threat_table_row(threat, show_llm, show_asi))
+                lines.append(_threat_table_row(threat, show_llm, show_asi, show_insider))
             lines.append("")
 
         if finding.improvement_suggestions:
@@ -124,11 +133,17 @@ def render_markdown(report: AnalysisReport) -> str:
     if report.cross_cutting_threats:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
-        header, separator = _threat_table_header(show_llm, show_asi, cross_cutting=True)
+        header, separator = _threat_table_header(
+            show_llm, show_asi, show_insider, cross_cutting=True
+        )
         lines.append(header)
         lines.append(separator)
         for threat in report.cross_cutting_threats:
-            lines.append(_threat_table_row(threat, show_llm, show_asi, cross_cutting=True))
+            lines.append(
+                _threat_table_row(
+                    threat, show_llm, show_asi, show_insider, cross_cutting=True
+                )
+            )
         lines.append("")
 
     # Summary
@@ -209,6 +224,8 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
                 result_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
             if threat.get("OWASP_ASI"):
                 result_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
+            if threat.get("INSIDER_CATEGORY"):
+                result_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
 
             # Add location if we know which files were analyzed
             if finding.files_analyzed:
@@ -251,6 +268,8 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
             cross_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
         if threat.get("OWASP_ASI"):
             cross_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
+        if threat.get("INSIDER_CATEGORY"):
+            cross_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
         results.append(cross_entry)
 
     return {
@@ -353,7 +372,7 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     for sub in data.get("subsystems", []):
         all_threats.extend(sub.get("threats", []))
     all_threats.extend(cross_cutting)
-    show_llm, show_asi = _detect_owasp_columns(all_threats)
+    show_llm, show_asi, show_insider = _detect_extra_columns(all_threats)
 
     for sub in data.get("subsystems", []):
         lines.append(f"## {sub['name']}")
@@ -371,11 +390,11 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         if threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = _threat_table_header(show_llm, show_asi)
+            header, separator = _threat_table_header(show_llm, show_asi, show_insider)
             lines.append(header)
             lines.append(separator)
             for threat in threats:
-                lines.append(_threat_table_row(threat, show_llm, show_asi))
+                lines.append(_threat_table_row(threat, show_llm, show_asi, show_insider))
             lines.append("")
 
         suggestions = sub.get("improvement_suggestions", [])
@@ -389,11 +408,17 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     if cross_cutting:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
-        header, separator = _threat_table_header(show_llm, show_asi, cross_cutting=True)
+        header, separator = _threat_table_header(
+            show_llm, show_asi, show_insider, cross_cutting=True
+        )
         lines.append(header)
         lines.append(separator)
         for threat in cross_cutting:
-            lines.append(_threat_table_row(threat, show_llm, show_asi, cross_cutting=True))
+            lines.append(
+                _threat_table_row(
+                    threat, show_llm, show_asi, show_insider, cross_cutting=True
+                )
+            )
         lines.append("")
 
     total = sum(len(s.get("threats", [])) for s in data.get("subsystems", []))
@@ -447,6 +472,8 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 result_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
             if threat.get("OWASP_ASI"):
                 result_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
+            if threat.get("INSIDER_CATEGORY"):
+                result_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
             if files:
                 result_entry["locations"] = [
                     {"physicalLocation": {"artifactLocation": {"uri": f}}}
@@ -479,6 +506,8 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
             cross_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
         if threat.get("OWASP_ASI"):
             cross_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
+        if threat.get("INSIDER_CATEGORY"):
+            cross_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
         results.append(cross_entry)
 
     return {

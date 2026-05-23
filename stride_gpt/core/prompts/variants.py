@@ -16,10 +16,10 @@ from importlib.resources import files
 from typing import Literal
 
 AppType = Literal["web", "genai", "agentic"]
-ReferenceName = Literal["genai", "agentic"]
+ReferenceName = Literal["genai", "agentic", "insider_threat"]
 
 _PACKAGE = "stride_gpt.core.prompts.threat_model"
-_VALID_REFERENCES: tuple[str, ...] = ("genai", "agentic")
+_VALID_REFERENCES: tuple[str, ...] = ("genai", "agentic", "insider_threat")
 
 
 def _read(name: str) -> str:

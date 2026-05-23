@@ -141,6 +141,20 @@ def create_agentic_stride_prompt_section() -> str:
     return "\n" + load_reference("agentic")
 
 
+def create_insider_threat_prompt_section() -> str:
+    """AI insider-threat section of the threat model prompt.
+
+    Treats the agent as a potentially-untrusted insider with credentials,
+    access, and autonomy — complementary to the OWASP "asset under attack"
+    framing. Content is the packaged `insider_threat.md` reference card so
+    the single-shot path and the agent's progressive-disclosure loader stay
+    in sync.
+    """
+    from stride_gpt.core.prompts.variants import load_reference
+
+    return "\n" + load_reference("insider_threat")
+
+
 def create_threat_model_prompt(
     app_type: str,
     authentication: str,
@@ -160,7 +174,7 @@ Pay special attention to the README content as it often provides valuable contex
 """
 
     if is_agentic:
-        prompt += """For this AGENTIC AI APPLICATION, you must consider traditional STRIDE threats, LLM-specific threats from the OWASP Top 10 for LLM Applications (LLM01-LLM10), AND agentic-specific threats from the OWASP Top 10 for Agentic Applications (ASI01-ASI10). For each STRIDE category, identify threats covering AI agent risks including prompt injection, tool misuse, memory poisoning, autonomous action risks, and LLM vulnerabilities.
+        prompt += """For this AGENTIC AI APPLICATION, you must consider traditional STRIDE threats, LLM-specific threats from the OWASP Top 10 for LLM Applications (LLM01-LLM10), agentic-specific threats from the OWASP Top 10 for Agentic Applications (ASI01-ASI10), AND insider-threat risks from the AI Insider Threat framework (treating the agent itself as a potentially-untrusted insider with access). For each STRIDE category, identify threats covering AI agent risks including prompt injection, tool misuse, memory poisoning, autonomous action risks, LLM vulnerabilities, and what the agent could do *against* its operator if its trust were misplaced.
 
 """
     elif is_genai:
@@ -175,7 +189,7 @@ Pay special attention to the README content as it often provides valuable contex
 """
 
     if is_agentic:
-        prompt += """When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", "Potential Impact", "OWASP_LLM" (the applicable LLM risk code, e.g., "LLM01", "LLM02", etc., or null), and "OWASP_ASI" (the applicable Agentic Security Issue code, e.g., "ASI01", "ASI02", etc., or null). A threat may have both codes if it applies to both categories.
+        prompt += """When providing the threat model, use a JSON formatted response with the keys "threat_model" and "improvement_suggestions". Under "threat_model", include an array of objects with the keys "Threat Type", "Scenario", "Potential Impact", "OWASP_LLM" (the applicable LLM risk code, e.g., "LLM01", "LLM02", etc., or null), "OWASP_ASI" (the applicable Agentic Security Issue code, e.g., "ASI01", "ASI02", etc., or null), and "INSIDER_CATEGORY" (one of "Credential Compromise", "Supply Chain Sabotage", "Data Exfiltration", "Infrastructure Sabotage", "Deception & Evasion", or null if no insider-threat category applies). A threat may carry any combination of these codes if it applies to multiple categories.
 
 """
     elif is_genai:
@@ -228,6 +242,7 @@ SENSITIVE DATA: {sensitive_data}
 
     if is_agentic:
         prompt += create_agentic_stride_prompt_section()
+        prompt += create_insider_threat_prompt_section()
 
     prompt += f"""
 CODE SUMMARY, README CONTENT, AND APPLICATION DESCRIPTION:

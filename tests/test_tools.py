@@ -186,6 +186,23 @@ class TestExecuteTool:
         result = execute_tool(sandbox_dir, tc)
         assert "Error" in result and "bogus" in result
 
+    def test_dispatches_load_reference_insider_threat(self, sandbox_dir: Path):
+        tc = ToolCallResult(id="6", function_name="load_reference",
+                            arguments={"name": "insider_threat"})
+        result = execute_tool(sandbox_dir, tc)
+        assert "Credential Compromise" in result
+        assert "INSIDER_CATEGORY" in result
+
+    def test_load_reference_enum_lists_all_cards(self):
+        """The tool definition's enum is what tells the model which cards
+        exist — if a card is added to the dispatch but the enum drifts, the
+        model can't call it."""
+        load_tool = next(
+            t for t in AGENT_TOOLS if t["function"]["name"] == "load_reference"
+        )
+        enum = load_tool["function"]["parameters"]["properties"]["name"]["enum"]
+        assert set(enum) == {"genai", "agentic", "insider_threat"}
+
 
 # ---------------------------------------------------------------------------
 # Tool definitions

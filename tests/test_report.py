@@ -293,3 +293,88 @@ class TestOwaspColumns:
         result = sarif["runs"][0]["results"][0]
         assert result["properties"]["owasp_llm"] == "LLM01"
         assert "owasp_asi" not in result["properties"]
+
+
+class TestInsiderCategoryColumn:
+    """The insider-threat lens adds an INSIDER_CATEGORY field to threats.
+    Conditional column, same pattern as OWASP_LLM / OWASP_ASI."""
+
+    def _report_with_insider(self, sample_plan, category):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        threat = {
+            "Threat Type": "Information Disclosure",
+            "Scenario": "Agent harvests credentials from env vars",
+            "Potential Impact": "Lateral movement",
+            "INSIDER_CATEGORY": category,
+        }
+        return AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(subsystem="Agent", threats=[threat])],
+            metadata={},
+        )
+
+    def test_column_appears_when_insider_present(self, sample_plan):
+        report = self._report_with_insider(sample_plan, "Credential Compromise")
+        md = render_markdown(report)
+        assert "Insider Category" in md
+        assert "Credential Compromise" in md
+
+    def test_column_absent_when_no_insider(self, sample_report):
+        md = render_markdown(sample_report)
+        assert "Insider Category" not in md
+
+    def test_three_lenses_render_together(self, sample_plan):
+        """A threat can carry all three lenses (LLM + ASI + Insider) — the
+        renderer must include all three columns."""
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(subsystem="Agent", threats=[{
+                "Threat Type": "Information Disclosure",
+                "Scenario": "RAG leaks PII via exfiltration",
+                "Potential Impact": "Mass disclosure",
+                "OWASP_LLM": "LLM02",
+                "OWASP_ASI": "ASI06",
+                "INSIDER_CATEGORY": "Data Exfiltration",
+            }])],
+            metadata={},
+        )
+        md = render_markdown(report)
+        assert "OWASP LLM" in md
+        assert "OWASP ASI" in md
+        assert "Insider Category" in md
+        # And all values render in the same row
+        assert "LLM02" in md
+        assert "ASI06" in md
+        assert "Data Exfiltration" in md
+
+    def test_sarif_properties_carry_insider_category(self, sample_plan):
+        report = self._report_with_insider(sample_plan, "Data Exfiltration")
+        sarif = render_sarif(report)
+        result = sarif["runs"][0]["results"][0]
+        assert result["properties"]["insider_category"] == "Data Exfiltration"
+
+    def test_sarif_omits_insider_when_null(self, sample_plan):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(subsystem="X", threats=[{
+                "Threat Type": "T", "Scenario": "s", "Potential Impact": "i",
+                "INSIDER_CATEGORY": None,
+            }])],
+            metadata={},
+        )
+        sarif = render_sarif(report)
+        result = sarif["runs"][0]["results"][0]
+        assert "insider_category" not in result["properties"]
+
+    def test_from_json_renderer_picks_up_insider(self, sample_plan):
+        from stride_gpt.agent.report import render_json
+        report = self._report_with_insider(sample_plan, "Infrastructure Sabotage")
+        data = render_json(report)
+        md = render_markdown_from_json(data)
+        assert "Insider Category" in md
+        assert "Infrastructure Sabotage" in md

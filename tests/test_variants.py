@@ -55,6 +55,37 @@ class TestLoadReference:
         text = load_reference("agentic")
         assert "OWASP_ASI" in text
 
+    def test_insider_threat_card_has_categories(self):
+        text = load_reference("insider_threat")
+        for cat in (
+            "Credential Compromise",
+            "Supply Chain Sabotage",
+            "Data Exfiltration",
+            "Infrastructure Sabotage",
+            "Deception & Evasion",
+        ):
+            assert cat in text
+
+    def test_insider_threat_card_has_concrete_scenarios(self):
+        """The 23 STRIDE-mapped scenarios are the meat of the framework — if
+        they're not present the card is the abstract version, not the useful
+        one."""
+        text = load_reference("insider_threat")
+        for code in ("S1", "S2", "S3", "S4", "T1", "T2", "T3", "T4",
+                     "R1", "R2", "R3", "I1", "I2", "I3", "I4",
+                     "D1", "D2", "D3", "D4", "E1", "E2", "E3", "E4"):
+            assert f"**{code}**" in text, f"missing scenario {code}"
+
+    def test_insider_threat_card_attribution(self):
+        """Source must be credited — the card content is distilled from
+        ai-insider-threat.matt-adams.co.uk."""
+        text = load_reference("insider_threat")
+        assert "ai-insider-threat.matt-adams.co.uk" in text
+
+    def test_insider_threat_card_specifies_schema_addition(self):
+        text = load_reference("insider_threat")
+        assert "INSIDER_CATEGORY" in text
+
     def test_unknown_card_returns_error_message(self):
         # The agent receives this string as a tool result; it must not raise.
         result = load_reference("nope")
@@ -106,3 +137,54 @@ class TestLegacyHelpersUseMarkdown:
         section = create_agentic_stride_prompt_section()
         card = load_reference("agentic")
         assert card in section
+
+    def test_insider_section_matches_insider_card(self):
+        from stride_gpt.core.prompts import create_insider_threat_prompt_section
+
+        section = create_insider_threat_prompt_section()
+        card = load_reference("insider_threat")
+        assert card in section
+
+
+class TestLegacyAgenticPath:
+    """The legacy create_threat_model_prompt path must include the insider-
+    threat section for agentic apps — and only for agentic apps."""
+
+    def test_agentic_app_includes_insider_section(self):
+        from stride_gpt.core.prompts import create_threat_model_prompt
+
+        prompt = create_threat_model_prompt(
+            app_type="Agentic AI application",
+            authentication="oauth",
+            internet_facing="yes",
+            sensitive_data="high",
+            app_input="A LangGraph multi-agent app",
+        )
+        assert "INSIDER_CATEGORY" in prompt
+        assert "Credential Compromise" in prompt
+
+    def test_genai_app_excludes_insider_section(self):
+        """A pure GenAI app (no agent loop) shouldn't get the insider lens —
+        it's not autonomous enough to be the threat actor."""
+        from stride_gpt.core.prompts import create_threat_model_prompt
+
+        prompt = create_threat_model_prompt(
+            app_type="Generative AI application",
+            authentication="oauth",
+            internet_facing="yes",
+            sensitive_data="high",
+            app_input="A RAG-backed chatbot",
+        )
+        assert "INSIDER_CATEGORY" not in prompt
+
+    def test_web_app_excludes_insider_section(self):
+        from stride_gpt.core.prompts import create_threat_model_prompt
+
+        prompt = create_threat_model_prompt(
+            app_type="Web application",
+            authentication="oauth",
+            internet_facing="yes",
+            sensitive_data="medium",
+            app_input="A Flask CRUD app",
+        )
+        assert "INSIDER_CATEGORY" not in prompt
