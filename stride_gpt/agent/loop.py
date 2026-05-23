@@ -12,6 +12,7 @@ from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.planner import create_plan, format_plan_for_display
 from stride_gpt.agent.progress import ProgressCallback, RichProgress
 from stride_gpt.agent.tools import AGENT_TOOLS, execute_tool
+from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm, call_llm_with_tools
 from stride_gpt.core.prompts import base_system_prompt
 from stride_gpt.core.schemas import (
@@ -387,25 +388,7 @@ def _parse_subsystem_finding(subsystem_name: str, content: str) -> SubsystemFind
 
     Returns None if JSON cannot be extracted, signaling the caller to retry.
     """
-    cleaned = content.strip()
-
-    # Strip markdown code fences
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-
-    # Try parsing as-is first
-    data = _try_parse_json(cleaned)
-
-    # If that failed, try to find a JSON object embedded in free-text
-    if data is None:
-        start = content.find("{")
-        end = content.rfind("}")
-        if start != -1 and end > start:
-            data = _try_parse_json(content[start : end + 1])
-
+    data = extract_json_object(content)
     if data is None:
         return None
 
@@ -415,15 +398,6 @@ def _parse_subsystem_finding(subsystem_name: str, content: str) -> SubsystemFind
         improvement_suggestions=data.get("improvement_suggestions", []),
         files_analyzed=data.get("files_analyzed", []),
     )
-
-
-def _try_parse_json(text: str) -> dict | None:
-    """Try to parse text as JSON, returning None on failure."""
-    try:
-        data = json.loads(text)
-        return data if isinstance(data, dict) else None
-    except (json.JSONDecodeError, ValueError):
-        return None
 
 
 def _retry_as_json(
@@ -488,15 +462,7 @@ def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dic
         {"role": "user", "content": f"Per-subsystem findings:\n{findings_summary}"},
     ]
     response = call_llm(json_config, messages)
-
-    data = _try_parse_json(response.content)
-
-    # If that failed, try extracting embedded JSON
-    if data is None:
-        start = response.content.find("{")
-        end = response.content.rfind("}")
-        if start != -1 and end > start:
-            data = _try_parse_json(response.content[start : end + 1])
+    data = extract_json_object(response.content)
 
     # Still failed — retry with explicit instruction
     if data is None:
@@ -506,7 +472,7 @@ def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dic
             "content": "Please respond with ONLY a valid JSON object in the format specified. No other text.",
         })
         response = call_llm(json_config, messages)
-        data = _try_parse_json(response.content)
+        data = extract_json_object(response.content)
 
     if data is None:
         return []

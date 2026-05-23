@@ -11,7 +11,6 @@ from stride_gpt.agent.loop import (
     _strip_tool_artifacts,
     _summarize_for_analysis,
     _synthesize,
-    _try_parse_json,
     create_analysis_plan,
     run_analysis,
 )
@@ -23,25 +22,6 @@ from stride_gpt.core.schemas import (
     SubsystemFinding,
     ToolCallResult,
 )
-
-
-# ---------------------------------------------------------------------------
-# _try_parse_json
-# ---------------------------------------------------------------------------
-
-
-class TestTryParseJson:
-    def test_valid_json(self):
-        assert _try_parse_json('{"a": 1}') == {"a": 1}
-
-    def test_invalid_json(self):
-        assert _try_parse_json("not json") is None
-
-    def test_json_array_returns_none(self):
-        assert _try_parse_json("[1, 2, 3]") is None
-
-    def test_empty_string(self):
-        assert _try_parse_json("") is None
 
 
 # ---------------------------------------------------------------------------

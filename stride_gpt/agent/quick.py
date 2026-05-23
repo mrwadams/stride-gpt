@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from stride_gpt.agent.tools import AGENT_TOOLS, execute_tool
+from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm, call_llm_with_tools
 from stride_gpt.core.prompts import quick_base_prompt
 from stride_gpt.core.schemas import LLMConfig, ModelPair, ThreatModelOutput
@@ -131,37 +132,13 @@ def _build_user_content(app_description: str, hint: str | None) -> str:
 
 def _parse_threat_model(content: str) -> ThreatModelOutput | None:
     """Extract a ThreatModelOutput from model text. Returns None on failure."""
-    if not content:
-        return None
-    cleaned = content.strip()
-    # Strip markdown code fences
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-
-    data = _try_parse(cleaned)
-    if data is None:
-        # Fall back to embedded-JSON extraction
-        start = content.find("{")
-        end = content.rfind("}")
-        if start != -1 and end > start:
-            data = _try_parse(content[start : end + 1])
+    data = extract_json_object(content)
     if data is None:
         return None
     return ThreatModelOutput(
         threat_model=data.get("threat_model", []),
         improvement_suggestions=data.get("improvement_suggestions", []),
     )
-
-
-def _try_parse(text: str) -> dict | None:
-    try:
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else None
-    except (json.JSONDecodeError, ValueError):
-        return None
 
 
 def _retry_as_json(config: LLMConfig, messages: list[dict]) -> ThreatModelOutput:

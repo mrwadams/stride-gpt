@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from stride_gpt.agent.tools import list_directory, search_files
+from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm
 from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, Subsystem
 
@@ -87,7 +88,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
     ]
     response = call_llm(json_config, messages)
 
-    data = _extract_plan_json(response.content)
+    data = extract_json_object(response.content)
 
     # Retry once with explicit JSON-only instruction if first attempt failed
     if data is None:
@@ -103,7 +104,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
             },
         ]
         retry_response = call_llm(json_config, retry_messages)
-        data = _extract_plan_json(retry_response.content)
+        data = extract_json_object(retry_response.content)
 
     if data is None:
         # Stash the raw response for debugging
@@ -125,45 +126,6 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
         )
 
     return _build_plan(data, str(target_path))
-
-
-def _extract_plan_json(content: str) -> dict | None:
-    """Extract a JSON object from an LLM response, robust to extra text/fences.
-
-    Returns the parsed dict or None if no valid JSON object can be found.
-    """
-    if not content:
-        return None
-
-    cleaned = content.strip()
-
-    # Strip markdown code fences if present
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-
-    # Try parsing as-is first
-    try:
-        data = json.loads(cleaned)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
-        pass
-
-    # Fallback: find embedded JSON object via first { to last }
-    start = content.find("{")
-    end = content.rfind("}")
-    if start != -1 and end > start:
-        try:
-            data = json.loads(content[start : end + 1])
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
-
-    return None
 
 
 def _build_plan(data: dict, target_path: str) -> AnalysisPlan:
