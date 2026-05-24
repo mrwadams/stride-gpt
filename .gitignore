@@ -6,3 +6,8 @@ test_functions.py
 venv/
 .venv/
 TODO.md
+.DS_Store
+build/
+dist/
+*.egg-info/
+*.egg
