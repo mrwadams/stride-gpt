@@ -1,3 +1,17 @@
+---
+name: genai
+title: OWASP Top 10 for LLM Applications
+when_to_load: |
+  Load when the subsystem uses LLM SDKs (openai, anthropic, mistralai,
+  google.generativeai, etc.), exposes LLM-driven endpoints, performs RAG or
+  embedding operations, or otherwise has language-model behaviour in scope.
+adds_fields:
+  - OWASP_LLM
+stride_letters: [S, T, R, I, D, E]
+source: https://owasp.org/www-project-top-10-for-large-language-model-applications/
+version: 2025
+---
+
 # OWASP Top 10 for LLM Applications — Reference Card
 
 You loaded this card because the subsystem you are analysing has language-model behaviour in scope. In addition to traditional STRIDE categories, you MUST consider the LLM-specific threats below and map each to a STRIDE category.

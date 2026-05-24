@@ -21,10 +21,10 @@ from stride_gpt.core.llm import call_llm, call_llm_with_tools
 from stride_gpt.core.prompts import quick_base_prompt
 from stride_gpt.core.schemas import LLMConfig, ModelPair, ThreatModelOutput
 
-# Quick analysis only gets the load_reference tool — no filesystem since
+# Quick analysis only gets the reference-card tools — no filesystem since
 # there's no codebase to explore.
 QUICK_TOOLS = [
-    t for t in AGENT_TOOLS if t["function"]["name"] == "load_reference"
+    t for t in AGENT_TOOLS if t["function"]["name"] in {"load_reference", "list_references"}
 ]
 
 

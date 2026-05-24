@@ -65,19 +65,33 @@ Current card catalogue (in `core/prompts/threat_model/`):
 
 ### How it's wired together
 
+Each card is a markdown file with a YAML frontmatter block describing when to load it and what schema fields it adds. The agent discovers what's available via a cheap `list_references` call (frontmatter only), then pulls the body of the cards it needs via `load_reference`.
+
 ```
-┌─ base.md ──────────────────────────────────────────────────┐
+┌─ Each card (e.g. genai.md) ────────────────────────────────┐
+│ ---                                                        │
+│ name: genai                                                │
+│ title: OWASP Top 10 for LLM Applications                   │
+│ when_to_load: |                                            │
+│   Load when the subsystem uses LLM SDKs ...                │
+│ adds_fields: [OWASP_LLM]                                   │
+│ stride_letters: [S, T, R, I, D, E]                         │
+│ source: https://owasp.org/...                              │
+│ version: 2025                                              │
+│ ---                                                        │
+│                                                            │
+│ # OWASP Top 10 for LLM Applications — Reference Card       │
+│ (full card body — only returned by load_reference)         │
+└────────────────────────────────────────────────────────────┘
+                              ▲
+                              │  load_reference(name="genai")
+                              │
+┌─ base.md (system prompt) ──┴───────────────────────────────┐
 │ STRIDE framing + JSON output schema                        │
 │                                                            │
 │ ## Reference cards available                               │
-│ - load_reference(name="genai")    → genai.md               │
-│ - load_reference(name="agentic")  → agentic.md             │
-└────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ (when model calls the tool)
-┌─ genai.md / agentic.md ────────────────────────────────────┐
-│ Full OWASP reference card content + schema additions       │
-│ (extra fields the model must add to threats)               │
+│ Call list_references() to see the catalogue, then          │
+│ load_reference(name="...") for the cards that apply.       │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,8 +99,8 @@ The flow per subsystem:
 
 1. `base.md` is loaded as the system prompt for every subsystem analysis — always.
 2. The planner classified the app at Phase 1; the user prompt for the subsystem includes a *hint* (`_APP_TYPE_HINTS` in `agent/loop.py`) telling the agent which cards are likely relevant.
-3. The agent decides — per subsystem — whether to call `load_reference(name=...)`. A static-assets subsystem in an agentic codebase doesn't need the agentic card.
-4. The tool returns the card content. It stays in the conversation history for the rest of that subsystem's analysis (and gets compressed away if the context window fills).
+3. The agent (optionally) calls `list_references` to see the catalogue with trigger conditions, then decides — per subsystem — whether to call `load_reference(name=...)` for each. A static-assets subsystem in an agentic codebase doesn't need the agentic card.
+4. `load_reference` returns the card body (frontmatter stripped). It stays in the conversation history for the rest of that subsystem's analysis (and gets compressed away if the context window fills).
 5. Each card includes schema-addition instructions (e.g. "add `OWASP_LLM` to each threat"); the renderer in `agent/report.py` surfaces those fields as conditional columns.
 
 ### Reusing this pattern in another project
@@ -94,8 +108,8 @@ The flow per subsystem:
 The pattern is decoupled from threat modelling. The recipe:
 
 1. **Carve out the reference content as markdown files**, one per topic. Keep each card self-contained — framing, body, any output-schema additions. The base prompt should never need to re-explain a card's contents.
-2. **The base prompt is small** (couple of hundred lines max) and lists the cards by name with a one-sentence "load this when X" trigger condition for each.
-3. **Add a `load_reference` (or similarly named) tool** the model can call. Implementation is a packaged-data lookup — `importlib.resources.files(...).read_text()`. See `stride_gpt/agent/tools.py:load_reference` and the dispatch entry in `_TOOL_DISPATCH`. Return an error string for unknown names; the model recovers gracefully.
+2. **Put a YAML frontmatter block at the top of each card** describing when to load it, what schema fields it adds, source, and version. This metadata is the cheap discovery surface — the model reads it without paying for the whole body. See any card in `stride_gpt/core/prompts/threat_model/` for the shape.
+3. **Ship two tools, not one**: `list_references` returns just the parsed frontmatter for every card (cheap discovery), `load_reference(name=...)` returns the body for a specific card (heavy payload). Both implementations are packaged-data lookups — `importlib.resources.files(...).read_text()`. See `stride_gpt/core/prompts/variants.py` for the discovery + loader, and `stride_gpt/agent/tools.py` for the tool definitions + dispatch. `load_reference` returns an error string for unknown names; the model recovers gracefully.
 4. **Package the markdown files as data** in `pyproject.toml`:
    ```toml
    [tool.setuptools.package-data]
@@ -138,7 +152,7 @@ When adding a new provider or model, the kwarg shape almost always needs a new b
 - **Prompt changes that affect both the agent and the legacy single-shot path** → edit the markdown reference cards. Section helpers in `core/prompts/builder.py` already load from them.
 - **A new agent capability** → typically a new tool in `agent/tools.py` (add to `AGENT_TOOLS` list + `_TOOL_DISPATCH` dict + the test in `test_tools.py:TestToolDefinitions:test_tool_names_match_dispatch`).
 - **A new output format** → add a renderer in `agent/report.py`, wire it into `cli.py:analyze` via the `OutputFormat` enum, add a from-JSON variant if it should work for saved reports.
-- **A new threat-model "lens"** (e.g. cloud-specific, IoT) → drop a new markdown card under `core/prompts/threat_model/`, register it in `variants.py:_VALID_REFERENCES`, add the `load_reference` tool option in `tools.py` (both the description and the enum), mention it in `base.md`'s pointer block, and update the card catalogue list above. If it has a schema-additions section with a new field, also extend `_detect_extra_columns` / `_threat_table_header` / `_threat_table_row` in `agent/report.py` so the field renders. The planner classifier only needs a new app-type value if the card should auto-trigger; otherwise the agent decides per subsystem based on the base.md trigger conditions. See the `insider_threat` card for a worked example of all of this.
+- **A new threat-model "lens"** (e.g. cloud-specific, IoT) → drop a new markdown card under `core/prompts/threat_model/` with a YAML frontmatter block (see existing cards for shape: `name`, `title`, `when_to_load`, `adds_fields`, `stride_letters`, `source`, `version`). Discovery picks it up automatically via `list_references` — no edits to `variants.py` or `tools.py` required. Still hand-maintained: the per-card pointer block in `base.md` (the agent reads it upfront and so doesn't always need a discovery call) and the card catalogue list under "Progressive disclosure pattern" above. If the card declares a new field in `adds_fields`, also extend `_detect_extra_columns` / `_threat_table_header` / `_threat_table_row` in `agent/report.py` so the field renders. The planner classifier only needs a new app-type value if the card should auto-trigger; otherwise the agent decides per subsystem based on each card's `when_to_load`. See the `insider_threat` card for a worked example.
 
 ## Testing
 

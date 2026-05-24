@@ -117,16 +117,22 @@ def search_files(root: Path, pattern: str, path: str = ".") -> str:
 
 
 def load_reference(name: str) -> str:
-    """Return a packaged OWASP reference card by name.
+    """Return a packaged reference card body by name.
 
-    Available cards: "genai" (Top 10 for LLM Applications) and "agentic" (Top 10
-    for Agentic Applications). The agent calls this when the subsystem it is
-    analysing has language-model or agentic behaviour in scope — see the
-    "Reference cards available" section of the base system prompt.
+    Use ``list_references()`` to discover available cards and their trigger
+    conditions. The validation is performed by the underlying loader, which
+    returns an error string for unknown names rather than raising.
     """
     from stride_gpt.core.prompts.variants import load_reference as _load
 
     return _load(name)
+
+
+def list_references() -> str:
+    """Return the catalogue of available reference cards as JSON."""
+    from stride_gpt.core.prompts.variants import list_references as _list
+
+    return json.dumps(_list(), indent=2)
 
 
 def grep_content(
@@ -234,15 +240,22 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "list_references",
+            "description": "List available threat reference cards with their trigger conditions and the JSON schema fields each one adds. Call this once at the start of a subsystem analysis to discover which cards apply.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "load_reference",
-            "description": "Load a threat reference card. Use 'genai' for OWASP Top 10 for LLM Applications (LLM01-LLM10) when the subsystem uses LLMs; 'agentic' for OWASP Top 10 for Agentic Applications (ASI01-ASI10) when it uses agent frameworks, tool-use loops, or persistent agent memory; 'insider_threat' for the AI Insider Threat framework (treats the agent as a potentially-untrusted insider) when the subsystem grants the agent meaningful autonomy, persistent credentials, or broad tool access. Each card includes the JSON schema additions you must apply to your output. Call once per applicable card per subsystem.",
+            "description": "Load the full body of a threat reference card by name. Use list_references first to discover what is available and when to load it. Each card includes the JSON schema additions you must apply to your threat output. Call once per applicable card per subsystem; the content remains in context for the rest of the analysis.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Name of the reference card to load.",
-                        "enum": ["genai", "agentic", "insider_threat"],
+                        "description": "Name of the reference card to load (from list_references).",
                     }
                 },
                 "required": ["name"],
@@ -287,9 +300,10 @@ _TOOL_DISPATCH = {
     "grep_content": lambda root, args: grep_content(
         root, args["pattern"], args.get("path", ".")
     ),
-    # load_reference reads packaged content, not the user's filesystem — the
-    # root parameter is ignored.
+    # load_reference / list_references read packaged content, not the user's
+    # filesystem — the root parameter is ignored.
     "load_reference": lambda _root, args: load_reference(args["name"]),
+    "list_references": lambda _root, _args: list_references(),
 }
 
 

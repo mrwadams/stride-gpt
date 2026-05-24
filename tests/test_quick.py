@@ -21,12 +21,12 @@ from stride_gpt.core.schemas import LLMResponse, ToolCallResult
 
 
 class TestQuickTools:
-    def test_only_load_reference(self):
+    def test_only_reference_tools(self):
         """Quick analysis must not expose filesystem tools — there's no
         codebase, so read_file / grep / list_directory would be invitations to
-        hallucinate. Restrict to load_reference."""
+        hallucinate. Restrict to the reference-card tools."""
         names = {t["function"]["name"] for t in QUICK_TOOLS}
-        assert names == {"load_reference"}
+        assert names == {"load_reference", "list_references"}
 
 
 # ---------------------------------------------------------------------------

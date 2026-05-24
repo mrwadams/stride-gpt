@@ -1,3 +1,18 @@
+---
+name: agentic
+title: OWASP Top 10 for Agentic Applications
+when_to_load: |
+  Load in addition to the genai card when the subsystem uses an agent
+  framework (langchain, langgraph, crewai, autogen, pydantic-ai, smolagents,
+  llama-index agents), implements a tool-use or function-calling loop,
+  coordinates multiple agents, or persists agent memory across sessions.
+adds_fields:
+  - OWASP_ASI
+stride_letters: [S, T, R, I, D, E]
+source: https://genai.owasp.org/resource/agentic-ai-threats-and-mitigations/
+version: 2025
+---
+
 # OWASP Top 10 for Agentic Applications — Reference Card
 
 You loaded this card because the subsystem you are analysing uses agent patterns. In addition to traditional STRIDE and the LLM-specific threats from the genai card, you MUST consider the agentic-specific threats below and map each to a STRIDE category. A single threat may carry both an OWASP_LLM and an OWASP_ASI code if it applies to both categories.

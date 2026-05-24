@@ -193,15 +193,33 @@ class TestExecuteTool:
         assert "Credential Compromise" in result
         assert "INSIDER_CATEGORY" in result
 
-    def test_load_reference_enum_lists_all_cards(self):
-        """The tool definition's enum is what tells the model which cards
-        exist — if a card is added to the dispatch but the enum drifts, the
-        model can't call it."""
+    def test_load_reference_has_no_hardcoded_enum(self):
+        """Card discovery is now runtime — driven by frontmatter in the
+        packaged markdown files. A hardcoded enum here would re-introduce
+        the drift the migration removed."""
         load_tool = next(
             t for t in AGENT_TOOLS if t["function"]["name"] == "load_reference"
         )
-        enum = load_tool["function"]["parameters"]["properties"]["name"]["enum"]
-        assert set(enum) == {"genai", "agentic", "insider_threat"}
+        properties = load_tool["function"]["parameters"]["properties"]
+        assert "enum" not in properties["name"]
+
+    def test_list_references_tool_exposed(self):
+        """The discovery tool must be in the agent's tool set or the
+        progressive-disclosure pattern is unreachable."""
+        names = {t["function"]["name"] for t in AGENT_TOOLS}
+        assert "list_references" in names
+
+    def test_dispatches_list_references(self, sandbox_dir: Path):
+        tc = ToolCallResult(id="7", function_name="list_references", arguments={})
+        result = execute_tool(sandbox_dir, tc)
+        catalogue = json.loads(result)
+        names = {entry["name"] for entry in catalogue}
+        assert names == {"genai", "agentic", "insider_threat"}
+        # Each entry must carry the trigger condition — that's the whole
+        # point of cheap discovery.
+        for entry in catalogue:
+            assert entry["when_to_load"]
+            assert entry["adds_fields"]
 
 
 # ---------------------------------------------------------------------------

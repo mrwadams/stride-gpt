@@ -1,3 +1,19 @@
+---
+name: insider_threat
+title: AI Insider Threat
+when_to_load: |
+  Load in addition to the agentic card when the subsystem grants the agent
+  meaningful autonomy, persistent credentials, broad tool access, or operates
+  with limited real-time human oversight. Flips the lens from "agent as
+  asset under attack" to "agent as potentially-untrusted insider".
+adds_fields:
+  - INSIDER_CATEGORY
+  - autonomy_level
+stride_letters: [S, T, R, I, D, E]
+source: https://ai-insider-threat.matt-adams.co.uk
+version: 2026-04
+---
+
 # AI Insider Threat — Reference Card
 
 You loaded this card because the subsystem you are analysing has agentic behaviour with meaningful autonomy. This card adds a complementary lens to the standard threat analysis.

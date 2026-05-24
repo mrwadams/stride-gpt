@@ -7,6 +7,7 @@ import pytest
 from stride_gpt.core.prompts.variants import (
     base_system_prompt,
     coerce_app_type,
+    list_references,
     load_reference,
 )
 
@@ -96,6 +97,36 @@ class TestLoadReference:
         result = load_reference("nope")
         assert "genai" in result
         assert "agentic" in result
+
+    def test_body_excludes_frontmatter(self):
+        """Frontmatter is metadata, not card content. If it leaked into the
+        body, the legacy single-shot prompt would carry YAML headers into the
+        LLM context."""
+        for name in ("genai", "agentic", "insider_threat"):
+            body = load_reference(name)
+            assert not body.startswith("---"), f"{name} body starts with frontmatter"
+            # Body must start with the card's own H1.
+            assert body.lstrip().startswith("#"), f"{name} body has no H1"
+
+
+class TestListReferences:
+    def test_lists_all_cards(self):
+        catalogue = list_references()
+        names = {entry["name"] for entry in catalogue}
+        assert names == {"genai", "agentic", "insider_threat"}
+
+    def test_entries_carry_trigger_metadata(self):
+        """Each entry must describe when it applies and what fields it adds
+        — that's what makes cheap discovery cheap."""
+        for entry in list_references():
+            assert entry["when_to_load"], f"{entry['name']} missing when_to_load"
+            assert entry["adds_fields"], f"{entry['name']} missing adds_fields"
+            assert entry["title"], f"{entry['name']} missing title"
+            assert entry["version"], f"{entry['name']} missing version"
+
+    def test_insider_threat_adds_expected_fields(self):
+        entry = next(e for e in list_references() if e["name"] == "insider_threat")
+        assert "INSIDER_CATEGORY" in entry["adds_fields"]
 
 
 class TestCoerceAppType:
