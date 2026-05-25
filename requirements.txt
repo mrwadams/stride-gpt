@@ -1,16 +1,13 @@
-anthropic
-litellm>=1.40
-mistralai>=2.4.5
-openai
-pydantic>=2.0
-pyGithub
-streamlit>=1.57.0
-python-dotenv
-groq
-tiktoken
-tornado>=6.5.5 # not directly required, pinned by Snyk to avoid a vulnerability
-requests>=2.34.2 # not directly required, pinned by Snyk to avoid a vulnerability
-urllib3>=2.7.0 # not directly required, pinned by Snyk to avoid a vulnerability
-anyio>=4.13.0 # not directly required, pinned by Snyk to avoid a vulnerability
-zipp>=4.1.0 # not directly required, pinned by Snyk to avoid a vulnerability
-h11>=0.16.0 # not directly required, pinned by Snyk to avoid a vulnerability
+# Streamlit Community Cloud picks up this file because the SCC entry point
+# is main.py at the repo root (see main.py shim). Web app deps are the source
+# of truth in apps/web/requirements.txt; this file delegates and layers on
+# transitive security pins that aren't web-specific.
+-r apps/web/requirements.txt
+
+# Snyk-pinned transitive deps (not directly imported)
+tornado>=6.5.5
+urllib3>=2.7.0
+anyio>=4.13.0
+zipp>=4.1.0
+h11>=0.16.0
+requests>=2.34.2
