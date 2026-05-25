@@ -9,7 +9,7 @@ httpx>=0.27
 python-dotenv>=1.0
 openai
 anthropic
-mistralai>=1.0.0
+mistralai>=2.4.7
 groq
 pyGithub
 tiktoken
