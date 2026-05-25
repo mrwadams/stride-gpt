@@ -235,7 +235,7 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
                     "driver": {
                         "name": "STRIDE-GPT",
                         "informationUri": "https://github.com/mrwadams/stride-gpt",
-                        "version": "0.16.0",
+                        "version": "0.16.1",
                         "rules": rules,
                     }
                 },
@@ -583,7 +583,7 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 "driver": {
                     "name": "STRIDE-GPT",
                     "informationUri": "https://github.com/mrwadams/stride-gpt",
-                    "version": "0.16.0",
+                    "version": "0.16.1",
                     "rules": rules,
                 }
             },
