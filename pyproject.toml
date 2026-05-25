@@ -5,6 +5,17 @@ description = "AI-powered threat modeling using the STRIDE methodology"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
+authors = [{name = "Matt Adams", email = "mrwadams@gmail.com"}]
+keywords = ["threat-modeling", "stride", "security", "owasp", "ai-security", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Information Technology",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = [
     "httpx>=0.27",
     "litellm>=1.40",
@@ -14,6 +25,11 @@ dependencies = [
     "rich>=13.0",
     "prompt_toolkit>=3.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/mrwadams/stride-gpt"
+Issues = "https://github.com/mrwadams/stride-gpt/issues"
+Repository = "https://github.com/mrwadams/stride-gpt"
 
 [project.scripts]
 stride-gpt = "stride_gpt.cli:main"
