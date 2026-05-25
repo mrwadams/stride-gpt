@@ -23,26 +23,13 @@ from stride_gpt.core.schemas import (
     SubsystemFinding,
 )
 
-# The agent's system prompt is the packaged `base.md` reference. It points to
-# optional `genai` and `agentic` reference cards that the agent loads on
-# demand via the `load_reference` tool — progressive disclosure rather than
-# eagerly stacking variant content.
+# The agent's system prompt is the packaged `base.md` reference. It points
+# the agent at `list_references` for runtime card discovery and
+# `load_reference` for on-demand loading — progressive disclosure rather
+# than eagerly stacking variant content. The planner's `detected_app_type`
+# is still recorded in metadata but no longer hinted in the user prompt;
+# the agent decides which cards apply from the catalogue.
 AGENT_SYSTEM_PROMPT = base_system_prompt()
-
-_APP_TYPE_HINTS = {
-    "genai": (
-        "The planner classified this codebase as a Generative AI application. "
-        "If this subsystem has language-model behaviour in scope, call "
-        "`load_reference(name=\"genai\")` to retrieve the OWASP LLM threat reference."
-    ),
-    "agentic": (
-        "The planner classified this codebase as an Agentic AI application. "
-        "If this subsystem has language-model behaviour in scope, call "
-        "`load_reference(name=\"genai\")` for the OWASP LLM reference. If it "
-        "uses agent frameworks, tool-use loops, or persistent agent memory, "
-        "also call `load_reference(name=\"agentic\")` for the OWASP Agentic reference."
-    ),
-}
 
 SYNTHESIS_PROMPT = """You are a security architect reviewing threat model findings from multiple subsystems.
 
@@ -177,7 +164,6 @@ def run_analysis(
                 subsystem_description=subsystem.description,
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
-                app_type=plan.detected_app_type,
                 ctx=ctx,
                 max_llm_calls=remaining_llm,
                 max_tool_calls=remaining_tool,
@@ -281,7 +267,6 @@ def _analyze_subsystem(
     subsystem_description: str,
     key_files: list[str],
     focus_areas: list[str],
-    app_type: str,
     ctx: ContextManager,
     max_llm_calls: int,
     max_tool_calls: int,
@@ -289,16 +274,13 @@ def _analyze_subsystem(
     call_counts: dict[str, int],
 ) -> SubsystemFinding:
     """Analyze a single subsystem using the agent loop."""
-    hint = _APP_TYPE_HINTS.get(app_type, "")
-    hint_block = f"\n\n{hint}" if hint else ""
-
     user_prompt = f"""Analyze the "{subsystem_name}" subsystem for STRIDE threats.
 
 Description: {subsystem_description}
 Key files to examine: {', '.join(key_files) if key_files else 'Discover relevant files using search_files and list_directory'}
 Focus areas: {', '.join(focus_areas) if focus_areas else 'All STRIDE categories'}
 
-Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, encryption, and network calls.{hint_block}"""
+Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, encryption, and network calls."""
 
     messages: list[dict] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},

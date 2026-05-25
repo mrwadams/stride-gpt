@@ -61,6 +61,8 @@ def run_quick_analysis(
     ]
 
     llm_calls = 0
+    tool_calls = 0
+    tools_used: dict[str, int] = {}
     # Cache load_reference results so the model doesn't waste turns calling
     # the same card twice. Card content is idempotent so the cache is safe.
     tool_cache: dict[str, str] = {}
@@ -92,6 +94,8 @@ def run_quick_analysis(
                 else:
                     result = execute_tool(target_path, tc)
                     tool_cache[key] = result
+                tool_calls += 1
+                tools_used[tc.function_name] = tools_used.get(tc.function_name, 0) + 1
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -102,10 +106,11 @@ def run_quick_analysis(
 
         # No tool calls — model produced (or attempted) the final JSON.
         parsed = _parse_threat_model(response.content)
-        if parsed is not None:
-            return parsed
-        # JSON parse failed — one retry with forced JSON mode.
-        return _retry_as_json(models.worker, messages)
+        if parsed is None:
+            # JSON parse failed — one retry with forced JSON mode.
+            parsed = _retry_as_json(models.worker, messages)
+            llm_calls += 1
+        return _attach_counts(parsed, llm_calls, tool_calls, tools_used)
 
     # Hit the call cap before getting a final JSON — coerce one last attempt.
     messages.append({
@@ -116,7 +121,21 @@ def run_quick_analysis(
             "Do not call any more tools."
         ),
     })
-    return _retry_as_json(models.worker, messages)
+    parsed = _retry_as_json(models.worker, messages)
+    llm_calls += 1
+    return _attach_counts(parsed, llm_calls, tool_calls, tools_used)
+
+
+def _attach_counts(
+    output: ThreatModelOutput,
+    llm_calls: int,
+    tool_calls: int,
+    tools_used: dict[str, int],
+) -> ThreatModelOutput:
+    output.llm_calls = llm_calls
+    output.tool_calls = tool_calls
+    output.tools_used = tools_used
+    return output
 
 
 def _build_user_content(app_description: str, hint: str | None) -> str:

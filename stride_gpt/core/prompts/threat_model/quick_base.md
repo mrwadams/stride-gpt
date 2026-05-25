@@ -26,14 +26,14 @@ When you have finished analysing, respond with a JSON object:
 
 Be specific. A threat scenario like "an attacker steals credentials" is useless; "an attacker exploits the shared Redis instance to read another tenant's session tokens" is useful — it names the actual mechanism and references the system's architecture.
 
-## Reference cards available
+## Reference cards
 
-For applications that use language models, agent frameworks, or operate with meaningful autonomy, additional OWASP/threat reference content is available. Load only what is relevant — a description of a plain web/CRUD application does not need any of these cards. Use the `load_reference` tool:
+Additional threat reference content is available for applications that use language models, agent frameworks, or operate with meaningful agent autonomy. Commonly available cards include:
 
-- `load_reference(name="genai")` — OWASP Top 10 for LLM Applications 2025 (LLM01–LLM10). Load when the description mentions LLMs, LLM SDKs (openai, anthropic, mistralai, google-generativeai), RAG, embeddings, or LLM-powered features.
+- **`genai`** — OWASP Top 10 for LLM Applications (LLM01–LLM10). Load when the description mentions LLMs, LLM SDKs (openai, anthropic, mistralai, google-generativeai), RAG, embeddings, or LLM-powered features. Adds `OWASP_LLM` to each threat.
+- **`agentic`** — OWASP Top 10 for Agentic Applications (ASI01–ASI10). Load **in addition to `genai`** when the description mentions agent frameworks (langchain, langgraph, crewai, autogen, pydantic-ai, smolagents), tool-use / function-calling loops, multi-agent coordination, or persistent agent memory. Adds `OWASP_ASI`.
+- **`insider_threat`** — AI Insider Threat. Load **in addition to `agentic`** when the description indicates meaningful agent autonomy, persistent credentials, broad tool access, or limited real-time human oversight. Adds `INSIDER_CATEGORY` and `autonomy_level`.
 
-- `load_reference(name="agentic")` — OWASP Top 10 for Agentic Applications (ASI01–ASI10). Load **in addition to the genai card** when the description mentions agent frameworks (langchain, langgraph, crewai, autogen, pydantic-ai, smolagents), tool-use / function-calling loops, multi-agent coordination, or persistent agent memory.
+Call `list_references` for the authoritative current catalogue — each card's frontmatter includes its full `when_to_load` trigger and the schema fields it adds. New cards may be available beyond the three listed above. Then call `load_reference(name=...)` for each card whose trigger conditions match the application described.
 
-- `load_reference(name="insider_threat")` — AI Insider Threat reference card. Load **in addition to the agentic card** when the description indicates meaningful agent autonomy, persistent credentials, broad tool access, or limited real-time human oversight. The genai/agentic cards treat the system as an asset under attack; this card flips the lens and treats the agent as a potentially-untrusted insider with access.
-
-Each card includes schema additions you must apply to your output (extra fields such as `OWASP_LLM`, `OWASP_ASI`, and `INSIDER_CATEGORY`). Call `load_reference` once per applicable card before producing your final JSON; the content remains in your context for the rest of the analysis.
+Be selective: a plain web/CRUD application does not need any of these cards. Call `load_reference` once per applicable card before producing your final JSON — the content remains in your context for the rest of the analysis, and you MUST apply each card's schema additions to every threat where they apply.

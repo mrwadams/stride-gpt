@@ -416,6 +416,27 @@ class TestSplitReportFolders:
             assert data["metadata"]["worker_model"] == model_pair.worker.model_name
             assert data["metadata"]["architect_model"] is None
 
+    def test_quick_metadata_records_call_counts(self, tmp_path, model_pair):
+        """Call counts and the per-tool breakdown must reach the saved JSON.
+        Diagnoses the discovery-skip case: `tool_calls: 0` or a `tools_used`
+        without `load_reference` means the agent never loaded any cards."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            output = ThreatModelOutput(
+                threat_model=[],
+                improvement_suggestions=[],
+                llm_calls=3,
+                tool_calls=2,
+                tools_used={"list_references": 1, "load_reference": 1},
+            )
+            path = save_quick_report(output, "atlas", models=model_pair)
+            data = load_report(path)
+            assert data["metadata"]["llm_calls"] == 3
+            assert data["metadata"]["tool_calls"] == 2
+            assert data["metadata"]["tools_used"] == {
+                "list_references": 1, "load_reference": 1,
+            }
+
     def test_list_reports_defaults_to_analyze(self, sample_report, tmp_path):
         """The default /reports behaviour is the analyze-only view — quick
         reports must not bleed in unless --quick or --all is passed."""

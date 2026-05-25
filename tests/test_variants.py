@@ -21,12 +21,14 @@ class TestBaseSystemPrompt:
             assert keyword in text
 
     def test_advertises_reference_cards(self):
-        """The base prompt must point the agent at both reference cards so the
-        progressive-disclosure pattern actually works."""
+        """The base prompt must point the agent at the discovery tool
+        (`list_references`) and the loader (`load_reference`) so the
+        progressive-disclosure pattern actually works. The per-card names
+        now live in card frontmatter and reach the agent via list_references,
+        so the prompt itself no longer hardcodes them."""
         text = base_system_prompt()
+        assert "list_references" in text
         assert "load_reference" in text
-        assert 'name="genai"' in text or 'name=\'genai\'' in text
-        assert 'name="agentic"' in text or 'name=\'agentic\'' in text
 
     def test_includes_output_schema(self):
         text = base_system_prompt()

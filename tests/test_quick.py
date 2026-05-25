@@ -149,6 +149,48 @@ class TestRunQuickAnalysis:
         assert mock_llm.call_count == 1
         assert len(out.threat_model) == 1
 
+    @patch("stride_gpt.agent.quick.call_llm_with_tools")
+    def test_records_call_counts_and_tool_breakdown(self, mock_tools, model_pair):
+        """Output must record llm_calls, tool_calls, and a per-tool breakdown.
+        Without these, a model that skips list_references / load_reference is
+        invisible in the saved report — exactly the bug that motivated this."""
+        turn1 = LLMResponse(
+            content="discovering",
+            thinking=None, reasoning=None, model="t",
+            tool_calls=[ToolCallResult(
+                id="t1", function_name="list_references", arguments={},
+            )],
+        )
+        turn2 = LLMResponse(
+            content="loading",
+            thinking=None, reasoning=None, model="t",
+            tool_calls=[ToolCallResult(
+                id="t2", function_name="load_reference",
+                arguments={"name": "genai"},
+            )],
+        )
+        turn3 = _final_response()
+        mock_tools.side_effect = [turn1, turn2, turn3]
+
+        out = run_quick_analysis(model_pair, "A RAG chatbot.")
+
+        assert out.llm_calls == 3
+        assert out.tool_calls == 2
+        assert out.tools_used == {"list_references": 1, "load_reference": 1}
+
+    @patch("stride_gpt.agent.quick.call_llm_with_tools")
+    def test_zero_tool_calls_recorded_when_model_skips_discovery(
+        self, mock_tools, model_pair,
+    ):
+        """When the model emits a final JSON directly without loading any
+        cards, tool_calls is 0 and tools_used is empty — the smoking gun for
+        the discovery-skip regression should be unambiguous in the report."""
+        mock_tools.return_value = _final_response()
+        out = run_quick_analysis(model_pair, "A LangGraph agent.")
+        assert out.llm_calls == 1
+        assert out.tool_calls == 0
+        assert out.tools_used == {}
+
     @patch("stride_gpt.agent.quick.call_llm")
     @patch("stride_gpt.agent.quick.call_llm_with_tools")
     def test_hits_max_llm_calls_coerces_final(self, mock_tools, mock_llm, model_pair):

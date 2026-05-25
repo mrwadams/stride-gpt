@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 from stride_gpt.agent.loop import (
     _parse_subsystem_finding,
     _prepare_for_plain_llm,
@@ -414,77 +416,25 @@ class TestRunAnalysis:
 
 
 class TestAppTypeFlow:
+    @pytest.mark.parametrize("app_type", ["agentic", "genai", "web"])
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")
-    def test_agentic_hint_reaches_user_prompt(
-        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
+    def test_user_prompt_carries_no_card_hints(
+        self, mock_llm_tools, _mock_llm, app_type, model_pair, tmp_path,
     ):
-        """When the planner detects 'agentic', the per-subsystem user prompt
-        must tell the agent it can pull the agentic reference card. Without
-        this hint, the model has no reason to use load_reference."""
+        """The per-subsystem user prompt must not hardcode card-specific hints
+        regardless of the planner's `detected_app_type`. Card discovery is
+        the agent's job — it calls `list_references` (advertised in the
+        system prompt) and decides which cards apply from the catalogue.
+        Hardcoding hints here would re-introduce the coupling the
+        frontmatter-driven refactor removed."""
         plan = AnalysisPlan(
             target_path=str(tmp_path),
-            overall_description="A LangGraph multi-agent app",
-            detected_app_type="agentic",
+            overall_description="X",
+            detected_app_type=app_type,
             subsystems=[
-                Subsystem(name="Orchestrator", description="agent loop",
-                          key_files=["agent.py"], focus_areas=["ASI"]),
-            ],
-        )
-        mock_llm_tools.return_value = LLMResponse(
-            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
-            thinking=None, reasoning=None, model="t", tool_calls=None,
-        )
-
-        run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
-
-        # The first call carries the user prompt for the subsystem. It must
-        # include the agentic load_reference hint.
-        messages = mock_llm_tools.call_args_list[0].args[1]
-        user_msg = next(m for m in messages if m.get("role") == "user")
-        assert 'load_reference(name="agentic")' in user_msg["content"]
-        assert 'load_reference(name="genai")' in user_msg["content"]
-
-    @patch("stride_gpt.agent.loop.call_llm")
-    @patch("stride_gpt.agent.loop.call_llm_with_tools")
-    def test_genai_hint_excludes_agentic(
-        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
-    ):
-        """A genai-classified app should be told about genai only, not agentic.
-        Otherwise the agent loads an irrelevant card and wastes tokens."""
-        plan = AnalysisPlan(
-            target_path=str(tmp_path),
-            overall_description="An LLM-backed chatbot",
-            detected_app_type="genai",
-            subsystems=[
-                Subsystem(name="Chat", description="LLM endpoint",
-                          key_files=["chat.py"], focus_areas=["LLM"]),
-            ],
-        )
-        mock_llm_tools.return_value = LLMResponse(
-            content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
-            thinking=None, reasoning=None, model="t", tool_calls=None,
-        )
-
-        run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
-
-        messages = mock_llm_tools.call_args_list[0].args[1]
-        user_msg = next(m for m in messages if m.get("role") == "user")
-        assert 'load_reference(name="genai")' in user_msg["content"]
-        assert 'load_reference(name="agentic")' not in user_msg["content"]
-
-    @patch("stride_gpt.agent.loop.call_llm")
-    @patch("stride_gpt.agent.loop.call_llm_with_tools")
-    def test_web_app_carries_no_hint(
-        self, mock_llm_tools, _mock_llm, model_pair, tmp_path,
-    ):
-        plan = AnalysisPlan(
-            target_path=str(tmp_path),
-            overall_description="A plain web app",
-            detected_app_type="web",
-            subsystems=[
-                Subsystem(name="Auth", description="login",
-                          key_files=["auth.py"], focus_areas=["Spoofing"]),
+                Subsystem(name="A", description="A",
+                          key_files=["a.py"], focus_areas=["S"]),
             ],
         )
         mock_llm_tools.return_value = LLMResponse(
@@ -497,6 +447,8 @@ class TestAppTypeFlow:
         messages = mock_llm_tools.call_args_list[0].args[1]
         user_msg = next(m for m in messages if m.get("role") == "user")
         assert "load_reference" not in user_msg["content"]
+        assert "genai" not in user_msg["content"]
+        assert "agentic" not in user_msg["content"]
 
     @patch("stride_gpt.agent.loop.call_llm")
     @patch("stride_gpt.agent.loop.call_llm_with_tools")

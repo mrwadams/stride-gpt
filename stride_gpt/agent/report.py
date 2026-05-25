@@ -305,6 +305,9 @@ def save_quick_report(
         )
     if app_type_hint:
         metadata["app_type_hint"] = app_type_hint
+    metadata["llm_calls"] = output.llm_calls
+    metadata["tool_calls"] = output.tool_calls
+    metadata["tools_used"] = dict(output.tools_used)
 
     data = {
         "version": "1.0",

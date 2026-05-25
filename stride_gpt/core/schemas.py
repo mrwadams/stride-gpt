@@ -47,6 +47,9 @@ class ThreatModelOutput:
 
     threat_model: list[dict[str, Any]] = field(default_factory=list)
     improvement_suggestions: list[str] = field(default_factory=list)
+    llm_calls: int = 0
+    tool_calls: int = 0
+    tools_used: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
