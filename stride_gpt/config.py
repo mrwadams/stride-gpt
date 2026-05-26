@@ -515,7 +515,7 @@ def show_config(console: Console, config: dict[str, Any]) -> None:
     else:
         console.print("[dim]No architect tier configured — worker handles every call.[/dim]")
     console.print()
-    console.print(f"[dim]Config file: {CONFIG_FILE}[/dim]")
+    console.print(f"[dim]Config file:[/dim] [cyan]{CONFIG_FILE}[/cyan]")
 
 
 def get_api_key(config: dict[str, Any], *, tier: str = "worker") -> str:

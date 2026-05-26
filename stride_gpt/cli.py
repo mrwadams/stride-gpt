@@ -59,15 +59,15 @@ HELP_TEXT = """
   [cyan]-y, --yes[/cyan]              Auto-approve the analysis plan
 
 [bold]Examples:[/bold]
-  [dim]/analyze .[/dim]                          Analyze current directory
-  [dim]/analyze ./my-app[/dim]                   Analyze a specific path
-  [dim]/analyze . -o report.md[/dim]             Save report to file
-  [dim]/analyze . -o report.json -f json[/dim]   Export as JSON (pairs report.html)
-  [dim]/analyze . -o report.html -f html[/dim]   Export browser-viewable HTML
-  [dim]/quick -i desc.txt -f html -o r.html[/dim]  Quick model as HTML
-  [dim]/reports[/dim]                            List recent reports
-  [dim]/reports 1[/dim]                          View report #1
-  [dim]/reports 1 -o r.md[/dim]                  Export report #1 to file
+  [cyan]/analyze .[/cyan]                          Analyze current directory
+  [cyan]/analyze ./my-app[/cyan]                   Analyze a specific path
+  [cyan]/analyze . -o report.md[/cyan]             Save report to file
+  [cyan]/analyze . -o report.json -f json[/cyan]   Export as JSON (pairs report.html)
+  [cyan]/analyze . -o report.html -f html[/cyan]   Export browser-viewable HTML
+  [cyan]/quick -i desc.txt -f html -o r.html[/cyan]  Quick model as HTML
+  [cyan]/reports[/cyan]                            List recent reports
+  [cyan]/reports 1[/cyan]                          View report #1
+  [cyan]/reports 1 -o r.md[/cyan]                  Export report #1 to file
 """
 
 
@@ -168,14 +168,14 @@ def interactive(ctx: typer.Context) -> None:
 
         elif user_input.startswith("/"):
             console.print(f"[red]Unknown command: {user_input.split()[0]}[/red]")
-            console.print("[dim]Type /help for available commands.[/dim]")
+            console.print("[dim]Type[/dim] [cyan]/help[/cyan] [dim]for available commands.[/dim]")
 
         else:
             # Bare path — treat as /analyze
             if Path(user_input).is_dir():
                 _handle_analyze(config, user_input)
             else:
-                console.print("[dim]Type /help for available commands, or enter a directory path to analyze.[/dim]")
+                console.print("[dim]Type[/dim] [cyan]/help[/cyan] [dim]for available commands, or enter a directory path to analyze.[/dim]")
 
 
 def _handle_config(config: dict) -> None:
@@ -217,7 +217,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
             try:
                 output_format = OutputFormat(parts[i + 1])
             except ValueError:
-                console.print(f"[red]Invalid format: {parts[i + 1]}. Use markdown, json, or sarif.[/red]")
+                console.print(f"[red]Invalid format: {parts[i + 1]}. Use markdown, json, sarif, or html.[/red]")
                 return
             i += 2
         elif parts[i] in ("-y", "--yes"):
@@ -295,7 +295,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
 
     if saved_path:
         _print_saved_paths(saved_path)
-        console.print("[dim]View previous reports with /reports[/dim]")
+        console.print("[dim]View previous reports with[/dim] [cyan]/reports[/cyan]")
 
 
 def _handle_reports(args_str: str) -> None:
@@ -355,10 +355,13 @@ def _handle_reports(args_str: str) -> None:
         console.print()
         console.print(table)
         console.print()
-        view_hint = "/reports <number>"
         if kind == "analyze":
-            view_hint += "   |   /reports --quick   to list quick reports"
-        console.print(f"[dim]View a report: {view_hint}[/dim]")
+            console.print(
+                "[dim]View a report:[/dim] [cyan]/reports <number>[/cyan]   "
+                "[dim]|[/dim]   [cyan]/reports --quick[/cyan] [dim]to list quick reports[/dim]"
+            )
+        else:
+            console.print("[dim]View a report:[/dim] [cyan]/reports <number>[/cyan]")
         return
 
     # View/export mode — first arg is the report number
@@ -389,7 +392,7 @@ def _handle_reports(args_str: str) -> None:
             try:
                 output_format = OutputFormat(parts[i + 1])
             except ValueError:
-                console.print(f"[red]Invalid format: {parts[i + 1]}. Use markdown, json, or sarif.[/red]")
+                console.print(f"[red]Invalid format: {parts[i + 1]}. Use markdown, json, sarif, or html.[/red]")
                 return
             i += 2
         else:
@@ -539,7 +542,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
         console.print(Markdown(markdown))
 
     _print_saved_paths(saved_path)
-    console.print("[dim]View previous quick reports with /reports --quick[/dim]")
+    console.print("[dim]View previous quick reports with[/dim] [cyan]/reports --quick[/cyan]")
 
 
 # ---------------------------------------------------------------------------
@@ -683,7 +686,7 @@ def analyze(
 
     if saved_path:
         _print_saved_paths(saved_path)
-        console.print("[dim]View previous reports with: stride-gpt reports[/dim]")
+        console.print("[dim]View previous reports with:[/dim] [cyan]stride-gpt reports[/cyan]")
 
 
 @app.command()
@@ -777,7 +780,7 @@ def quick(
         console.print(Markdown(markdown))
 
     _print_saved_paths(saved_path)
-    console.print("[dim]View previous quick reports with: stride-gpt reports --quick[/dim]")
+    console.print("[dim]View previous quick reports with:[/dim] [cyan]stride-gpt reports --quick[/cyan]")
 
 
 @app.command()
@@ -878,12 +881,14 @@ def _print_saved_paths(saved_path: Path) -> None:
     """Tell the user where the auto-saved JSON went, plus the HTML companion.
 
     The HTML companion is best-effort (see _write_html_companion); we mention
-    it only when the sibling actually exists.
+    it only when the sibling actually exists. Paths are coloured rather than
+    dimmed — Rich's auto-link styling on dim text becomes near-illegible on
+    dark terminal backgrounds.
     """
-    console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+    console.print(f"\n[dim]A copy of this report has been saved to[/dim] [cyan]{saved_path}[/cyan]")
     html_sibling = saved_path.with_suffix(".html")
     if html_sibling.exists():
-        console.print(f"[dim]HTML view: {html_sibling}[/dim]")
+        console.print(f"[dim]HTML view:[/dim] [cyan]{html_sibling}[/cyan]")
 
 
 def _build_model_pair(

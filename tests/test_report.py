@@ -408,7 +408,7 @@ class TestRenderHtml:
         # Each threat should appear in a card; the Spoofing badge class is the
         # canonical "category coding works" smoke check.
         assert "Spoofing" in html
-        assert "bg-indigo-100" in html
+        assert "bg-indigo-50" in html
         assert "brute-force" in html
 
     def test_renders_cross_cutting_section(self, sample_report: AnalysisReport):

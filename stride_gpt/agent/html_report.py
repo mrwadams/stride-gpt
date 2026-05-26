@@ -17,22 +17,30 @@ from typing import Any
 from stride_gpt.agent.report import render_json
 from stride_gpt.core.schemas import AnalysisReport
 
-# STRIDE category → Tailwind badge classes. The six categories carry distinct
-# hues because category is the dominant visual signal in a threat model.
+# STRIDE category → Tailwind badge classes. Six categories carry distinct
+# hues because category is the dominant visual signal, but each pairs a -50
+# fill with a matching ring so chips read as categorized tags rather than
+# highlighter marks against the slate chrome.
 _STRIDE_BADGE_CLASSES: dict[str, str] = {
-    "Spoofing": "bg-indigo-100 text-indigo-800",
-    "Tampering": "bg-amber-100 text-amber-800",
-    "Repudiation": "bg-slate-200 text-slate-800",
-    "Information Disclosure": "bg-rose-100 text-rose-800",
-    "Denial of Service": "bg-orange-100 text-orange-800",
-    "Elevation of Privilege": "bg-red-100 text-red-800",
+    "Spoofing": "bg-indigo-50 text-indigo-800 ring-indigo-200",
+    "Tampering": "bg-amber-50 text-amber-800 ring-amber-200",
+    "Repudiation": "bg-slate-100 text-slate-800 ring-slate-300",
+    "Information Disclosure": "bg-rose-50 text-rose-800 ring-rose-200",
+    "Denial of Service": "bg-orange-50 text-orange-800 ring-orange-200",
+    "Elevation of Privilege": "bg-red-50 text-red-800 ring-red-200",
 }
-_DEFAULT_BADGE = "bg-slate-100 text-slate-800"
-_BADGE_BASE = "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
-_PILL_BASE = (
-    "inline-flex items-center rounded-full border border-slate-300 "
-    "px-2.5 py-0.5 text-xs font-medium text-slate-700"
+_DEFAULT_BADGE = "bg-slate-50 text-slate-800 ring-slate-200"
+_BADGE_BASE = (
+    "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium "
+    "ring-1 ring-inset"
 )
+_PILL_BASE = (
+    "inline-flex items-center rounded-full ring-1 ring-inset ring-slate-300 "
+    "px-2.5 py-0.5 text-xs font-mono text-slate-700"
+)
+# Small uppercase captions inside cards — Scenario, Potential impact, etc.
+# Mono ties them to the CLI aesthetic without leaning hard on a "terminal" theme.
+_CAPTION = "text-[11px] font-mono uppercase tracking-wider text-slate-500"
 
 
 def render_html(report: AnalysisReport) -> str:
@@ -97,7 +105,7 @@ def _scaffold(*, target_name: str, body: str) -> str:
     <title>{title}</title>
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
-  <body class="bg-stone-50 text-slate-900 font-sans">
+  <body class="bg-slate-50 text-slate-900 font-sans">
     <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
 {body}
     </main>
@@ -117,8 +125,8 @@ def _render_header(
 ) -> str:
     model_line = _format_model_line(metadata)
     chip = (
-        "inline-flex items-center rounded-full bg-white border border-slate-200 "
-        "px-3 py-1 text-xs font-medium text-slate-700"
+        "inline-flex items-center rounded-full bg-white ring-1 ring-inset ring-slate-200 "
+        "px-3 py-1 text-xs font-mono text-slate-700"
     )
 
     summary_chips = [
@@ -133,12 +141,6 @@ def _render_header(
             f'<span class="{chip}">{cross_cutting_count} cross-cutting</span>'
         )
 
-    legend_items: list[str] = []
-    for stride_type, badge_classes in _STRIDE_BADGE_CLASSES.items():
-        legend_items.append(
-            f'<span class="{_BADGE_BASE} {badge_classes}">{html.escape(stride_type)}</span>'
-        )
-
     meta_line_parts: list[str] = []
     if generated_at:
         meta_line_parts.append(f"Generated {html.escape(generated_at)}")
@@ -147,17 +149,20 @@ def _render_header(
     meta_line = " · ".join(meta_line_parts)
 
     return f"""      <header class="border-b border-slate-200 pb-8 space-y-4">
-        <p class="text-xs uppercase tracking-wider text-slate-500">STRIDE Threat Model</p>
-        <h1 class="font-serif text-4xl tracking-tight text-slate-900">{html.escape(target_name)}</h1>
+        <p class="font-mono text-xs tracking-tight text-slate-500">
+          <span class="text-slate-400">&rsaquo;</span>
+          <span class="text-slate-700">stride-gpt</span>
+          <span class="text-slate-400">threat-model</span>
+        </p>
+        <h1 class="text-3xl font-semibold tracking-tight text-slate-900">{html.escape(target_name)}</h1>
         <p class="text-sm text-slate-600">{meta_line}</p>
         <div class="flex flex-wrap gap-2 pt-2">{"".join(summary_chips)}</div>
-        <div class="flex flex-wrap gap-2 pt-2">{"".join(legend_items)}</div>
       </header>"""
 
 
 def _render_overview(overview: str) -> str:
     return f"""      <section id="overview" class="space-y-3">
-        <h2 class="text-xs uppercase tracking-wider text-slate-500">Overview</h2>
+        <h2 class="{_CAPTION}">Overview</h2>
         <p class="text-base leading-relaxed text-slate-800">{html.escape(overview)}</p>
       </section>"""
 
@@ -174,8 +179,8 @@ def _render_footer(metadata: dict[str, Any]) -> str:
     if model_line:
         bits.append(model_line)
     line = " · ".join(bits)
-    return f"""      <footer class="border-t border-slate-200 pt-6 text-xs text-slate-500">
-        Generated by STRIDE-GPT{(" · " + html.escape(line)) if line else ""}
+    return f"""      <footer class="border-t border-slate-200 pt-6 font-mono text-xs text-slate-500">
+        <span class="text-slate-400">&rsaquo;</span> generated by stride-gpt{(" · " + html.escape(line)) if line else ""}
       </footer>"""
 
 
@@ -193,7 +198,7 @@ def _render_subsystem(sub: dict[str, Any]) -> str:
 
     parts: list[str] = []
     parts.append(f"""        <header class="space-y-1">
-          <h2 class="font-serif text-2xl tracking-tight text-slate-900">{html.escape(name)}</h2>""")
+          <h2 class="text-xl font-semibold tracking-tight text-slate-900">{html.escape(name)}</h2>""")
     if description:
         parts.append(
             f'          <p class="text-sm text-slate-600">{html.escape(description)}</p>'
@@ -226,7 +231,7 @@ def _render_cross_cutting(threats: list[dict[str, Any]]) -> str:
     cards = "\n".join(_render_threat_card(t, cross_cutting=True) for t in threats)
     return f"""      <section id="cross-cutting" class="space-y-5">
         <header class="space-y-1">
-          <h2 class="font-serif text-2xl tracking-tight text-slate-900">Cross-cutting threats</h2>
+          <h2 class="text-xl font-semibold tracking-tight text-slate-900">Cross-cutting threats</h2>
           <p class="text-sm text-slate-600">Issues that span multiple subsystems.</p>
         </header>
         <div class="space-y-4">
@@ -241,7 +246,7 @@ def _render_files_analyzed(files: list[str]) -> str:
         for f in files
     )
     return f"""        <div>
-          <h3 class="text-xs uppercase tracking-wider text-slate-500 mb-2">Files analyzed</h3>
+          <h3 class="{_CAPTION} mb-2">Files analyzed</h3>
           <ul class="space-y-1">
 {items}
           </ul>
@@ -253,7 +258,7 @@ def _render_recommendations(suggestions: list[str]) -> str:
         f'            <li>{html.escape(str(s))}</li>' for s in suggestions
     )
     return f"""        <div class="rounded-lg border border-slate-200 bg-white p-5">
-          <h3 class="text-xs uppercase tracking-wider text-slate-500 mb-3">Recommendations</h3>
+          <h3 class="{_CAPTION} mb-3">Recommendations</h3>
           <ul class="list-disc pl-5 space-y-1 text-sm text-slate-800">
 {items}
           </ul>
@@ -312,7 +317,7 @@ def _render_threat_card(threat: dict[str, Any], *, cross_cutting: bool) -> str:
 
 def _dl_row(label: str, value_html: str) -> str:
     return f"""              <div>
-                <dt class="text-xs uppercase tracking-wider text-slate-500">{label}</dt>
+                <dt class="{_CAPTION}">{label}</dt>
                 <dd class="text-sm leading-relaxed text-slate-800">{value_html}</dd>
               </div>"""
 
