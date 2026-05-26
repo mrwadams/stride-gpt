@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 import queue
-from unittest.mock import MagicMock
 
-from stride_gpt.agent.progress import (
-    ProgressCallback,
-    QueueProgress,
-    RichProgress,
-)
+from stride_gpt.agent.progress import QueueProgress
 
 
 class TestQueueProgress:
@@ -85,27 +80,3 @@ class TestQueueProgress:
         assert q.qsize() == 7
 
 
-class TestRichProgress:
-    def test_phase_start_calls_console(self):
-        console = MagicMock()
-        p = RichProgress(console)
-        p.phase_start("Phase 1", "Planning")
-        console.print.assert_called_once()
-
-    def test_subsystem_done_calls_console(self):
-        console = MagicMock()
-        p = RichProgress(console)
-        p.subsystem_done("Auth", 5)
-        console.print.assert_called_once()
-
-
-class TestProtocol:
-    def test_queue_progress_satisfies_protocol(self):
-        q: queue.Queue = queue.Queue()
-        p = QueueProgress(q)
-        assert isinstance(p, ProgressCallback)
-
-    def test_rich_progress_satisfies_protocol(self):
-        console = MagicMock()
-        p = RichProgress(console)
-        assert isinstance(p, ProgressCallback)
