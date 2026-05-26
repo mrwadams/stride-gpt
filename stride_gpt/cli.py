@@ -55,15 +55,16 @@ HELP_TEXT = """
 
 [bold]Flags[/bold] (for /analyze, /quick, /reports):
   [cyan]-o, --output[/cyan] <path>    Save report to file
-  [cyan]-f, --format[/cyan] <fmt>     Output format: markdown (default), json, sarif
+  [cyan]-f, --format[/cyan] <fmt>     Output format: markdown (default), json, sarif, html
   [cyan]-y, --yes[/cyan]              Auto-approve the analysis plan
 
 [bold]Examples:[/bold]
   [dim]/analyze .[/dim]                          Analyze current directory
   [dim]/analyze ./my-app[/dim]                   Analyze a specific path
   [dim]/analyze . -o report.md[/dim]             Save report to file
-  [dim]/analyze . -o report.json -f json[/dim]   Export as JSON
-  [dim]/quick -i desc.txt -f sarif[/dim]         Quick model in SARIF format
+  [dim]/analyze . -o report.json -f json[/dim]   Export as JSON (pairs report.html)
+  [dim]/analyze . -o report.html -f html[/dim]   Export browser-viewable HTML
+  [dim]/quick -i desc.txt -f html -o r.html[/dim]  Quick model as HTML
   [dim]/reports[/dim]                            List recent reports
   [dim]/reports 1[/dim]                          View report #1
   [dim]/reports 1 -o r.md[/dim]                  Export report #1 to file
@@ -74,6 +75,7 @@ class OutputFormat(str, Enum):
     markdown = "markdown"
     json = "json"
     sarif = "sarif"
+    html = "html"
 
 
 class AppTypeOverride(str, Enum):
@@ -189,6 +191,7 @@ def _handle_config(config: dict) -> None:
 
 def _handle_analyze(config: dict, args_str: str) -> None:
     """Run agentic analysis from interactive session."""
+    from stride_gpt.agent.html_report import render_html
     from stride_gpt.agent.loop import create_analysis_plan, run_analysis
     from stride_gpt.agent.planner import format_plan_for_display
     from stride_gpt.agent.progress import RichProgress
@@ -267,26 +270,37 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         rendered = render_markdown(report)
     elif output_format == OutputFormat.json:
         rendered = json.dumps(render_json(report), indent=2)
-    else:
+    elif output_format == OutputFormat.sarif:
         rendered = json.dumps(render_sarif(report), indent=2)
+    else:  # html
+        rendered = render_html(report)
 
     if output_path:
         output_path.write_text(rendered)
         console.print(f"\n[green]Report written to {output_path}[/green]")
+        # JSON output pairs an HTML companion next to it — JSON is the machine
+        # artifact, HTML is its human view.
+        if output_format == OutputFormat.json:
+            html_path = output_path.with_suffix(".html")
+            html_path.write_text(render_html(report))
+            console.print(f"[green]HTML view written to {html_path}[/green]")
     else:
         console.print()
         if output_format == OutputFormat.markdown:
             console.print(Markdown(rendered))
+        elif output_format == OutputFormat.html:
+            console.print("[dim]HTML reports must be written to a file with -o.[/dim]")
         else:
             console.print(rendered)
 
     if saved_path:
-        console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+        _print_saved_paths(saved_path)
         console.print("[dim]View previous reports with /reports[/dim]")
 
 
 def _handle_reports(args_str: str) -> None:
     """List or view previous analysis reports."""
+    from stride_gpt.agent.html_report import render_html_from_json
     from stride_gpt.agent.report import (
         list_reports,
         load_report,
@@ -385,22 +399,31 @@ def _handle_reports(args_str: str) -> None:
         rendered = render_markdown_from_json(data)
     elif output_format == OutputFormat.json:
         rendered = json.dumps(data, indent=2)
-    else:
+    elif output_format == OutputFormat.sarif:
         rendered = json.dumps(render_sarif_from_json(data), indent=2)
+    else:  # html
+        rendered = render_html_from_json(data)
 
     if output_path:
         output_path.write_text(rendered)
         console.print(f"[green]Report exported to {output_path}[/green]")
+        if output_format == OutputFormat.json:
+            html_path = output_path.with_suffix(".html")
+            html_path.write_text(render_html_from_json(data))
+            console.print(f"[green]HTML view written to {html_path}[/green]")
     else:
         console.print()
         if output_format == OutputFormat.markdown:
             console.print(Markdown(rendered))
+        elif output_format == OutputFormat.html:
+            console.print("[dim]HTML reports must be written to a file with -o.[/dim]")
         else:
             console.print(rendered)
 
 
 def _handle_quick(config: dict, args_str: str) -> None:
     """Run quick threat model from a description via the mini agent loop."""
+    from stride_gpt.agent.html_report import render_html_from_json
     from stride_gpt.agent.quick import run_quick_analysis
     from stride_gpt.agent.report import save_quick_report
     from stride_gpt.core.threat_model import json_to_markdown
@@ -410,6 +433,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
     input_file: Path | None = None
     output_path: Path | None = None
     hint: str | None = None  # `-t/--type` is now an optional hint, not a switch
+    output_format = OutputFormat.markdown
 
     i = 0
     while i < len(parts):
@@ -421,6 +445,21 @@ def _handle_quick(config: dict, args_str: str) -> None:
             i += 2
         elif parts[i] in ("-t", "--type") and i + 1 < len(parts):
             hint = parts[i + 1]
+            i += 2
+        elif parts[i] in ("-f", "--format") and i + 1 < len(parts):
+            try:
+                output_format = OutputFormat(parts[i + 1])
+            except ValueError:
+                console.print(
+                    f"[red]Invalid format: {parts[i + 1]}. Use markdown or html.[/red]"
+                )
+                return
+            if output_format not in (OutputFormat.markdown, OutputFormat.html):
+                console.print(
+                    "[red]/quick only supports markdown and html output. "
+                    "For JSON or SARIF, see ~/.stride-gpt/reports/quick/.[/red]"
+                )
+                return
             i += 2
         else:
             i += 1
@@ -486,13 +525,20 @@ def _handle_quick(config: dict, args_str: str) -> None:
     markdown = json_to_markdown(result.threat_model, result.improvement_suggestions)
 
     if output_path:
-        output_path.write_text(markdown)
+        if output_format == OutputFormat.html:
+            # Re-render from the freshly saved JSON so /quick and /reports
+            # produce byte-identical HTML for the same analysis.
+            from stride_gpt.agent.report import load_report
+            html = render_html_from_json(load_report(saved_path))
+            output_path.write_text(html)
+        else:
+            output_path.write_text(markdown)
         console.print(f"[green]Report written to {output_path}[/green]")
     else:
         console.print()
         console.print(Markdown(markdown))
 
-    console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+    _print_saved_paths(saved_path)
     console.print("[dim]View previous quick reports with /reports --quick[/dim]")
 
 
@@ -536,6 +582,7 @@ def analyze(
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""
+    from stride_gpt.agent.html_report import render_html
     from stride_gpt.agent.loop import create_analysis_plan, run_analysis
     from stride_gpt.agent.planner import format_plan_for_display
     from stride_gpt.agent.progress import RichProgress
@@ -615,19 +662,27 @@ def analyze(
         rendered = json.dumps(render_json(report), indent=2)
     elif output_format == OutputFormat.sarif:
         rendered = json.dumps(render_sarif(report), indent=2)
+    else:  # html
+        rendered = render_html(report)
 
     if output:
         output.write_text(rendered)
         console.print(f"\n[green]Report written to {output}[/green]")
+        if output_format == OutputFormat.json:
+            html_path = output.with_suffix(".html")
+            html_path.write_text(render_html(report))
+            console.print(f"[green]HTML view written to {html_path}[/green]")
     else:
         console.print()
         if output_format == OutputFormat.markdown:
             console.print(Markdown(rendered))
+        elif output_format == OutputFormat.html:
+            console.print("[dim]HTML reports must be written to a file with -o.[/dim]")
         else:
             console.print(rendered)
 
     if saved_path:
-        console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+        _print_saved_paths(saved_path)
         console.print("[dim]View previous reports with: stride-gpt reports[/dim]")
 
 
@@ -645,11 +700,20 @@ def quick(
     input_file: Annotated[Optional[Path], typer.Option("-i", "--input", help="App description file.")] = None,
     app_type: Annotated[Optional[str], typer.Option(help="Optional hint about the application type (Web / Generative AI / Agentic AI application). Leave unset to let the agent decide which reference cards to load.")] = None,
     output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
+    output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format: markdown (default) or html.")] = OutputFormat.markdown,
 ) -> None:
     """Quick threat model from a text description, via the mini agent loop."""
+    from stride_gpt.agent.html_report import render_html_from_json
     from stride_gpt.agent.quick import run_quick_analysis
-    from stride_gpt.agent.report import save_quick_report
+    from stride_gpt.agent.report import load_report, save_quick_report
     from stride_gpt.core.threat_model import json_to_markdown
+
+    if output_format not in (OutputFormat.markdown, OutputFormat.html):
+        console.print(
+            "[red]/quick only supports markdown and html output. "
+            "For JSON or SARIF, see ~/.stride-gpt/reports/quick/.[/red]"
+        )
+        raise typer.Exit(2)
 
     models = _build_model_pair(
         worker_model=worker_model,
@@ -702,13 +766,17 @@ def quick(
     markdown = json_to_markdown(result.threat_model, result.improvement_suggestions)
 
     if output:
-        output.write_text(markdown)
+        if output_format == OutputFormat.html:
+            html = render_html_from_json(load_report(saved_path))
+            output.write_text(html)
+        else:
+            output.write_text(markdown)
         console.print(f"[green]Report written to {output}[/green]")
     else:
         console.print()
         console.print(Markdown(markdown))
 
-    console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+    _print_saved_paths(saved_path)
     console.print("[dim]View previous quick reports with: stride-gpt reports --quick[/dim]")
 
 
@@ -722,6 +790,7 @@ def reports(
     all_kinds: Annotated[bool, typer.Option("--all", help="List both /analyze and /quick reports.")] = False,
 ) -> None:
     """List or view previous analysis reports."""
+    from stride_gpt.agent.html_report import render_html_from_json
     from stride_gpt.agent.report import (
         list_reports,
         load_report,
@@ -778,16 +847,24 @@ def reports(
         rendered = render_markdown_from_json(data)
     elif output_format == OutputFormat.json:
         rendered = json.dumps(data, indent=2)
-    else:
+    elif output_format == OutputFormat.sarif:
         rendered = json.dumps(render_sarif_from_json(data), indent=2)
+    else:  # html
+        rendered = render_html_from_json(data)
 
     if output:
         output.write_text(rendered)
         console.print(f"[green]Report exported to {output}[/green]")
+        if output_format == OutputFormat.json:
+            html_path = output.with_suffix(".html")
+            html_path.write_text(render_html_from_json(data))
+            console.print(f"[green]HTML view written to {html_path}[/green]")
     else:
         console.print()
         if output_format == OutputFormat.markdown:
             console.print(Markdown(rendered))
+        elif output_format == OutputFormat.html:
+            console.print("[dim]HTML reports must be written to a file with -o.[/dim]")
         else:
             console.print(rendered)
 
@@ -795,6 +872,18 @@ def reports(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _print_saved_paths(saved_path: Path) -> None:
+    """Tell the user where the auto-saved JSON went, plus the HTML companion.
+
+    The HTML companion is best-effort (see _write_html_companion); we mention
+    it only when the sibling actually exists.
+    """
+    console.print(f"\n[dim]A copy of this report has been saved to {saved_path}[/dim]")
+    html_sibling = saved_path.with_suffix(".html")
+    if html_sibling.exists():
+        console.print(f"[dim]HTML view: {html_sibling}[/dim]")
 
 
 def _build_model_pair(

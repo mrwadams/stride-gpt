@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from stride_gpt.agent.html_report import render_html, render_html_from_json
 from stride_gpt.agent.report import (
     render_json,
     render_markdown,
@@ -384,6 +385,200 @@ class TestInsiderCategoryColumn:
 # ---------------------------------------------------------------------------
 # Report persistence — separate folders for /analyze and /quick
 # ---------------------------------------------------------------------------
+
+
+class TestRenderHtml:
+    """The HTML renderer is the human-facing companion to the JSON report.
+    Tests assert on shape and key fragments, not whole-document bytes — the
+    Tailwind class soup will churn often, but the structural anchors won't."""
+
+    def test_doctype_and_scaffold(self, sample_report: AnalysisReport):
+        html = render_html(sample_report)
+        assert html.startswith("<!doctype html>")
+        assert "tailwindcss.com" in html  # Tailwind CDN present
+        assert "<title>STRIDE Threat Model" in html
+
+    def test_target_name_in_header(self, sample_report: AnalysisReport):
+        html = render_html(sample_report)
+        # plan.target_path = "/tmp/test-app" → name "test-app"
+        assert "test-app" in html
+
+    def test_renders_stride_badges_for_threats(self, sample_report: AnalysisReport):
+        html = render_html(sample_report)
+        # Each threat should appear in a card; the Spoofing badge class is the
+        # canonical "category coding works" smoke check.
+        assert "Spoofing" in html
+        assert "bg-indigo-100" in html
+        assert "brute-force" in html
+
+    def test_renders_cross_cutting_section(self, sample_report: AnalysisReport):
+        html = render_html(sample_report)
+        assert "Cross-cutting threats" in html
+        assert "CSRF" in html
+        # Affected subsystems should appear as pills, not a comma-joined string
+        assert ">Auth<" in html
+        assert ">API<" in html
+
+    def test_renders_recommendations(self, sample_report: AnalysisReport):
+        html = render_html(sample_report)
+        assert "Recommendations" in html
+        assert "rate limiting" in html
+
+    def test_renders_files_analyzed(self, sample_report: AnalysisReport):
+        html = render_html(sample_report)
+        assert "Files analyzed" in html
+        assert "auth.py" in html
+        assert "font-mono" in html
+
+    def test_summary_chips_present(self, sample_report: AnalysisReport):
+        html = render_html(sample_report)
+        # 2 subsystem threats + 1 cross-cutting = 3
+        assert "3 threats" in html
+        assert "1 cross-cutting" in html
+
+    def test_escapes_hostile_threat_text(self, sample_plan):
+        """A threat carrying <script> must not render as a live tag.
+        The renderer is for human review of analysis output, but treat any
+        LLM-produced text as untrusted on the way to a browser."""
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="Auth",
+                threats=[{
+                    "Threat Type": "Tampering",
+                    "Scenario": "<script>alert('xss')</script>",
+                    "Potential Impact": "User session hijack via </body><script>x</script>",
+                }],
+            )],
+            metadata={},
+        )
+        html = render_html(report)
+        assert "<script>alert" not in html
+        assert "&lt;script&gt;alert" in html
+
+    def test_owasp_pills_appear_when_codes_present(self, sample_plan):
+        report = _report_with_owasp(sample_plan, owasp_llm="LLM01", owasp_asi="ASI06")
+        html = render_html(report)
+        assert "OWASP LLM01" in html
+        assert "ASI ASI06" in html
+
+    def test_owasp_pills_absent_when_codes_missing(self, sample_report: AnalysisReport):
+        """A standard web app has no OWASP_LLM/ASI; pills must not appear at all
+        (not even as empty containers)."""
+        html = render_html(sample_report)
+        assert "OWASP " not in html
+        assert "ASI " not in html
+
+    def test_insider_category_pill(self, sample_plan):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="Agent",
+                threats=[{
+                    "Threat Type": "Information Disclosure",
+                    "Scenario": "Agent harvests env vars",
+                    "Potential Impact": "Lateral movement",
+                    "INSIDER_CATEGORY": "Data Exfiltration",
+                }],
+            )],
+            metadata={},
+        )
+        html = render_html(report)
+        assert "Insider: Data Exfiltration" in html
+
+    def test_quick_report_renders_with_single_subsystem(self, sample_plan):
+        """The /quick path saves a synthetic 'Application' subsystem with no
+        files_analyzed and an empty overview — the renderer must handle that
+        gracefully (no orphan headers, no empty Files-analyzed block)."""
+        quick_data = {
+            "version": "1.0",
+            "kind": "quick",
+            "generated_at": "2026-01-15T12:00:00+00:00",
+            "target": "my-saas-app",
+            "overview": "",
+            "subsystems": [{
+                "name": "Application",
+                "threats": [{
+                    "Threat Type": "Spoofing",
+                    "Scenario": "Weak password policy",
+                    "Potential Impact": "Account takeover",
+                }],
+                "improvement_suggestions": ["Require MFA"],
+                "files_analyzed": [],
+            }],
+            "cross_cutting_threats": [],
+            "metadata": {"kind": "quick"},
+        }
+        html = render_html_from_json(quick_data)
+        assert "my-saas-app" in html
+        assert "Application" in html
+        assert "Files analyzed" not in html
+        assert "Cross-cutting" not in html
+        # Subsystem count chip suppressed for /quick (only one subsystem)
+        assert "1 subsystems" not in html
+
+    def test_round_trip_via_saved_json(self, sample_report: AnalysisReport, tmp_path):
+        """The disk-replay path must produce byte-identical HTML to a live
+        render — /analyze and /reports share rendering."""
+        live = render_html(sample_report)
+        replay = render_html_from_json(render_json(sample_report))
+        # generated_at is computed at render time from data["generated_at"]
+        # which is set by render_json, so the two should match.
+        assert live == replay
+
+    def test_unknown_stride_category_falls_back(self, sample_plan):
+        """An unrecognised Threat Type must still render — fall back to the
+        neutral badge rather than KeyError."""
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="X",
+                threats=[{
+                    "Threat Type": "Some Future Category",
+                    "Scenario": "s",
+                    "Potential Impact": "i",
+                }],
+            )],
+            metadata={},
+        )
+        html = render_html(report)
+        assert "Some Future Category" in html
+
+    def test_auto_save_writes_html_companion(
+        self, sample_report: AnalysisReport, tmp_path
+    ):
+        """save_report() must write a .html sibling alongside the .json so
+        users get a browser-viewable report for free."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            json_path = save_report(sample_report)
+            html_path = json_path.with_suffix(".html")
+            assert html_path.exists()
+            content = html_path.read_text()
+            assert content.startswith("<!doctype html>")
+            assert "Spoofing" in content
+
+    def test_quick_auto_save_writes_html_companion(self, tmp_path, model_pair):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            output = ThreatModelOutput(
+                threat_model=[{
+                    "Threat Type": "Spoofing",
+                    "Scenario": "x",
+                    "Potential Impact": "y",
+                }],
+                improvement_suggestions=["test"],
+            )
+            json_path = save_quick_report(output, "atlas", models=model_pair)
+            html_path = json_path.with_suffix(".html")
+            assert html_path.exists()
+            assert "atlas" in html_path.read_text()
 
 
 class TestSplitReportFolders:
