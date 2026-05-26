@@ -41,7 +41,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Supports DREAD risk scoring for identified threats
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
-- Multiple output formats: Markdown, JSON, and SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs)
+- Multiple output formats: Markdown, JSON, SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs), and a self-contained HTML view for sharing with stakeholders
 - Advanced reasoning model support (OpenAI GPT-5.2 series, Anthropic Claude 4.5 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
 - Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via LM Studio Server
 - No data storage; application details are not saved
@@ -323,10 +323,13 @@ stride-gpt analyze .
 # Specify a model and auto-approve the analysis plan
 stride-gpt analyze ./my-app --model anthropic/claude-sonnet-4-5 -y
 
-# Export as JSON or SARIF
-stride-gpt analyze . -o report.json -f json
+# Export as JSON, SARIF, or browser-viewable HTML
+stride-gpt analyze . -o report.json -f json    # also writes report.html alongside
 stride-gpt analyze . -o report.sarif -f sarif
+stride-gpt analyze . -o report.html -f html
 ```
+
+> Every analysis also auto-saves a JSON and an HTML companion to `~/.stride-gpt/reports/analyze/`, so the browser-viewable view is always one click away even when you run without `-o`.
 
 > **Note on cost:** Agentic analysis is thorough — the agent makes many LLM calls and reads many files as it explores. Token usage and cost scale with codebase size and your chosen model, and a full run on a large repository against a frontier model can be expensive. Set spending limits in your provider dashboard before running, and consider faster/cheaper models for first passes.
 
@@ -353,7 +356,7 @@ Inside the REPL, type `/help` to see available commands and flags.
 | Flag | Description |
 |------|-------------|
 | `-o`, `--output` | Save report to a file |
-| `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif` |
+| `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
 | `-y`, `--yes` | Auto-approve the analysis plan |
 | `--model` | Model to use (e.g. `anthropic/claude-sonnet-4-5`, `openai/gpt-5.2`) |
 
