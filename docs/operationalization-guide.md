@@ -326,11 +326,13 @@ streamlit run main.py --server.port 8501 --server.address 0.0.0.0
 
 ### Option 3: Docker Deployment
 
-The project includes a Dockerfile. Build your customized version:
+The project includes `Dockerfile.ui` for the Streamlit web UI. Build your customized version:
 
 ```bash
-docker build -t myorg-stride-gpt .
+docker build -f Dockerfile.ui -t myorg-stride-gpt .
 ```
+
+(For the CLI, install from PyPI with `pip install stride-gpt` — there's no CLI Docker image.)
 
 **Local development/testing:**
 ```bash

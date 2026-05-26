@@ -36,10 +36,10 @@ services:
     env_file:
       - .env
 
-    # Run as non-root (matches Dockerfile user)
+    # Run as non-root (matches Dockerfile.ui user)
     user: "1000:1000"
 
-    # Health check using curl (matches Dockerfile)
+    # Health check using curl (matches Dockerfile.ui)
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
       interval: 30s

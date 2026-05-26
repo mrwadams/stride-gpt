@@ -285,14 +285,15 @@ This installs the `stride-gpt` command. The CLI and the Streamlit web UI are now
 
    Edit `.env` to add your API keys — or configure them later via `stride-gpt config` or the Streamlit UI.
 
-### Option 3: Docker
+### Option 3: Docker (web UI)
 
-The CLI and the web UI ship as separate images:
+The Streamlit web UI ships as a Docker image:
 
 ```bash
-docker pull mrwadams/stridegpt:latest       # CLI
-docker pull mrwadams/stridegpt-ui:latest    # Streamlit web UI
+docker pull mrwadams/stridegpt:latest
 ```
+
+For the CLI, use `pip install stride-gpt` — there's no separate CLI image. If you need a sandboxed CLI, roll your own from a minimal Python base image.
 
 ## Repository layout
 
@@ -377,11 +378,7 @@ Open the provided URL in your browser and follow the on-screen steps.
 ### Docker
 
 ```bash
-# CLI
-docker run --env-file .env mrwadams/stridegpt analyze /app --model openai/gpt-5.2
-
-# Streamlit UI
-docker run -p 8501:8501 --env-file .env mrwadams/stridegpt-ui
+docker run -p 8501:8501 --env-file .env mrwadams/stridegpt
 ```
 
 ## Security Best Practices
