@@ -14,7 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from stride_gpt.agent.report import render_json
 from stride_gpt.core.schemas import AnalysisReport
 
 # STRIDE category → Tailwind badge classes. Six categories carry distinct
@@ -44,8 +43,30 @@ _CAPTION = "text-[11px] font-mono uppercase tracking-wider text-slate-500"
 
 
 def render_html(report: AnalysisReport) -> str:
-    """Render an in-memory AnalysisReport as a self-contained HTML document."""
-    return render_html_from_json(render_json(report))
+    """Render an in-memory AnalysisReport as a self-contained HTML document.
+
+    Builds the JSON-shape view inline rather than calling `render_json` from
+    `agent.report` — that would create an import cycle (report.py
+    lazy-imports this module to write the HTML companion).
+    """
+    data: dict[str, Any] = {
+        "version": "1.0",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "target": report.plan.target_path,
+        "overview": report.plan.overall_description,
+        "subsystems": [
+            {
+                "name": f.subsystem,
+                "threats": f.threats,
+                "improvement_suggestions": f.improvement_suggestions,
+                "files_analyzed": f.files_analyzed,
+            }
+            for f in report.findings
+        ],
+        "cross_cutting_threats": report.cross_cutting_threats,
+        "metadata": report.metadata,
+    }
+    return render_html_from_json(data)
 
 
 def render_html_from_json(data: dict[str, Any]) -> str:

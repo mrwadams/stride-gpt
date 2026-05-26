@@ -395,7 +395,9 @@ class TestRenderHtml:
     def test_doctype_and_scaffold(self, sample_report: AnalysisReport):
         html = render_html(sample_report)
         assert html.startswith("<!doctype html>")
-        assert "tailwindcss.com" in html  # Tailwind CDN present
+        # Pin the exact CDN script tag rather than the bare hostname — CodeQL
+        # otherwise mistakes the substring check for URL allowlist sanitization.
+        assert '<script src="https://cdn.tailwindcss.com">' in html
         assert "<title>STRIDE Threat Model" in html
 
     def test_target_name_in_header(self, sample_report: AnalysisReport):

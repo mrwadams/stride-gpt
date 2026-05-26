@@ -338,15 +338,20 @@ def save_quick_report(
 def _write_html_companion(json_path: Path, data: dict[str, Any]) -> None:
     """Auto-save an HTML view next to a JSON report.
 
-    Best-effort: if rendering fails we keep the JSON write intact so the user
-    never loses their analysis to a UI bug.
+    Best-effort: a render bug must not lose the JSON write the user just
+    finished waiting for. We catch broadly and surface to stderr so failures
+    are visible without crashing the save path.
     """
     try:
         from stride_gpt.agent.html_report import render_html_from_json
         html_path = json_path.with_suffix(".html")
         html_path.write_text(render_html_from_json(data))
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        import sys
+        print(
+            f"[stride-gpt] warning: HTML companion failed: {exc}",
+            file=sys.stderr,
+        )
 
 
 def load_report(path: Path) -> dict[str, Any]:
