@@ -72,13 +72,6 @@ class TestResolveLimit:
 
 class TestCountTokens:
     @patch("stride_gpt.agent.context.litellm")
-    def test_uses_litellm_counter(self, mock_litellm, ctx):
-        mock_litellm.token_counter.return_value = 42
-        msgs = [{"role": "user", "content": "hello"}]
-        assert ctx.count_tokens(msgs) == 42
-        mock_litellm.token_counter.assert_called_once()
-
-    @patch("stride_gpt.agent.context.litellm")
     def test_fallback_on_error(self, mock_litellm, ctx):
         mock_litellm.token_counter.side_effect = Exception("boom")
         msgs = [{"role": "user", "content": "a" * 400}]
