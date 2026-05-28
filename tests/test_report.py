@@ -420,12 +420,12 @@ class TestMitreAttackColumn:
             sample_plan,
             [
                 {"id": "T1041", "name": "Exfiltration Over C2 Channel"},
-                {"id": "AML.T0024", "name": "Exfiltration via ML Inference API"},
+                {"id": "AML.T0024", "name": "Exfiltration via AI Inference API"},
             ],
         )
         md = render_markdown(report)
         assert "T1041 (Exfiltration Over C2 Channel)" in md
-        assert "AML.T0024 (Exfiltration via ML Inference API)" in md
+        assert "AML.T0024 (Exfiltration via AI Inference API)" in md
 
     def test_empty_list_does_not_create_column(self, sample_plan):
         """A threat carrying ``MITRE_ATTACK: []`` must not trigger the column
