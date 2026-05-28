@@ -72,9 +72,10 @@ def analyze_image(
 def json_to_markdown(threat_model, improvement_suggestions):
     """Render a single-shot threat model as markdown.
 
-    Optional columns (OWASP LLM, OWASP ASI, Insider Category) appear only when
-    at least one threat carries a value for them — same conditional shape as
-    the agent's per-subsystem renderer, via shared helpers.
+    Optional columns (OWASP LLM, OWASP ASI, Insider Category, MITRE ATT&CK)
+    appear only when at least one threat carries a value for them — same
+    conditional shape as the agent's per-subsystem renderer, via shared
+    helpers.
     """
     from stride_gpt.core.report_utils import (
         detect_extra_columns,
@@ -82,12 +83,14 @@ def json_to_markdown(threat_model, improvement_suggestions):
         threat_table_row,
     )
 
-    show_llm, show_asi, show_insider = detect_extra_columns(threat_model)
-    header, separator = threat_table_header(show_llm, show_asi, show_insider)
+    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(threat_model)
+    header, separator = threat_table_header(show_llm, show_asi, show_insider, show_mitre)
 
     lines = ["## Threat Model", "", header, separator]
     for threat in threat_model:
-        lines.append(threat_table_row(threat, show_llm, show_asi, show_insider))
+        lines.append(
+            threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
+        )
 
     lines.extend(["", "", "## Improvement Suggestions", ""])
     for suggestion in improvement_suggestions:
