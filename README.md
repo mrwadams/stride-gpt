@@ -34,6 +34,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Generates threat models based on the STRIDE methodology
 - **Agentic AI support**: Specialized threat modeling for agentic AI systems with OWASP Top 10 for Agentic Applications (ASI) integration
 - **Generative AI support**: Threat modeling for GenAI applications with OWASP LLM Top 10 integration
+- **MITRE ATT&CK & ATLAS mapping**: Threats are annotated with standardized adversary technique IDs (MITRE ATT&CK Enterprise for traditional infrastructure attacks, ATLAS for ML/LLM-specific attacks) — surfaced as columns in markdown, linked pills in HTML, and `mitre_attack` properties in SARIF
 - **Architectural pattern detection**: Automatically detects RAG pipelines, multi-agent systems, code execution environments, tool ecosystems, and more from application descriptions (inspired by [CSA MAESTRO](https://cloudsecurityalliance.org/blog/2025/02/06/agentic-ai-threat-modeling-framework-maestro))
 - Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling across all supported vision-capable models
 - Generates attack trees to enumerate possible attack paths
@@ -69,7 +70,24 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.15 (latest)
+### Version 0.17 (latest)
+
+- **MITRE ATT&CK and ATLAS integration** (closes #36): Threats emitted by `/analyze` and `/quick` can now carry standardized adversary technique IDs from MITRE ATT&CK Enterprise (v17.1) and MITRE ATLAS (2026.05). Two new progressive-disclosure reference cards (`mitre_enterprise`, `mitre_atlas`) instruct the agent to use only the catalogued IDs and names, eliminating ID hallucination. Cards are regenerated from upstream STIX/YAML via `scripts/refresh_mitre_cards.py` rather than written from model recall. Techniques render as a `MITRE ATT&CK` column in markdown tables, clickable sky-tinted pills in HTML, and `properties.mitre_attack` arrays in SARIF.
+- **HTML report companion**: `/analyze` and `/quick` now emit a self-contained browser-viewable HTML report alongside the markdown / JSON / SARIF outputs, suitable for sharing with stakeholders.
+- **UI image consolidation**: The dual-namespace Docker setup (`mrwadams/stridegpt-ui`) is gone; the Streamlit web UI now lives at `mrwadams/stridegpt` only. CLI users should `pip install stride-gpt` rather than pulling a container.
+- **Dependency hygiene**: Dropped the unused `mistralai` package (Mistral access already flows through LiteLLM). Refreshed the `python:3.12-slim` base for the UI image and dropped `curl`, clearing 21 medium/high CVE alerts across PRs #113–#115.
+- **Code quality cleanup**: Cleared CodeQL note alerts (unused imports, bare `except`, dead code) (#116).
+
+### Version 0.16
+
+- **Standalone CLI**: First release of STRIDE-GPT as a `pip install stride-gpt` CLI, separated from the legacy Streamlit web UI. Two main commands: `/analyze` (autonomous agentic codebase analysis with a planner, per-subsystem tool-using agent loops, and a cross-cutting synthesis pass) and `/quick` (single-shot threat model from a written application description).
+- **Progressive-disclosure reference cards**: `genai` (OWASP LLM Top 10), `agentic` (OWASP ASI Top 10), and `insider_threat` cards self-describe via YAML frontmatter; the agent discovers them via `list_references` and pulls bodies via `load_reference`.
+- **Two-tier model routing**: Architect + worker model split for cost-efficient analysis, with frontier-class models reserved for planning and synthesis.
+- **Interactive REPL**: Full-featured terminal experience with tab completion, history, real-time progress, and a status line.
+- **Multi-format output**: Markdown, JSON, and SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs).
+- **0.16.1 patch**: Raised the LiteLLM logger to ERROR in `stride_gpt/__init__.py` so the Bedrock/SageMaker pre-load warnings don't appear on fresh installs that lack `botocore`.
+
+### Version 0.15
 
 - **Agentic AI Application Support**: Added comprehensive support for threat modeling agentic AI systems with OWASP Top 10 for Agentic Applications (ASI01-ASI10) integration. Simply select "Agentic AI application" and describe your system - the LLM automatically detects architectural patterns and applies relevant threat categories. Each ASI risk is mapped to the appropriate STRIDE category for consistent threat analysis.
 
