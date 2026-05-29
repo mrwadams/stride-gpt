@@ -55,7 +55,7 @@ class TestDetectExtraColumns:
 
 class TestThreatTableHeader:
     def test_base_columns_only(self):
-        header, sep = threat_table_header(False, False, False)
+        header, sep = threat_table_header(False, False, False, False)
         assert header == "| Threat Type | Scenario | Potential Impact |"
         assert sep.count("|") == 4  # 3 cols + 2 edges = 4 separators
 
@@ -67,7 +67,7 @@ class TestThreatTableHeader:
         assert "MITRE ATT&CK" in header
 
     def test_cross_cutting_adds_affected(self):
-        header, _ = threat_table_header(False, False, False, cross_cutting=True)
+        header, _ = threat_table_header(False, False, False, False, cross_cutting=True)
         assert "Affected Subsystems" in header
 
     def test_column_order_is_fixed(self):
@@ -85,19 +85,19 @@ class TestThreatTableHeader:
 class TestThreatTableRow:
     def test_base_row(self):
         threat = {"Threat Type": "Spoofing", "Scenario": "a", "Potential Impact": "b"}
-        row = threat_table_row(threat, False, False, False)
+        row = threat_table_row(threat, False, False, False, False)
         assert row == "| Spoofing | a | b |"
 
     def test_pipes_escaped(self):
         threat = {"Threat Type": "T", "Scenario": "a | b", "Potential Impact": "c"}
-        row = threat_table_row(threat, False, False, False)
+        row = threat_table_row(threat, False, False, False, False)
         assert "a \\| b" in row
 
     def test_null_optional_cells_blank(self):
         """A null OWASP field must render as an empty cell, not "None"."""
         threat = {"Threat Type": "T", "Scenario": "s", "Potential Impact": "i",
                   "OWASP_LLM": "LLM01", "OWASP_ASI": None}
-        row = threat_table_row(threat, True, True, False)
+        row = threat_table_row(threat, True, True, False, False)
         assert "None" not in row
         assert "| LLM01 |  |" in row  # ASI cell empty
 
@@ -152,7 +152,7 @@ class TestMitreUrl:
         assert mitre_url("T1078.004") == "https://attack.mitre.org/techniques/T1078/004/"
 
     def test_atlas_id(self):
-        assert mitre_url("AML.T0051") == "https://atlas.mitre.org/techniques/AML.T0051"
+        assert mitre_url("AML.T0051") == "https://atlas.mitre.org/techniques/AML.T0051/"
 
     def test_unknown_pattern_yields_empty(self):
         assert mitre_url("not-a-technique") == ""

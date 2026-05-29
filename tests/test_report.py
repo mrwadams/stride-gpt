@@ -645,7 +645,7 @@ class TestRenderHtml:
             metadata={},
         )
         html = render_html(report)
-        assert 'href="https://atlas.mitre.org/techniques/AML.T0051"' in html
+        assert 'href="https://atlas.mitre.org/techniques/AML.T0051/"' in html
         assert ">AML.T0051<" in html
 
     def test_mitre_pills_absent_when_field_missing(self, sample_report):

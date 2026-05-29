@@ -50,7 +50,7 @@ def threat_table_header(
     show_llm: bool,
     show_asi: bool,
     show_insider: bool,
-    show_mitre: bool = False,
+    show_mitre: bool,
     *,
     cross_cutting: bool = False,
 ) -> tuple[str, str]:
@@ -92,7 +92,7 @@ def threat_table_row(
     show_llm: bool,
     show_asi: bool,
     show_insider: bool,
-    show_mitre: bool = False,
+    show_mitre: bool,
     *,
     cross_cutting: bool = False,
 ) -> str:
@@ -158,7 +158,7 @@ def mitre_url(technique_id: str) -> str:
     """
     tid = technique_id.strip()
     if tid.startswith("AML."):
-        return f"https://atlas.mitre.org/techniques/{tid}"
+        return f"https://atlas.mitre.org/techniques/{tid}/"
     if tid.startswith("T") and len(tid) > 1 and tid[1].isdigit():
         # Enterprise sub-techniques: T1078.004 → /techniques/T1078/004/
         if "." in tid:
