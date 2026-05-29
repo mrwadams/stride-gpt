@@ -26,6 +26,16 @@ __all__ = [
 ]
 
 
+def _md_cell(value) -> str:
+    """Escape an LLM-supplied value for safe inclusion in a markdown table.
+
+    Pipes break out of the column; newlines break out of the row entirely and
+    let the model inject markdown beneath the table.
+    """
+    text = "" if value is None else str(value)
+    return text.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+
 # Function to convert JSON to Markdown for display.
 def json_to_markdown(threat_model, improvement_suggestions):
     markdown_output = "## Threat Model\n\n"
@@ -42,7 +52,7 @@ def json_to_markdown(threat_model, improvement_suggestions):
             owasp_llm = threat.get("OWASP_LLM") or "-"
             owasp_asi = threat.get("OWASP_ASI") or "-"
             markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_llm} | {owasp_asi} |\n"
+                f"| {_md_cell(threat['Threat Type'])} | {_md_cell(threat['Scenario'])} | {_md_cell(threat['Potential Impact'])} | {_md_cell(owasp_llm)} | {_md_cell(owasp_asi)} |\n"
             )
     elif has_owasp_llm:
         # Table with OWASP LLM column only (GenAI applications)
@@ -51,7 +61,7 @@ def json_to_markdown(threat_model, improvement_suggestions):
         for threat in threat_model:
             owasp_llm = threat.get("OWASP_LLM") or "-"
             markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_llm} |\n"
+                f"| {_md_cell(threat['Threat Type'])} | {_md_cell(threat['Scenario'])} | {_md_cell(threat['Potential Impact'])} | {_md_cell(owasp_llm)} |\n"
             )
     elif has_owasp_asi:
         # Table with OWASP ASI column only (edge case)
@@ -60,7 +70,7 @@ def json_to_markdown(threat_model, improvement_suggestions):
         for threat in threat_model:
             owasp_asi = threat.get("OWASP_ASI") or "-"
             markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} | {owasp_asi} |\n"
+                f"| {_md_cell(threat['Threat Type'])} | {_md_cell(threat['Scenario'])} | {_md_cell(threat['Potential Impact'])} | {_md_cell(owasp_asi)} |\n"
             )
     else:
         # Standard table without OWASP columns
@@ -68,12 +78,12 @@ def json_to_markdown(threat_model, improvement_suggestions):
         markdown_output += "|-------------|----------|------------------|\n"
         for threat in threat_model:
             markdown_output += (
-                f"| {threat['Threat Type']} | {threat['Scenario']} | {threat['Potential Impact']} |\n"
+                f"| {_md_cell(threat['Threat Type'])} | {_md_cell(threat['Scenario'])} | {_md_cell(threat['Potential Impact'])} |\n"
             )
 
     markdown_output += "\n\n## Improvement Suggestions\n\n"
     for suggestion in improvement_suggestions:
-        markdown_output += f"- {suggestion}\n"
+        markdown_output += f"- {_md_cell(suggestion)}\n"
 
     return markdown_output
 
