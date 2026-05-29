@@ -1,6 +1,6 @@
 [project]
 name = "stride-gpt"
-version = "0.16.1"
+version = "0.17.0"
 description = "AI-powered threat modeling using the STRIDE methodology"
 readme = "README.md"
 license = "MIT"
