@@ -6,9 +6,7 @@ FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dc
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    groupadd --gid 1000 appuser && \
+RUN groupadd --gid 1000 appuser && \
     useradd --uid 1000 --gid 1000 -ms /bin/bash appuser && \
     pip install --no-cache-dir --upgrade pip && \
     mkdir -p /home/appuser/.local/bin /home/appuser/.local/lib
@@ -25,11 +23,12 @@ ENV PATH="$PATH:/home/appuser/.local/bin:/home/appuser/.local/lib:/home/appuser/
 ENV VIRTUAL_ENV=/home/appuser/venv
 
 RUN python -m venv ${VIRTUAL_ENV}
-RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r apps/web/requirements.txt && \
+RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir --upgrade pip && \
+    ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r apps/web/requirements.txt && \
     ${VIRTUAL_ENV}/bin/pip check
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=4).status == 200 else 1)" || exit 1
 
 ENTRYPOINT ["streamlit", "run", "apps/web/main.py", \
             "--server.port=8501", "--server.address=0.0.0.0"]
