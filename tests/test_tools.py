@@ -9,7 +9,6 @@ import pytest
 
 from stride_gpt.agent.tools import (
     AGENT_TOOLS,
-    MAX_FILE_SIZE,
     execute_tool,
     grep_content,
     list_directory,
