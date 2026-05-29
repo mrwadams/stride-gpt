@@ -156,11 +156,16 @@ def save_config(config: dict[str, Any]) -> None:
     try:
         os.chmod(CONFIG_DIR, 0o700)
     except OSError:
+        # Best-effort: filesystems without POSIX perms (Windows, FAT32, some
+        # network mounts) raise here. We've still written the config, so
+        # don't fail the save just because we couldn't tighten the dir mode.
         pass
     CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n")
     try:
         os.chmod(CONFIG_FILE, 0o600)
     except OSError:
+        # Same rationale as above — file write succeeded; perm tightening
+        # is best-effort on non-POSIX filesystems.
         pass
 
 
