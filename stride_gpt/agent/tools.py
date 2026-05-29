@@ -38,7 +38,9 @@ def _resolve_safe_path(root: Path, user_path: str) -> Path:
     cleaned = user_path.lstrip("/")
     resolved = (root / cleaned).resolve()
     root_resolved = root.resolve()
-    if not str(resolved).startswith(str(root_resolved)):
+    # is_relative_to avoids the classic startswith() prefix bug where
+    # `/tmp/project` would falsely match `/tmp/project_secrets/...`.
+    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
         raise ValueError(f"Path traversal denied: {user_path}")
     return resolved
 

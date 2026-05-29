@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -150,8 +151,17 @@ def load_config() -> dict[str, Any] | None:
 
 def save_config(config: dict[str, Any]) -> None:
     """Save config to ~/.stride-gpt/config.json."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Tighten perms even if the dir already existed at a looser mode.
+    try:
+        os.chmod(CONFIG_DIR, 0o700)
+    except OSError:
+        pass
     CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n")
+    try:
+        os.chmod(CONFIG_FILE, 0o600)
+    except OSError:
+        pass
 
 
 def _is_quit(value: str) -> bool:
