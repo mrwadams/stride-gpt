@@ -382,6 +382,119 @@ class TestInsiderCategoryColumn:
         assert "Infrastructure Sabotage" in md
 
 
+class TestMitreAttackColumn:
+    """MITRE ATT&CK technique mappings carried on each threat dict. Same
+    conditional-column pattern as the OWASP / Insider lenses, but the field
+    holds a list of ``{id, name}`` objects rather than a single code."""
+
+    def _report_with_mitre(self, sample_plan, techniques):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        threat = {
+            "Threat Type": "Spoofing",
+            "Scenario": "Brute force on login endpoint",
+            "Potential Impact": "Account takeover",
+            "MITRE_ATTACK": techniques,
+        }
+        return AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(subsystem="Auth", threats=[threat])],
+            metadata={},
+        )
+
+    def test_column_appears_when_techniques_present(self, sample_plan):
+        report = self._report_with_mitre(
+            sample_plan,
+            [{"id": "T1110", "name": "Brute Force"}],
+        )
+        md = render_markdown(report)
+        assert "MITRE ATT&CK" in md
+        assert "T1110 (Brute Force)" in md
+
+    def test_column_absent_when_no_mitre(self, sample_report):
+        md = render_markdown(sample_report)
+        assert "MITRE ATT&CK" not in md
+
+    def test_multiple_techniques_render_in_one_cell(self, sample_plan):
+        report = self._report_with_mitre(
+            sample_plan,
+            [
+                {"id": "T1041", "name": "Exfiltration Over C2 Channel"},
+                {"id": "AML.T0024", "name": "Exfiltration via AI Inference API"},
+            ],
+        )
+        md = render_markdown(report)
+        assert "T1041 (Exfiltration Over C2 Channel)" in md
+        assert "AML.T0024 (Exfiltration via AI Inference API)" in md
+
+    def test_empty_list_does_not_create_column(self, sample_plan):
+        """A threat carrying ``MITRE_ATTACK: []`` must not trigger the column
+        — empty is a valid "no mapping" emission from the model."""
+        report = self._report_with_mitre(sample_plan, [])
+        md = render_markdown(report)
+        assert "MITRE ATT&CK" not in md
+
+    def test_sarif_properties_carry_mitre_ids(self, sample_plan):
+        report = self._report_with_mitre(
+            sample_plan,
+            [{"id": "T1110", "name": "Brute Force"}, {"id": "T1078", "name": "Valid Accounts"}],
+        )
+        sarif = render_sarif(report)
+        result = sarif["runs"][0]["results"][0]
+        assert result["properties"]["mitre_attack"] == ["T1110", "T1078"]
+
+    def test_sarif_omits_mitre_when_empty(self, sample_plan):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(subsystem="X", threats=[{
+                "Threat Type": "T", "Scenario": "s", "Potential Impact": "i",
+                "MITRE_ATTACK": [],
+            }])],
+            metadata={},
+        )
+        sarif = render_sarif(report)
+        result = sarif["runs"][0]["results"][0]
+        assert "mitre_attack" not in result["properties"]
+
+    def test_from_json_renderer_picks_up_mitre(self, sample_plan):
+        from stride_gpt.agent.report import render_json
+
+        report = self._report_with_mitre(
+            sample_plan,
+            [{"id": "T1190", "name": "Exploit Public-Facing Application"}],
+        )
+        data = render_json(report)
+        md = render_markdown_from_json(data)
+        assert "MITRE ATT&CK" in md
+        assert "T1190 (Exploit Public-Facing Application)" in md
+
+    def test_cross_cutting_mitre_column(self, sample_plan):
+        """Cross-cutting threats use the same threat dict shape, so they
+        carry MITRE the same way per-subsystem threats do — and both tables
+        must surface the column together."""
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(subsystem="Auth", threats=[{
+                "Threat Type": "Spoofing", "Scenario": "s", "Potential Impact": "i",
+            }])],
+            cross_cutting_threats=[{
+                "Threat Type": "Tampering",
+                "Scenario": "Shared CSRF gap",
+                "Potential Impact": "Forgery",
+                "Affected Subsystems": ["Auth", "API"],
+                "MITRE_ATTACK": [{"id": "T1565", "name": "Data Manipulation"}],
+            }],
+            metadata={},
+        )
+        md = render_markdown(report)
+        assert "MITRE ATT&CK" in md
+        assert "T1565 (Data Manipulation)" in md
+
+
 # ---------------------------------------------------------------------------
 # Report persistence — separate folders for /analyze and /quick
 # ---------------------------------------------------------------------------
@@ -491,6 +604,99 @@ class TestRenderHtml:
         )
         html = render_html(report)
         assert "Insider: Data Exfiltration" in html
+
+    def test_mitre_enterprise_pill_links_to_attack_mitre(self, sample_plan):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="Auth",
+                threats=[{
+                    "Threat Type": "Spoofing",
+                    "Scenario": "Brute force",
+                    "Potential Impact": "ATO",
+                    "MITRE_ATTACK": [{"id": "T1110", "name": "Brute Force"}],
+                }],
+            )],
+            metadata={},
+        )
+        html = render_html(report)
+        # The pill must link to the canonical ATT&CK page and surface the ID
+        # as the visible label (full name kept in the tooltip).
+        assert 'href="https://attack.mitre.org/techniques/T1110/"' in html
+        assert ">T1110<" in html
+        assert 'title="T1110 Brute Force"' in html
+
+    def test_mitre_atlas_pill_links_to_atlas_mitre(self, sample_plan):
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="Chatbot",
+                threats=[{
+                    "Threat Type": "Tampering",
+                    "Scenario": "Prompt injection via uploaded doc",
+                    "Potential Impact": "Misleading output",
+                    "MITRE_ATTACK": [{"id": "AML.T0051", "name": "LLM Prompt Injection"}],
+                }],
+            )],
+            metadata={},
+        )
+        html = render_html(report)
+        assert 'href="https://atlas.mitre.org/techniques/AML.T0051/"' in html
+        assert ">AML.T0051<" in html
+
+    def test_mitre_pills_absent_when_field_missing(self, sample_report):
+        """A standard web report carries no MITRE_ATTACK — no pill markup,
+        not even empty containers."""
+        html = render_html(sample_report)
+        assert "attack.mitre.org" not in html
+        assert "atlas.mitre.org" not in html
+
+    def test_mitre_pill_falls_back_to_span_for_unknown_id_pattern(self, sample_plan):
+        """A malformed ID that matches neither pattern still renders, but as
+        a plain span instead of a broken link."""
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="X",
+                threats=[{
+                    "Threat Type": "Spoofing",
+                    "Scenario": "s", "Potential Impact": "i",
+                    "MITRE_ATTACK": [{"id": "WEIRD", "name": "Not a real ID"}],
+                }],
+            )],
+            metadata={},
+        )
+        html = render_html(report)
+        assert ">WEIRD<" in html
+        # No link emitted for the unknown pattern.
+        assert 'href="https://attack.mitre.org/techniques/WEIRD' not in html
+
+    def test_mitre_pill_id_is_html_escaped(self, sample_plan):
+        """Even though valid IDs are alphanumeric, hostile/synthetic input
+        must not bypass escaping on the way to a browser."""
+        from stride_gpt.core.schemas import SubsystemFinding
+
+        report = AnalysisReport(
+            plan=sample_plan,
+            findings=[SubsystemFinding(
+                subsystem="X",
+                threats=[{
+                    "Threat Type": "Spoofing",
+                    "Scenario": "s", "Potential Impact": "i",
+                    "MITRE_ATTACK": [{"id": "<script>", "name": "evil"}],
+                }],
+            )],
+            metadata={},
+        )
+        html = render_html(report)
+        assert "<script>" not in html.split("<title>")[0]  # not in body
+        assert "&lt;script&gt;" in html
 
     def test_quick_report_renders_with_single_subsystem(self, sample_plan):
         """The /quick path saves a synthetic 'Application' subsystem with no

@@ -33,6 +33,8 @@ Additional threat reference content is available for applications that use langu
 - **`genai`** — OWASP Top 10 for LLM Applications (LLM01–LLM10). Load when the description mentions LLMs, LLM SDKs (openai, anthropic, mistralai, google-generativeai), RAG, embeddings, or LLM-powered features. Adds `OWASP_LLM` to each threat.
 - **`agentic`** — OWASP Top 10 for Agentic Applications (ASI01–ASI10). Load **in addition to `genai`** when the description mentions agent frameworks (langchain, langgraph, crewai, autogen, pydantic-ai, smolagents), tool-use / function-calling loops, multi-agent coordination, or persistent agent memory. Adds `OWASP_ASI`.
 - **`insider_threat`** — AI Insider Threat. Load **in addition to `agentic`** when the description indicates meaningful agent autonomy, persistent credentials, broad tool access, or limited real-time human oversight. Adds `INSIDER_CATEGORY` and `autonomy_level`.
+- **`mitre_enterprise`** — MITRE ATT&CK Enterprise. Load for almost any application with a traditional software / infrastructure surface (web, server, cloud, container, SaaS). Adds `MITRE_ATTACK` (Enterprise technique IDs and names) to each threat.
+- **`mitre_atlas`** — MITRE ATLAS (adversarial techniques against AI systems). Load **in addition to `mitre_enterprise`** when the description has ML/LLM behaviour in scope. Adds ATLAS technique IDs (e.g. `AML.T0051`) to the same `MITRE_ATTACK` field.
 
 Call `list_references` for the authoritative current catalogue — each card's frontmatter includes its full `when_to_load` trigger and the schema fields it adds. New cards may be available beyond the three listed above. Then call `load_reference(name=...)` for each card whose trigger conditions match the application described.
 

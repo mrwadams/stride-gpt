@@ -41,7 +41,7 @@ def render_markdown(report: AnalysisReport) -> str:
         lines.append(f"- **{sub.name}**: {sub.description}")
     lines.append("")
 
-    show_llm, show_asi, show_insider = detect_extra_columns(
+    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(
         [t for f in report.findings for t in f.threats] + list(report.cross_cutting_threats)
     )
 
@@ -60,11 +60,15 @@ def render_markdown(report: AnalysisReport) -> str:
         if finding.threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = threat_table_header(show_llm, show_asi, show_insider)
+            header, separator = threat_table_header(
+                show_llm, show_asi, show_insider, show_mitre
+            )
             lines.append(header)
             lines.append(separator)
             for threat in finding.threats:
-                lines.append(threat_table_row(threat, show_llm, show_asi, show_insider))
+                lines.append(
+                    threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
+                )
             lines.append("")
 
         if finding.improvement_suggestions:
@@ -79,14 +83,15 @@ def render_markdown(report: AnalysisReport) -> str:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
         header, separator = threat_table_header(
-            show_llm, show_asi, show_insider, cross_cutting=True
+            show_llm, show_asi, show_insider, show_mitre, cross_cutting=True
         )
         lines.append(header)
         lines.append(separator)
         for threat in report.cross_cutting_threats:
             lines.append(
                 threat_table_row(
-                    threat, show_llm, show_asi, show_insider, cross_cutting=True
+                    threat, show_llm, show_asi, show_insider, show_mitre,
+                    cross_cutting=True,
                 )
             )
         lines.append("")
@@ -210,6 +215,9 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
                 result_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
             if threat.get("INSIDER_CATEGORY"):
                 result_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
+            mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
+            if mitre_ids:
+                result_entry["properties"]["mitre_attack"] = mitre_ids
 
             # Add location if we know which files were analyzed
             if finding.files_analyzed:
@@ -257,6 +265,9 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
             cross_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
         if threat.get("INSIDER_CATEGORY"):
             cross_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
+        mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
+        if mitre_ids:
+            cross_entry["properties"]["mitre_attack"] = mitre_ids
         results.append(cross_entry)
 
     return {
@@ -276,6 +287,28 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
             }
         ],
     }
+
+
+def _sarif_mitre_ids(value: Any) -> list[str]:
+    """Extract a plain list of MITRE technique IDs for SARIF properties.
+
+    Accepts the canonical list-of-objects shape and the list-of-strings
+    fallback. Returns an empty list for missing / malformed input so callers
+    can use truthiness to decide whether to attach the property.
+    """
+    if not isinstance(value, list):
+        return []
+    ids: list[str] = []
+    for entry in value:
+        if isinstance(entry, dict):
+            tid = str(entry.get("id") or "").strip()
+        elif isinstance(entry, str):
+            tid = entry.strip()
+        else:
+            continue
+        if tid:
+            ids.append(tid)
+    return ids
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +516,7 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     for sub in data.get("subsystems", []):
         all_threats.extend(sub.get("threats", []))
     all_threats.extend(cross_cutting)
-    show_llm, show_asi, show_insider = detect_extra_columns(all_threats)
+    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(all_threats)
 
     for sub in data.get("subsystems", []):
         lines.append(f"## {sub['name']}")
@@ -501,11 +534,15 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         if threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = threat_table_header(show_llm, show_asi, show_insider)
+            header, separator = threat_table_header(
+                show_llm, show_asi, show_insider, show_mitre
+            )
             lines.append(header)
             lines.append(separator)
             for threat in threats:
-                lines.append(threat_table_row(threat, show_llm, show_asi, show_insider))
+                lines.append(
+                    threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
+                )
             lines.append("")
 
         suggestions = sub.get("improvement_suggestions", [])
@@ -520,14 +557,15 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
         header, separator = threat_table_header(
-            show_llm, show_asi, show_insider, cross_cutting=True
+            show_llm, show_asi, show_insider, show_mitre, cross_cutting=True
         )
         lines.append(header)
         lines.append(separator)
         for threat in cross_cutting:
             lines.append(
                 threat_table_row(
-                    threat, show_llm, show_asi, show_insider, cross_cutting=True
+                    threat, show_llm, show_asi, show_insider, show_mitre,
+                    cross_cutting=True,
                 )
             )
         lines.append("")
@@ -594,6 +632,9 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 result_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
             if threat.get("INSIDER_CATEGORY"):
                 result_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
+            mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
+            if mitre_ids:
+                result_entry["properties"]["mitre_attack"] = mitre_ids
             if files:
                 result_entry["locations"] = [
                     {"physicalLocation": {"artifactLocation": {"uri": f}}}
@@ -631,6 +672,9 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
             cross_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
         if threat.get("INSIDER_CATEGORY"):
             cross_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
+        mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
+        if mitre_ids:
+            cross_entry["properties"]["mitre_attack"] = mitre_ids
         results.append(cross_entry)
 
     return {

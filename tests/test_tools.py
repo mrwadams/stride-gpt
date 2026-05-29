@@ -213,7 +213,9 @@ class TestExecuteTool:
         result = execute_tool(sandbox_dir, tc)
         catalogue = json.loads(result)
         names = {entry["name"] for entry in catalogue}
-        assert names == {"genai", "agentic", "insider_threat"}
+        assert names == {
+            "genai", "agentic", "insider_threat", "mitre_enterprise", "mitre_atlas",
+        }
         # Each entry must carry the trigger condition — that's the whole
         # point of cheap discovery.
         for entry in catalogue:

@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from stride_gpt.core.report_utils import mitre_url
 from stride_gpt.core.schemas import AnalysisReport
 
 # STRIDE category → Tailwind badge classes. Six categories carry distinct
@@ -36,6 +37,12 @@ _BADGE_BASE = (
 _PILL_BASE = (
     "inline-flex items-center rounded-full ring-1 ring-inset ring-slate-300 "
     "px-2.5 py-0.5 text-xs font-mono text-slate-700"
+)
+# MITRE pills lean on a subtle sky tint so they're distinguishable from the
+# OWASP / Insider pills without competing with the dominant STRIDE badge.
+_MITRE_PILL_BASE = (
+    "inline-flex items-center rounded-full ring-1 ring-inset ring-sky-300 "
+    "bg-sky-50 px-2.5 py-0.5 text-xs font-mono text-sky-800 hover:bg-sky-100"
 )
 # Small uppercase captions inside cards — Scenario, Potential impact, etc.
 # Mono ties them to the CLI aesthetic without leaning hard on a "terminal" theme.
@@ -298,6 +305,7 @@ def _render_threat_card(threat: dict[str, Any], *, cross_cutting: bool) -> str:
     owasp_llm = threat.get("OWASP_LLM")
     owasp_asi = threat.get("OWASP_ASI")
     insider = threat.get("INSIDER_CATEGORY")
+    mitre = threat.get("MITRE_ATTACK")
     affected = threat.get("Affected Subsystems") or []
 
     badge_classes = _STRIDE_BADGE_CLASSES.get(threat_type, _DEFAULT_BADGE)
@@ -313,6 +321,7 @@ def _render_threat_card(threat: dict[str, Any], *, cross_cutting: bool) -> str:
         badges.append(
             f'<span class="{_PILL_BASE}">Insider: {html.escape(str(insider))}</span>'
         )
+    badges.extend(_render_mitre_pills(mitre))
 
     rows: list[str] = []
     if scenario:
@@ -334,6 +343,45 @@ def _render_threat_card(threat: dict[str, Any], *, cross_cutting: bool) -> str:
 {body}
             </dl>
           </article>"""
+
+
+def _render_mitre_pills(value: Any) -> list[str]:
+    """Render MITRE ATT&CK techniques as linked pills.
+
+    Accepts the canonical list-of-objects shape and the simpler list-of-
+    strings fallback. Each pill links to attack.mitre.org / atlas.mitre.org
+    when the ID matches a known prefix; otherwise it renders as plain text.
+    Returns an empty list if the field is absent / empty / malformed —
+    threat cards without MITRE mappings render exactly as before.
+    """
+    if not isinstance(value, list) or not value:
+        return []
+    pills: list[str] = []
+    for entry in value:
+        if isinstance(entry, dict):
+            tid = str(entry.get("id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+        elif isinstance(entry, str):
+            tid = entry.strip()
+            name = ""
+        else:
+            continue
+        if not tid:
+            continue
+        label = f"{tid} {name}" if name else tid
+        url = mitre_url(tid)
+        if url:
+            pills.append(
+                f'<a class="{_MITRE_PILL_BASE}" href="{html.escape(url)}" '
+                f'target="_blank" rel="noopener noreferrer" title="{html.escape(label)}">'
+                f'{html.escape(tid)}</a>'
+            )
+        else:
+            pills.append(
+                f'<span class="{_MITRE_PILL_BASE}" title="{html.escape(label)}">'
+                f'{html.escape(tid)}</span>'
+            )
+    return pills
 
 
 def _dl_row(label: str, value_html: str) -> str:

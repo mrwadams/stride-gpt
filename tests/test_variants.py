@@ -89,6 +89,49 @@ class TestLoadReference:
         text = load_reference("insider_threat")
         assert "INSIDER_CATEGORY" in text
 
+    def test_mitre_enterprise_card_has_core_techniques(self):
+        """A handful of canonical app-security techniques must be present —
+        if the catalog drops these, the LLM has nothing real to anchor on."""
+        text = load_reference("mitre_enterprise")
+        for tid in ("T1190", "T1078", "T1059", "T1110", "T1041", "T1499"):
+            assert tid in text, f"missing {tid} in mitre_enterprise"
+
+    def test_mitre_enterprise_card_specifies_schema_addition(self):
+        text = load_reference("mitre_enterprise")
+        assert "MITRE_ATTACK" in text
+
+    def test_mitre_enterprise_card_pairs_ids_with_names(self):
+        """Every listed ID must sit next to its canonical name. The whole
+        anti-hallucination argument relies on the model seeing the right
+        (ID, name) pair in this card."""
+        text = load_reference("mitre_enterprise")
+        # Spot-check a few well-known pairings.
+        assert "T1190" in text and "Exploit Public-Facing Application" in text
+        assert "T1078" in text and "Valid Accounts" in text
+        assert "T1499" in text and "Endpoint Denial of Service" in text
+
+    def test_mitre_atlas_card_has_llm_techniques(self):
+        text = load_reference("mitre_atlas")
+        for tid in ("AML.T0051", "AML.T0054", "AML.T0024", "AML.T0056", "AML.T0029"):
+            assert tid in text, f"missing {tid} in mitre_atlas"
+
+    def test_mitre_atlas_card_specifies_schema_addition(self):
+        text = load_reference("mitre_atlas")
+        assert "MITRE_ATTACK" in text
+
+    def test_mitre_atlas_card_names_match_ids(self):
+        text = load_reference("mitre_atlas")
+        assert "AML.T0051" in text and "LLM Prompt Injection" in text
+        assert "AML.T0054" in text and "LLM Jailbreak" in text
+
+    def test_mitre_cards_enforce_no_invention_rule(self):
+        """Both cards must instruct the model to use only listed IDs — the
+        whole feature pivots on this rule. Phrasing may vary; we check the
+        intent fragments rather than an exact string."""
+        for name in ("mitre_enterprise", "mitre_atlas"):
+            text = load_reference(name).lower()
+            assert "do not invent" in text, f"{name} missing anti-invention rule"
+
     def test_unknown_card_returns_error_message(self):
         # The agent receives this string as a tool result; it must not raise.
         result = load_reference("nope")
@@ -99,12 +142,14 @@ class TestLoadReference:
         result = load_reference("nope")
         assert "genai" in result
         assert "agentic" in result
+        assert "mitre_enterprise" in result
+        assert "mitre_atlas" in result
 
     def test_body_excludes_frontmatter(self):
         """Frontmatter is metadata, not card content. If it leaked into the
         body, the legacy single-shot prompt would carry YAML headers into the
         LLM context."""
-        for name in ("genai", "agentic", "insider_threat"):
+        for name in ("genai", "agentic", "insider_threat", "mitre_enterprise", "mitre_atlas"):
             body = load_reference(name)
             assert not body.startswith("---"), f"{name} body starts with frontmatter"
             # Body must start with the card's own H1.
@@ -115,7 +160,9 @@ class TestListReferences:
     def test_lists_all_cards(self):
         catalogue = list_references()
         names = {entry["name"] for entry in catalogue}
-        assert names == {"genai", "agentic", "insider_threat"}
+        assert names == {
+            "genai", "agentic", "insider_threat", "mitre_enterprise", "mitre_atlas",
+        }
 
     def test_entries_carry_trigger_metadata(self):
         """Each entry must describe when it applies and what fields it adds
@@ -129,6 +176,15 @@ class TestListReferences:
     def test_insider_threat_adds_expected_fields(self):
         entry = next(e for e in list_references() if e["name"] == "insider_threat")
         assert "INSIDER_CATEGORY" in entry["adds_fields"]
+
+    def test_mitre_cards_share_attack_field(self):
+        """Both MITRE cards contribute to the same MITRE_ATTACK field — the
+        agent merges Enterprise + ATLAS techniques into a single list per
+        threat. Surfacing them as the same field via list_references is what
+        makes the agent's prompt-building consistent."""
+        for name in ("mitre_enterprise", "mitre_atlas"):
+            entry = next(e for e in list_references() if e["name"] == name)
+            assert "MITRE_ATTACK" in entry["adds_fields"]
 
 
 class TestCoerceAppType:
