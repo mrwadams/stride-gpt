@@ -117,7 +117,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Build Docker image
-        run: docker build -t stride-gpt:${{ github.sha }} .
+        run: docker build -f Dockerfile.ui -t stride-gpt:${{ github.sha }} .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
