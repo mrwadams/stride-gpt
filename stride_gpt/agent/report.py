@@ -136,6 +136,33 @@ def render_json(report: AnalysisReport) -> dict[str, Any]:
     }
 
 
+# SARIF message bodies surface in code-scanning UIs as plain text — bound the
+# length so a 50 KB LLM hallucination can't bloat an upload.
+_SARIF_MESSAGE_MAX = 5000
+
+
+def _sarif_text(value: Any) -> str:
+    """Coerce an LLM value to a length-bounded string for a SARIF message."""
+    text = "" if value is None else str(value)
+    if len(text) > _SARIF_MESSAGE_MAX:
+        return text[:_SARIF_MESSAGE_MAX] + "…[truncated]"
+    return text
+
+
+def _make_sarif_rule_id(threat_type: str) -> str:
+    """Build a SARIF ``ruleId`` from an LLM-supplied threat type.
+
+    SARIF consumers (GitHub Code Scanning included) treat the ruleId as a
+    stable identifier — strip to ``[A-Z0-9_]`` so an LLM can't smuggle
+    control characters, slashes, or markup into it. Bound to 64 chars.
+    """
+    raw = ("" if threat_type is None else str(threat_type)).upper()
+    cleaned = re.sub(r"[^A-Z0-9_]+", "_", raw).strip("_")
+    if not cleaned:
+        cleaned = "UNKNOWN"
+    return "STRIDE/" + cleaned[:64]
+
+
 def render_sarif(report: AnalysisReport) -> dict[str, Any]:
     """Render an AnalysisReport as SARIF 2.1.0 format.
 
@@ -147,7 +174,7 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
     rule_ids: set[str] = set()
 
     def _make_rule_id(threat_type: str) -> str:
-        return "STRIDE/" + threat_type.upper().replace(" ", "_")
+        return _make_sarif_rule_id(threat_type)
 
     # Process per-subsystem threats
     for finding in report.findings:
@@ -155,20 +182,23 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
             threat_type = threat.get("Threat Type", "Unknown")
             rule_id = _make_rule_id(threat_type)
 
+            safe_threat_type = _sarif_text(threat_type)[:200]
             if rule_id not in rule_ids:
                 rule_ids.add(rule_id)
                 rules.append({
                     "id": rule_id,
-                    "name": threat_type,
-                    "shortDescription": {"text": f"STRIDE: {threat_type}"},
+                    "name": safe_threat_type,
+                    "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
                     "helpUri": "https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats",
                 })
 
+            scenario_txt = _sarif_text(threat.get("Scenario", ""))
+            impact_txt = _sarif_text(threat.get("Potential Impact", ""))
             result_entry: dict[str, Any] = {
                 "ruleId": rule_id,
                 "level": "warning",
                 "message": {
-                    "text": f"{threat.get('Scenario', '')}\n\nPotential Impact: {threat.get('Potential Impact', '')}",
+                    "text": f"{scenario_txt}\n\nPotential Impact: {impact_txt}",
                 },
                 "properties": {
                     "subsystem": finding.subsystem,
@@ -199,19 +229,22 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
         threat_type = threat.get("Threat Type", "Unknown")
         rule_id = _make_rule_id(threat_type)
 
+        safe_threat_type = _sarif_text(threat_type)[:200]
         if rule_id not in rule_ids:
             rule_ids.add(rule_id)
             rules.append({
                 "id": rule_id,
-                "name": threat_type,
-                "shortDescription": {"text": f"STRIDE: {threat_type}"},
+                "name": safe_threat_type,
+                "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
             })
 
+        scenario_txt = _sarif_text(threat.get("Scenario", ""))
+        impact_txt = _sarif_text(threat.get("Potential Impact", ""))
         cross_entry: dict[str, Any] = {
             "ruleId": rule_id,
             "level": "warning",
             "message": {
-                "text": f"[Cross-cutting] {threat.get('Scenario', '')}\n\nPotential Impact: {threat.get('Potential Impact', '')}",
+                "text": f"[Cross-cutting] {scenario_txt}\n\nPotential Impact: {impact_txt}",
             },
             "properties": {
                 "subsystem": "cross-cutting",
@@ -530,28 +563,28 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     rule_ids: set[str] = set()
 
-    def _make_rule_id(threat_type: str) -> str:
-        return "STRIDE/" + threat_type.upper().replace(" ", "_")
-
     for sub in data.get("subsystems", []):
         files = sub.get("files_analyzed", [])
         for threat in sub.get("threats", []):
             threat_type = threat.get("Threat Type", "Unknown")
-            rule_id = _make_rule_id(threat_type)
+            rule_id = _make_sarif_rule_id(threat_type)
+            safe_threat_type = _sarif_text(threat_type)[:200]
 
             if rule_id not in rule_ids:
                 rule_ids.add(rule_id)
                 rules.append({
                     "id": rule_id,
-                    "name": threat_type,
-                    "shortDescription": {"text": f"STRIDE: {threat_type}"},
+                    "name": safe_threat_type,
+                    "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
                 })
 
+            scenario_txt = _sarif_text(threat.get("Scenario", ""))
+            impact_txt = _sarif_text(threat.get("Potential Impact", ""))
             result_entry: dict[str, Any] = {
                 "ruleId": rule_id,
                 "level": "warning",
                 "message": {
-                    "text": f"{threat.get('Scenario', '')}\n\nPotential Impact: {threat.get('Potential Impact', '')}",
+                    "text": f"{scenario_txt}\n\nPotential Impact: {impact_txt}",
                 },
                 "properties": {"subsystem": sub["name"]},
             }
@@ -570,19 +603,22 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
 
     for threat in data.get("cross_cutting_threats", []):
         threat_type = threat.get("Threat Type", "Unknown")
-        rule_id = _make_rule_id(threat_type)
+        rule_id = _make_sarif_rule_id(threat_type)
+        safe_threat_type = _sarif_text(threat_type)[:200]
         if rule_id not in rule_ids:
             rule_ids.add(rule_id)
             rules.append({
                 "id": rule_id,
-                "name": threat_type,
-                "shortDescription": {"text": f"STRIDE: {threat_type}"},
+                "name": safe_threat_type,
+                "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
             })
+        scenario_txt = _sarif_text(threat.get("Scenario", ""))
+        impact_txt = _sarif_text(threat.get("Potential Impact", ""))
         cross_entry: dict[str, Any] = {
             "ruleId": rule_id,
             "level": "warning",
             "message": {
-                "text": f"[Cross-cutting] {threat.get('Scenario', '')}\n\nPotential Impact: {threat.get('Potential Impact', '')}",
+                "text": f"[Cross-cutting] {scenario_txt}\n\nPotential Impact: {impact_txt}",
             },
             "properties": {
                 "subsystem": "cross-cutting",

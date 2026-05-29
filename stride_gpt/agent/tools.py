@@ -20,6 +20,18 @@ MAX_GREP_RESULTS = 20
 MAX_SEARCH_RESULTS = 50
 MAX_DIR_ENTRIES = 200
 
+# Caps for LLM-supplied grep patterns. The agent only needs short, common
+# patterns; anything longer is much more likely to be a ReDoS attempt than a
+# legitimate search. Per-line truncation bounds input so simple polynomial
+# patterns can't explode either.
+MAX_GREP_PATTERN_LEN = 200
+MAX_GREP_LINE_LEN = 1000
+
+# Heuristic for catastrophic backtracking: a quantified inner group followed
+# by an outer quantifier — e.g. ``(a+)+``, ``(\w*)+``, ``([0-9]+)*``. Catches
+# the textbook ReDoS shape without blocking ordinary patterns like ``(foo)+``.
+_NESTED_QUANTIFIER_RE = re.compile(r"\([^)]*[+*?{][^)]*\)\s*[+*]")
+
 # Directories to skip during search/grep
 SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv", ".env",
@@ -38,7 +50,9 @@ def _resolve_safe_path(root: Path, user_path: str) -> Path:
     cleaned = user_path.lstrip("/")
     resolved = (root / cleaned).resolve()
     root_resolved = root.resolve()
-    if not str(resolved).startswith(str(root_resolved)):
+    # is_relative_to avoids the classic startswith() prefix bug where
+    # `/tmp/project` would falsely match `/tmp/project_secrets/...`.
+    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
         raise ValueError(f"Path traversal denied: {user_path}")
     return resolved
 
@@ -138,9 +152,28 @@ def list_references() -> str:
 def grep_content(
     root: Path, pattern: str, path: str = ".", max_results: int = MAX_GREP_RESULTS
 ) -> str:
-    """Search file contents for a regex pattern. Returns matches with context."""
+    """Search file contents for a regex pattern. Returns matches with context.
+
+    LLM-supplied patterns can trigger catastrophic backtracking, hanging the
+    agent loop. Patterns longer than ``MAX_GREP_PATTERN_LEN`` or containing a
+    nested-quantifier ReDoS shape are rejected; each line is truncated to
+    ``MAX_GREP_LINE_LEN`` before matching to bound input for polynomial
+    patterns that slip past the heuristic.
+    """
     resolved = _resolve_safe_path(root, path)
     root_resolved = root.resolve()
+
+    if len(pattern) > MAX_GREP_PATTERN_LEN:
+        return (
+            f"Error: regex pattern too long ({len(pattern)} > "
+            f"{MAX_GREP_PATTERN_LEN}). Use a simpler pattern."
+        )
+    if _NESTED_QUANTIFIER_RE.search(pattern):
+        return (
+            "Error: regex pattern uses a nested-quantifier shape "
+            "(e.g. `(a+)+`) that risks catastrophic backtracking. "
+            "Rewrite without quantified groups inside quantified groups."
+        )
     try:
         compiled = re.compile(pattern, re.IGNORECASE)
     except re.error as e:
@@ -167,7 +200,9 @@ def grep_content(
             except (OSError, UnicodeDecodeError):
                 continue
             for i, line in enumerate(text.splitlines(), 1):
-                if compiled.search(line):
+                # Truncate to bound the input the regex engine has to walk.
+                search_line = line if len(line) <= MAX_GREP_LINE_LEN else line[:MAX_GREP_LINE_LEN]
+                if compiled.search(search_line):
                     rel = str(full.relative_to(root_resolved))
                     results.append({"file": rel, "line": i, "content": line.strip()[:200]})
                     if len(results) >= max_results:
