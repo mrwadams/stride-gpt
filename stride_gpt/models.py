@@ -189,12 +189,20 @@ MODELS: list[ModelInfo] = [
         help_text="Claude Sonnet 4.6 offers the best balance of performance and efficiency.",
     ),
     ModelInfo(
+        model_id="claude-opus-4-8",
+        provider_key="Anthropic API",
+        default_tokens=64000,
+        max_tokens=200000,
+        supports_thinking=True,
+        help_text="Claude Opus 4.8 is the most capable Claude model.",
+    ),
+    ModelInfo(
         model_id="claude-opus-4-7",
         provider_key="Anthropic API",
         default_tokens=64000,
         max_tokens=200000,
         supports_thinking=True,
-        help_text="Claude Opus 4.7 is the most capable Claude model.",
+        help_text="Claude Opus 4.7 is the previous-generation Opus, still available for users mid-engagement.",
     ),
     ModelInfo(
         model_id="claude-haiku-4-5-20251001",
