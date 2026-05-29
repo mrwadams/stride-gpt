@@ -11,7 +11,6 @@ if str(_REPO_ROOT) not in sys.path:
 
 import base64
 import html
-import json
 import os
 import re
 from collections import defaultdict
@@ -22,7 +21,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import tiktoken
 from dotenv import load_dotenv
-from github import Github
+from github import Github, GithubException
 from openai import OpenAI
 
 from attack_tree import (
@@ -412,18 +411,14 @@ def analyze_github_repo(repo_url):
         readme_file = repo.get_contents("README.md", ref=default_branch)
         readme_content = base64.b64decode(readme_file.content).decode()
         readme_tokens = estimate_tokens(readme_content, token_estimation_model)
-    except:
+    except GithubException:
         try:
             # Try lowercase readme.md as fallback
             readme_file = repo.get_contents("readme.md", ref=default_branch)
             readme_content = base64.b64decode(readme_file.content).decode()
             readme_tokens = estimate_tokens(readme_content, token_estimation_model)
-        except:
+        except GithubException:
             st.warning("No README.md found in the repository.")
-
-    # Calculate how many tokens we can use for code analysis
-    # Reserve at least 30% of the token limit for code analysis
-    max(int(analysis_token_limit * 0.3), analysis_token_limit - readme_tokens)
 
     # If README is too large, truncate it
     if readme_tokens > analysis_token_limit * 0.7:

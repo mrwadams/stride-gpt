@@ -85,7 +85,6 @@ class StrideCompleter(Completer):
         if cmd in PATH_COMMANDS and not last_token.startswith("-"):
             # Look back: is this still the first positional arg?
             tokens_before = parts[1:-1] if last_token else parts[1:]
-            non_flag_args = [t for t in tokens_before if not t.startswith("-")]
             # Skip flag values
             skip_next = False
             count = 0

@@ -13,7 +13,7 @@ from stride_gpt.core.report_utils import (
     threat_table_header,
     threat_table_row,
 )
-from stride_gpt.core.schemas import AnalysisReport, ModelPair, SubsystemFinding, ThreatModelOutput
+from stride_gpt.core.schemas import AnalysisReport, ModelPair, ThreatModelOutput
 
 
 def render_markdown(report: AnalysisReport) -> str:

@@ -13,10 +13,8 @@ from stride_gpt.agent.loop import (
     _strip_tool_artifacts,
     _summarize_for_analysis,
     _synthesize,
-    create_analysis_plan,
     run_analysis,
 )
-from stride_gpt.agent.progress import RichProgress
 from stride_gpt.core.schemas import (
     AnalysisPlan,
     LLMResponse,

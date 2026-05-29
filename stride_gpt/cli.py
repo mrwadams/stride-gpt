@@ -18,14 +18,13 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Confirm
 from rich.table import Table
 
 from stride_gpt.config import (
     config_to_model_pair,
     load_config,
     run_setup,
-    save_config,
     show_config,
 )
 
