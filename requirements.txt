@@ -5,7 +5,7 @@
 -r apps/web/requirements.txt
 
 # Snyk-pinned transitive deps (not directly imported)
-tornado>=6.5.5
+tornado>=6.5.6
 urllib3>=2.7.0
 anyio>=4.13.0
 zipp>=4.1.0
