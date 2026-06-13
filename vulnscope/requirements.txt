@@ -1,0 +1,8 @@
+# VulnScope dependencies (Python 3.11+).
+anthropic>=0.40
+typer>=0.15
+streamlit>=1.40
+python-dotenv>=1.0
+
+# Test-only (kept here for the single-image Docker build / CI convenience).
+pytest>=8.0

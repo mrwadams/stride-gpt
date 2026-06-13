@@ -1,0 +1,34 @@
+[
+  {
+    "id": "FINDING-001",
+    "title": "SQL injection in /api/users endpoint",
+    "severity": "HIGH",
+    "component": "UserService",
+    "description": "User-supplied id parameter is concatenated into a SQL query without parameterisation.",
+    "cwe": "CWE-89"
+  },
+  {
+    "id": "FINDING-002",
+    "title": "Missing authentication rate limiting on login",
+    "severity": "MEDIUM",
+    "component": "AuthService",
+    "description": "The login endpoint has no rate limiting, enabling credential stuffing and brute-force attacks.",
+    "cwe": "CWE-287"
+  },
+  {
+    "id": "FINDING-003",
+    "title": "Sensitive payment data exposed in API response",
+    "severity": "MEDIUM",
+    "component": "PaymentService",
+    "description": "Full card metadata is returned in the transaction status response.",
+    "cwe": "CWE-200"
+  },
+  {
+    "id": "FINDING-017",
+    "title": "Log injection via unsanitised user input",
+    "severity": "LOW",
+    "component": "LoggingService",
+    "description": "Untrusted input is written to logs without sanitisation.",
+    "cwe": "CWE-117"
+  }
+]

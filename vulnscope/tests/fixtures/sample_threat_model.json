@@ -1,0 +1,68 @@
+{
+  "application_name": "PaymentAPI",
+  "components": [
+    {
+      "name": "UserService",
+      "description": "Handles user profiles and PII, sits behind the API gateway in the DMZ.",
+      "trust_zone": "dmz"
+    },
+    {
+      "name": "AuthService",
+      "description": "External-facing authentication and session issuance.",
+      "trust_zone": "external"
+    },
+    {
+      "name": "PaymentService",
+      "description": "Processes card payments in the DMZ.",
+      "trust_zone": "dmz"
+    },
+    {
+      "name": "InternalCache",
+      "description": "Internal Redis cache, not reachable from outside.",
+      "trust_zone": "internal"
+    }
+  ],
+  "data_flows": [
+    {
+      "from": "UserService",
+      "to": "Database",
+      "data_types": ["PII", "credentials"],
+      "crosses_trust_boundary": true
+    },
+    {
+      "from": "AuthService",
+      "to": "UserService",
+      "data_types": ["session_token"],
+      "crosses_trust_boundary": true
+    },
+    {
+      "from": "PaymentService",
+      "to": "InternalCache",
+      "data_types": ["transaction_id"],
+      "crosses_trust_boundary": false
+    }
+  ],
+  "threats": [
+    {
+      "id": "TM-014",
+      "stride_category": "Tampering",
+      "component": "UserService",
+      "description": "Unauthorised data modification via input injection on the user API.",
+      "dread_score": 7.2
+    },
+    {
+      "id": "TM-008",
+      "stride_category": "Spoofing",
+      "component": "AuthService",
+      "description": "Credential stuffing / brute force against the login endpoint.",
+      "dread_score": 6.5
+    },
+    {
+      "id": "TM-021",
+      "stride_category": "Information Disclosure",
+      "component": "UserService",
+      "description": "PII leakage through verbose error responses.",
+      "dread_score": 5.0
+    }
+  ]
+}

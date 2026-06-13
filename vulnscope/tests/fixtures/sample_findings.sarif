@@ -1,0 +1,139 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "ExampleScanner",
+          "informationUri": "https://example.com/scanner",
+          "version": "1.0.0",
+          "rules": [
+            {
+              "id": "sql-injection",
+              "name": "SqlInjection",
+              "shortDescription": { "text": "SQL injection in /api/users endpoint" },
+              "fullDescription": {
+                "text": "User input concatenated into a SQL query without parameterisation."
+              },
+              "defaultConfiguration": { "level": "error" },
+              "properties": {
+                "tags": ["security", "external/cwe/cwe-89"],
+                "security-severity": "8.6"
+              },
+              "relationships": [
+                {
+                  "target": { "id": "CWE-89", "toolComponent": { "name": "CWE" } }
+                }
+              ]
+            },
+            {
+              "id": "missing-rate-limit",
+              "name": "MissingAuthRateLimit",
+              "shortDescription": { "text": "Missing authentication rate limiting on login" },
+              "defaultConfiguration": { "level": "warning" },
+              "properties": {
+                "tags": ["security", "external/cwe/cwe-287"],
+                "security-severity": "5.3"
+              }
+            },
+            {
+              "id": "sensitive-data-exposure",
+              "name": "SensitiveDataExposure",
+              "shortDescription": { "text": "Sensitive payment data exposed in API response" },
+              "defaultConfiguration": { "level": "warning" },
+              "properties": {
+                "tags": ["security", "external/cwe/cwe-200"],
+                "security-severity": "6.1"
+              }
+            },
+            {
+              "id": "log-injection",
+              "name": "LogInjection",
+              "shortDescription": { "text": "Log injection via unsanitised user input" },
+              "defaultConfiguration": { "level": "note" },
+              "properties": {
+                "tags": ["security", "external/cwe/cwe-117"],
+                "security-severity": "3.1"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "sql-injection",
+          "level": "error",
+          "message": {
+            "text": "User-supplied id parameter is concatenated into a SQL query without parameterisation."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/user_service/api.py" },
+                "region": { "startLine": 42 }
+              },
+              "logicalLocations": [
+                { "name": "get_user", "fullyQualifiedName": "UserService" }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "missing-rate-limit",
+          "level": "warning",
+          "message": {
+            "text": "The login endpoint has no rate limiting, enabling credential stuffing and brute-force attacks."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/auth_service/login.py" },
+                "region": { "startLine": 88 }
+              },
+              "logicalLocations": [
+                { "name": "login", "fullyQualifiedName": "AuthService" }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "sensitive-data-exposure",
+          "level": "warning",
+          "message": {
+            "text": "Full card metadata is returned in the transaction status response."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/payment_service/status.py" },
+                "region": { "startLine": 15 }
+              },
+              "logicalLocations": [
+                { "name": "transaction_status", "fullyQualifiedName": "PaymentService" }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "log-injection",
+          "level": "note",
+          "message": {
+            "text": "Untrusted input is written to logs without sanitisation."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/logging_service/writer.py" },
+                "region": { "startLine": 7 }
+              },
+              "logicalLocations": [
+                { "name": "write_log", "fullyQualifiedName": "LoggingService" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

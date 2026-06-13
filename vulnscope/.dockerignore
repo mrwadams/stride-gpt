@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.env
+vulnscope_report_*.json
+vulnscope_report_*.md
