@@ -63,13 +63,15 @@ class Config:
 
     model: str = DEFAULT_MODEL
     api_key: str | None = None
+    # Custom endpoint for local/self-hosted providers (Ollama, LM Studio).
+    api_base: str | None = None
     weights: Weights = Weights()
     # Per-call output token cap for the scoring/synthesis prompts. Scoring
     # responses are small JSON blocks; the synthesis is <=250 words.
     max_tokens: int = 1500
     # When True, score with the deterministic heuristic instead of the LLM.
-    # Set automatically when no API key is available so the tool stays usable
-    # (and demonstrable) without credentials.
+    # Also selected automatically when no credentials can be resolved, so the
+    # tool stays usable (and demonstrable) without an API key.
     offline: bool = False
 
     @classmethod
@@ -77,9 +79,14 @@ class Config:
         """Build a Config from environment variables, applying explicit overrides.
 
         Recognised variables:
-          ANTHROPIC_API_KEY, VULNSCOPE_MODEL, VULNSCOPE_ASSET_WEIGHT,
-          VULNSCOPE_ALIGN_WEIGHT, VULNSCOPE_BOUNDARY_WEIGHT,
-          VULNSCOPE_STRIDE_WEIGHT.
+          VULNSCOPE_MODEL, VULNSCOPE_API_KEY, VULNSCOPE_API_BASE,
+          VULNSCOPE_ASSET_WEIGHT, VULNSCOPE_ALIGN_WEIGHT,
+          VULNSCOPE_BOUNDARY_WEIGHT, VULNSCOPE_STRIDE_WEIGHT.
+
+        The per-provider API key (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) is
+        resolved later from the chosen model's provider — see
+        ``providers.resolve_api_key`` — so it is intentionally not read here.
+        ``VULNSCOPE_API_KEY`` is an optional cross-provider override.
 
         Any keyword in ``overrides`` (e.g. from CLI flags) takes precedence
         over the environment. ``None`` overrides are ignored so callers can
@@ -95,7 +102,8 @@ class Config:
         )
         config = cls(
             model=os.environ.get("VULNSCOPE_MODEL", DEFAULT_MODEL),
-            api_key=os.environ.get("ANTHROPIC_API_KEY") or None,
+            api_key=os.environ.get("VULNSCOPE_API_KEY") or None,
+            api_base=os.environ.get("VULNSCOPE_API_BASE") or None,
             weights=weights,
         )
 

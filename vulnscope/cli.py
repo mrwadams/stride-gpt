@@ -57,11 +57,27 @@ def main(
         ),
     ] = None,
     model: Annotated[
-        Optional[str], typer.Option(help="Anthropic model id (default claude-sonnet-4-6).")
+        Optional[str],
+        typer.Option(
+            help="LiteLLM model id (default claude-sonnet-4-6). Use a provider "
+            "prefix for non-Anthropic models, e.g. openai/gpt-5.4, "
+            "gemini/gemini-3.1-pro-preview, groq/llama-3.3-70b-versatile, "
+            "mistral/mistral-large-latest, or ollama/llama3.3 (with --api-base)."
+        ),
     ] = None,
     api_key: Annotated[
         Optional[str],
-        typer.Option(help="Anthropic API key. Falls back to ANTHROPIC_API_KEY."),
+        typer.Option(
+            help="API key. Defaults to the provider's env var "
+            "(ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, "
+            "MISTRAL_API_KEY)."
+        ),
+    ] = None,
+    api_base: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Custom endpoint for self-hosted models (Ollama, LM Studio)."
+        ),
     ] = None,
     offline: Annotated[
         bool,
@@ -99,6 +115,7 @@ def main(
     config = Config.from_env(
         model=model,
         api_key=api_key,
+        api_base=api_base,
         offline=offline or None,
         weights=weights,
     )
@@ -122,15 +139,19 @@ def main(
         typer.secho(f"Error: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(1) from exc
 
-    mode = "offline heuristic" if client is None else f"LLM ({config.model})"
+    from vulnscope.providers import infer_provider, normalise_model
+
+    mode = "offline heuristic" if client is None else f"LLM ({normalise_model(config.model)})"
     typer.echo(
         f"Scoring {len(finding_list)} finding(s) against '{tm.application_name}' "
         f"using {mode}..."
     )
     if client is None and not offline:
+        provider = infer_provider(config.model) or "the chosen provider"
         typer.secho(
-            "  (no API key found — using the offline heuristic; set "
-            "ANTHROPIC_API_KEY for LLM scoring, or pass --offline to silence this.)",
+            f"  (no API key found for {provider} — using the offline heuristic; set "
+            f"the provider's API key for LLM scoring, or pass --offline to silence "
+            f"this.)",
             fg=typer.colors.YELLOW,
         )
 

@@ -30,12 +30,21 @@ class TestWeights:
 class TestConfigFromEnv:
     def test_reads_env(self, monkeypatch):
         monkeypatch.setenv("VULNSCOPE_MODEL", "claude-test")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("VULNSCOPE_API_KEY", "sk-test")
         monkeypatch.setenv("VULNSCOPE_ASSET_WEIGHT", "0.5")
         config = Config.from_env()
         assert config.model == "claude-test"
         assert config.api_key == "sk-test"
         assert config.weights.asset_criticality == 0.5
+
+    def test_provider_key_not_bound_directly(self, monkeypatch):
+        # Per-provider keys are resolved later (by the chosen model's provider),
+        # not bound onto Config.api_key — so a stray ANTHROPIC_API_KEY isn't
+        # forwarded to, say, an OpenAI model.
+        monkeypatch.delenv("VULNSCOPE_API_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-anthropic")
+        config = Config.from_env()
+        assert config.api_key is None
 
     def test_overrides_take_precedence(self, monkeypatch):
         monkeypatch.setenv("VULNSCOPE_MODEL", "from-env")

@@ -1,13 +1,23 @@
 """LLM client abstraction.
 
 The scorer depends only on the small :class:`LLMClient` protocol, so tests can
-inject a fake and the offline heuristic can bypass the network entirely. v1
-ships a single concrete client: Claude via the Anthropic SDK.
+inject a fake and the offline heuristic can bypass the network entirely.
+
+Live scoring is routed through LiteLLM — the same multi-provider pattern
+STRIDE-GPT uses — so VulnScope supports Anthropic, OpenAI, Google Gemini, Groq,
+Mistral, and self-hosted models via Ollama or an OpenAI-compatible endpoint
+(LM Studio), all selected through the model string. See ``providers.py``.
 """
 
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
+
+from vulnscope.providers import (
+    GEMINI_SAFETY_SETTINGS,
+    is_gemini,
+    normalise_model,
+)
 
 
 @runtime_checkable
@@ -18,46 +28,66 @@ class LLMClient(Protocol):
         ...
 
 
-class AnthropicClient:
-    """Claude via the Anthropic SDK.
+class LiteLLMClient:
+    """Multi-provider LLM client backed by LiteLLM.
 
-    The ``anthropic`` package is imported lazily so the rest of VulnScope (and
-    the test suite) does not require it to be installed.
+    ``litellm`` is imported lazily so the rest of VulnScope (and the test
+    suite) does not require it to be installed.
     """
 
     def __init__(
         self,
         model: str,
-        api_key: str | None,
         *,
+        api_key: str | None = None,
+        api_base: str | None = None,
         max_tokens: int = 1500,
         timeout: float = 120.0,
     ) -> None:
         try:
-            import anthropic
+            import litellm
         except ImportError as exc:  # pragma: no cover - import guard
             raise RuntimeError(
-                "The 'anthropic' package is required for live scoring. Install "
-                "it (pip install anthropic) or run with --offline."
+                "The 'litellm' package is required for live scoring. Install it "
+                "(pip install litellm) or run with --offline."
             ) from exc
 
-        if not api_key:
-            raise RuntimeError(
-                "No Anthropic API key. Set ANTHROPIC_API_KEY, pass --api-key, or "
-                "run with --offline."
-            )
+        litellm.suppress_debug_info = True
+        # Silently drop params a given provider rejects (e.g. max_tokens vs
+        # max_completion_tokens on OpenAI reasoning models, temperature limits)
+        # so one client works across every provider without per-model branching.
+        litellm.drop_params = True
 
-        self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
-        self._model = model
+        self._litellm = litellm
+        self._model = normalise_model(model)
+        self._api_key = api_key
+        self._api_base = api_base
         self._max_tokens = max_tokens
+        self._timeout = timeout
+
+    @property
+    def model(self) -> str:
+        return self._model
 
     def complete(self, system: str, user: str) -> str:
-        message = self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        return "".join(
-            block.text for block in message.content if getattr(block, "type", "") == "text"
-        )
+        kwargs: dict = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": self._max_tokens,
+            # Retry transient errors (429s, timeouts, 5xx); LiteLLM delegates to
+            # the provider SDK's exponential backoff.
+            "num_retries": 3,
+            "timeout": self._timeout,
+        }
+        if self._api_key:
+            kwargs["api_key"] = self._api_key
+        if self._api_base:
+            kwargs["api_base"] = self._api_base
+        if is_gemini(self._model):
+            kwargs["safety_settings"] = GEMINI_SAFETY_SETTINGS
+
+        response = self._litellm.completion(**kwargs)
+        return response.choices[0].message.content or ""

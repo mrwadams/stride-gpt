@@ -46,16 +46,29 @@ st.caption(
 with st.sidebar:
     st.header("Configuration")
     env = Config.from_env()
-    model = st.text_input("Anthropic model", value=env.model)
+    model = st.text_input(
+        "Model",
+        value=env.model,
+        help="LiteLLM model id. Use a provider prefix for non-Anthropic models, "
+        "e.g. openai/gpt-5.4, gemini/gemini-3.1-pro-preview, "
+        "groq/llama-3.3-70b-versatile, mistral/mistral-large-latest, or "
+        "ollama/llama3.3 (with an endpoint below).",
+    )
     api_key = st.text_input(
-        "Anthropic API key",
+        "API key",
         value=env.api_key or "",
         type="password",
-        help="Leave blank to use the offline heuristic (no API calls).",
+        help="Defaults to the provider's env var (ANTHROPIC_API_KEY, "
+        "OPENAI_API_KEY, ...). Leave blank to use the offline heuristic.",
+    )
+    api_base = st.text_input(
+        "API base URL (optional)",
+        value=env.api_base or "",
+        help="Custom endpoint for self-hosted models (Ollama, LM Studio).",
     )
     offline = st.checkbox(
         "Offline mode (deterministic heuristic, no API calls)",
-        value=not bool(env.api_key),
+        value=False,
     )
 
     st.subheader("Scoring weights")
@@ -83,6 +96,7 @@ if run and tm_file and findings_file:
     config = Config(
         model=model,
         api_key=api_key or None,
+        api_base=api_base or None,
         offline=offline,
         weights=Weights(asset, align, boundary, stride),
     )

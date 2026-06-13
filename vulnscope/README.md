@@ -14,6 +14,10 @@ It is a companion to [STRIDE-GPT](https://github.com/mrwadams/stride-gpt) — po
 it at a STRIDE-GPT JSON export and a scanner's SARIF output, and it ranks the
 findings by how much they matter to *your* architecture.
 
+Scoring is multi-provider via LiteLLM (Anthropic, OpenAI, Google Gemini, Groq,
+Mistral, and self-hosted Llama through Ollama or LM Studio) — the same pattern
+STRIDE-GPT uses — with a deterministic offline heuristic when no key is set.
+
 ---
 
 ## How it works
@@ -47,10 +51,11 @@ pip install -r requirements.txt
 
 Requires Python 3.11+.
 
-Set your Anthropic API key (or use `--offline`, below):
+Set the API key for whichever provider you'll use (or use `--offline`, below):
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=sk-ant-...     # default provider
+# or OPENAI_API_KEY / GEMINI_API_KEY / GROQ_API_KEY / MISTRAL_API_KEY
 ```
 
 ---
@@ -66,6 +71,18 @@ python cli.py --threat-model tm.json --findings results.json -o out/report
 
 # No API key? Use the deterministic offline heuristic.
 python cli.py -t tm.json -f results.sarif --offline
+
+# Pick a different provider via the model string (LiteLLM routing).
+python cli.py -t tm.json -f results.sarif --model openai/gpt-5.4
+python cli.py -t tm.json -f results.sarif --model gemini/gemini-3.1-pro-preview
+python cli.py -t tm.json -f results.sarif --model groq/llama-3.3-70b-versatile
+
+# Self-hosted Llama via Ollama (no API key needed).
+python cli.py -t tm.json -f results.sarif --model ollama/llama3.3
+
+# LM Studio / any OpenAI-compatible endpoint.
+python cli.py -t tm.json -f results.sarif \
+  --model openai/local-model --api-base http://localhost:1234/v1
 ```
 
 This writes two reports — `<prefix>.json` (machine-readable, CI/CD friendly) and
@@ -91,8 +108,9 @@ VulnScope — 42 findings processed against ThreatModel: PaymentAPI
 | `-t, --threat-model` | — | Threat model file (required) |
 | `-f, --findings` | — | Findings file (required) |
 | `-o, --output` | `vulnscope_report_<date>` | Output path prefix |
-| `--model` | `claude-sonnet-4-6` | Anthropic model id |
-| `--api-key` | `$ANTHROPIC_API_KEY` | API key |
+| `--model` | `claude-sonnet-4-6` | LiteLLM model id (prefix non-Anthropic models, e.g. `openai/gpt-5.4`) |
+| `--api-key` | provider env var | API key (else the provider's env var) |
+| `--api-base` | — | Custom endpoint for self-hosted models (Ollama, LM Studio) |
 | `--offline` | off | Score with the heuristic, no API calls |
 | `--asset-weight` / `--align-weight` / `--boundary-weight` / `--stride-weight` | 0.35 / 0.30 / 0.25 / 0.10 | Override scoring weights |
 
@@ -226,8 +244,10 @@ PY
 
 | Environment variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | Required for LLM scoring |
-| `VULNSCOPE_MODEL` | `claude-sonnet-4-6` | Default model |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `GROQ_API_KEY` / `MISTRAL_API_KEY` | — | Provider API key, resolved from the chosen model's provider |
+| `VULNSCOPE_MODEL` | `claude-sonnet-4-6` | Default model (LiteLLM id) |
+| `VULNSCOPE_API_KEY` | — | Optional cross-provider key override |
+| `VULNSCOPE_API_BASE` | — | Custom endpoint for self-hosted models |
 | `VULNSCOPE_ASSET_WEIGHT` | `0.35` | Asset criticality weight |
 | `VULNSCOPE_ALIGN_WEIGHT` | `0.30` | Threat alignment weight |
 | `VULNSCOPE_BOUNDARY_WEIGHT` | `0.25` | Trust boundary exposure weight |
@@ -259,10 +279,11 @@ pytest tests/
 ## Notes & roadmap
 
 - **v1.0 (this release):** CLI + Streamlit, STRIDE-GPT JSON & minimal-schema
-  threat models, SARIF & simple-JSON findings, Claude scoring (Anthropic SDK)
-  with an offline heuristic, JSON + markdown + console output, Docker.
-- **Planned (v1.1):** STRIDE-GPT markdown parsing; multi-provider LLM support
-  (OpenAI, Gemini, Ollama) using the same pattern as STRIDE-GPT/AttackGen.
+  threat models, SARIF & simple-JSON findings, multi-provider LLM scoring via
+  LiteLLM (Anthropic, OpenAI, Gemini, Groq, Mistral, Ollama, LM Studio) with an
+  offline heuristic, JSON + markdown + console output, Docker.
+- **Planned (v1.1):** STRIDE-GPT markdown parsing; surfacing per-provider model
+  pickers in the UI.
 
 SARIF is parsed with the standard library rather than a third-party reader: the
 subset we need (results, rules, locations, CWE taxa) is small and stable, and a

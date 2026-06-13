@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Callable
 
 from vulnscope.config import Config
-from vulnscope.llm import AnthropicClient, LLMClient
+from vulnscope.llm import LiteLLMClient, LLMClient
 from vulnscope.parsers.findings import Finding, parse_findings
 from vulnscope.parsers.threat_model import ThreatModel, parse_threat_model
+from vulnscope.providers import default_api_base, is_local, resolve_api_key
 from vulnscope.report import build_report
 from vulnscope.scorer import score_findings, synthesize_summary
 
@@ -17,12 +18,24 @@ def build_client(config: Config) -> LLMClient | None:
     """Return an LLM client, or None for offline/heuristic scoring.
 
     Offline mode is selected explicitly via ``config.offline`` or implicitly
-    when no API key is available.
+    when no usable credentials can be resolved for the chosen model's provider
+    (and it isn't a local endpoint).
     """
-    if config.offline or not config.api_key:
+    if config.offline:
         return None
-    return AnthropicClient(
-        config.model, config.api_key, max_tokens=config.max_tokens
+
+    api_base = default_api_base(config.model, config.api_base)
+    api_key = resolve_api_key(config.model, config.api_key)
+    if not api_key and not is_local(config.model, api_base):
+        # No key for a hosted provider and no local endpoint — fall back to the
+        # heuristic rather than failing.
+        return None
+
+    return LiteLLMClient(
+        config.model,
+        api_key=api_key,
+        api_base=api_base,
+        max_tokens=config.max_tokens,
     )
 
 
