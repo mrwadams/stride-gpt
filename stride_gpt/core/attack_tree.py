@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
-import re
 
 from stride_gpt.core.llm import call_llm
+from stride_gpt.core.mermaid_utils import (
+    clean_json_response,
+    clean_mermaid_syntax,
+    extract_mermaid_code,
+)
 from stride_gpt.core.prompts import (
     create_json_structure_prompt,
     create_reasoning_system_prompt,
@@ -13,6 +17,14 @@ from stride_gpt.core.prompts import (
 from stride_gpt.core.schemas import LLMConfig, LLMResponse
 
 from stride_gpt.models import model_uses_completion_tokens
+
+__all__ = [
+    "clean_json_response",
+    "clean_mermaid_syntax",
+    "convert_tree_to_mermaid",
+    "extract_mermaid_code",
+    "generate_attack_tree",
+]
 
 
 def generate_attack_tree(config: LLMConfig, prompt: str) -> tuple[str, LLMResponse]:
@@ -117,106 +129,6 @@ def convert_tree_to_mermaid(tree_data):
     return "\n".join(mermaid_lines)
 
 
-def clean_json_response(response_text):
-    """
-    Clean JSON response by removing any markdown code block markers and finding the JSON content.
-
-    Args:
-        response_text (str): The raw response text that might contain JSON
-
-    Returns:
-        str: Cleaned JSON string
-    """
-    # Remove markdown JSON code block if present
-    json_pattern = r"```json\s*(.*?)\s*```"
-    match = re.search(json_pattern, response_text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    # If no JSON code block, try to find content between any code blocks
-    code_pattern = r"```\s*(.*?)\s*```"
-    match = re.search(code_pattern, response_text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    # If no code blocks, return the original text
-    return response_text.strip()
-
-
-def extract_mermaid_code(text):
-    """
-    Extract the Mermaid diagram code from text that may contain additional content.
-    Looks for code between ```mermaid, ``` or just ``` tags, and extracts the graph content.
-    Also cleans and validates the Mermaid syntax.
-
-    Args:
-        text (str): The text containing the Mermaid code
-
-    Returns:
-        str: The cleaned Mermaid code, or the original text if no code block is found
-    """
-    # Try to find code block with explicit mermaid tag
-    mermaid_pattern = r"```mermaid\s*(graph[\s\S]*?)```"
-    match = re.search(mermaid_pattern, text, re.MULTILINE)
-
-    if not match:
-        # Try to find any code block containing graph definition
-        code_pattern = r"```\s*(graph[\s\S]*?)```"
-        match = re.search(code_pattern, text, re.MULTILINE)
-
-    code = match.group(1).strip() if match else text.strip()
-
-    # Only proceed if we have a graph definition
-    if not code.startswith("graph "):
-        if "graph " in code:
-            # Find the start of the graph definition
-            code = code[code.find("graph "):]
-        else:
-            return text
-
-    # Clean up common issues in Mermaid syntax
-    return clean_mermaid_syntax(code)
-
-
-def clean_mermaid_syntax(code):
-    """
-    Clean up common issues in Mermaid syntax.
-
-    Args:
-        code (str): The Mermaid code to clean
-
-    Returns:
-        str: The cleaned Mermaid code
-    """
-    # Ensure proper spacing around arrows
-    code = re.sub(r"(\w+|\]|\)|\})(-->|==>|-.->)(\w+|\[|\(|\{)", r"\1 \2 \3", code)
-
-    # Fix missing brackets around node labels
-    def fix_node_brackets(match):
-        node_id = match.group(1)
-        if not any(c in node_id for c in "[](){}"):
-            return f"{node_id}[{node_id}]"
-        return node_id
-
-    code = re.sub(r"(?:^|\s)(\w+)(?:\s|$)", fix_node_brackets, code)
-
-    # Ensure node IDs with spaces are properly quoted
-    def quote_node_labels(match):
-        label = match.group(1)
-        if " " in label and not label.startswith('"'):
-            return f'["{label}"]'
-        return f"[{label}]"
-
-    code = re.sub(r"\[(.*?)\]", quote_node_labels, code)
-
-    # Fix parentheses in node labels
-    def fix_parentheses(match):
-        label = match.group(1)
-        if "(" in label or ")" in label:
-            return f'["{label}"]'
-        return f"[{label}]"
-
-    code = re.sub(r"\[(.*?)\]", fix_parentheses, code)
-
-    # Ensure proper line endings
-    return code.replace("\r\n", "\n").strip()
+# clean_json_response, extract_mermaid_code, and clean_mermaid_syntax now
+# live in stride_gpt.core.mermaid_utils — re-exported above for callers that
+# still import them from this module.

@@ -61,6 +61,7 @@ def render_html(report: AnalysisReport) -> str:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "target": report.plan.target_path,
         "overview": report.plan.overall_description,
+        "data_flow_diagram": report.data_flow_diagram,
         "subsystems": [
             {
                 "name": f.subsystem,
@@ -86,6 +87,7 @@ def render_html_from_json(data: dict[str, Any]) -> str:
     target_name = Path(target).name or target or "(unknown target)"
     generated_at = _format_generated_at(data.get("generated_at", ""))
     overview = (data.get("overview") or "").strip()
+    dfd_mermaid = (data.get("data_flow_diagram") or "").strip()
     subsystems = data.get("subsystems") or []
     cross_cutting = data.get("cross_cutting_threats") or []
     metadata = data.get("metadata") or {}
@@ -105,6 +107,9 @@ def render_html_from_json(data: dict[str, Any]) -> str:
 
     if overview:
         parts.append(_render_overview(overview))
+
+    if dfd_mermaid:
+        parts.append(_render_dfd(dfd_mermaid))
 
     for sub in subsystems:
         parts.append(_render_subsystem(sub))
@@ -137,6 +142,10 @@ def _scaffold(*, target_name: str, body: str) -> str:
     <main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
 {body}
     </main>
+    <script type="module">
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+      mermaid.initialize({{ startOnLoad: true, securityLevel: 'strict' }});
+    </script>
   </body>
 </html>
 """
@@ -192,6 +201,21 @@ def _render_overview(overview: str) -> str:
     return f"""      <section id="overview" class="space-y-3">
         <h2 class="{_CAPTION}">Overview</h2>
         <p class="text-base leading-relaxed text-slate-800">{html.escape(overview)}</p>
+      </section>"""
+
+
+def _render_dfd(dfd_mermaid: str) -> str:
+    """Render the system-level Data Flow Diagram as a Mermaid block.
+
+    Escapes the diagram source — LLM-generated, so treat as untrusted markup
+    even though Mermaid would re-escape internally. The CDN-loaded Mermaid
+    runtime in the scaffold picks up `.mermaid` blocks on startup.
+    """
+    return f"""      <section id="data-flow-diagram" class="space-y-3">
+        <h2 class="{_CAPTION}">Data Flow Diagram</h2>
+        <div class="rounded-lg bg-white ring-1 ring-slate-200 p-4 overflow-auto">
+          <pre class="mermaid">{html.escape(dfd_mermaid)}</pre>
+        </div>
       </section>"""
 
 

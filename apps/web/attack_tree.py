@@ -8,7 +8,12 @@ from stride_gpt.core.schemas import LLMConfig
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(
-    app_type, authentication, internet_facing, sensitive_data, app_input
+    app_type,
+    authentication,
+    internet_facing,
+    sensitive_data,
+    app_input,
+    confirmed_dfd: str | None = None,
 ):
     prompt = f"""APPLICATION TYPE: {app_type}
 AUTHENTICATION METHODS: {authentication}
@@ -16,6 +21,10 @@ INTERNET FACING: {internet_facing}
 SENSITIVE DATA: {sensitive_data}
 APPLICATION DESCRIPTION: {app_input}
 """
+
+    if confirmed_dfd:
+        from stride_gpt.core.prompts import dfd_to_prompt_section
+        prompt += dfd_to_prompt_section(confirmed_dfd)
 
     # Add GenAI attack vectors for both Generative AI and Agentic AI applications
     if app_type in ["Generative AI application", "Agentic AI application"]:

@@ -37,6 +37,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - **MITRE ATT&CK & ATLAS mapping**: Threats are annotated with standardized adversary technique IDs (MITRE ATT&CK Enterprise for traditional infrastructure attacks, ATLAS for ML/LLM-specific attacks) — surfaced as columns in markdown, linked pills in HTML, and `mitre_attack` properties in SARIF
 - **Architectural pattern detection**: Automatically detects RAG pipelines, multi-agent systems, code execution environments, tool ecosystems, and more from application descriptions (inspired by [CSA MAESTRO](https://cloudsecurityalliance.org/blog/2025/02/06/agentic-ai-threat-modeling-framework-maestro))
 - Multi-modal: Use architecture diagrams, flowcharts, etc. as inputs for threat modelling across all supported vision-capable models
+- **Data Flow Diagrams**: Generate DFDs from your application description (or parse an uploaded DFD image), edit the Mermaid source live, and feed the confirmed diagram back into the Threat Model and Attack Tree prompts as the authoritative system model. CLI `/analyze` also emits a system-level DFD alongside its findings
 - Generates attack trees to enumerate possible attack paths
 - Suggests possible mitigations for identified threats
 - Supports DREAD risk scoring for identified threats
@@ -69,6 +70,10 @@ In January 2024 I gave a talk about STRIDE GPT at the [Open Security Summit](htt
 This video is an excellent resource for anyone interested in understanding how STRIDE GPT works and how it can be used to improve threat modelling.
 
 ## Changelog
+
+### Unreleased
+
+- **Data Flow Diagram support** (closes #56): New "Data Flow Diagram" tab in the Streamlit UI generates DFDs from the application description, parses uploaded DFD images via vision-capable models, and renders an editable Mermaid source pane with a live preview. Ticking *"Use this DFD for the threat model"* stores the confirmed diagram in session state and splices it into subsequent Threat Model and Attack Tree prompts as the authoritative system model — closing the description → DFD → review → refined threat model loop the issue asks for. The CLI's `/analyze` agent also produces a system-level DFD after synthesis, rendered as a Mermaid block in the markdown report, carried in the JSON `data_flow_diagram` field, and shown in the HTML view via a CDN-loaded Mermaid runtime. DFD generation is wrapped so a bad diagram never fails a good report.
 
 ### Version 0.17 (latest)
 

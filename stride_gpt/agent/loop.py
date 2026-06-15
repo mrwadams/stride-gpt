@@ -202,10 +202,24 @@ def run_analysis(
         llm_calls += 1
         progress.synthesis_done(len(cross_cutting))
 
+    # --- Phase 4: System-level DFD ---
+    # Optional pass — gives the report a visual map of components and trust
+    # boundaries. Wrapped in try/except so a bad DFD never nukes a good
+    # report. Skipped when no findings exist or the call budget is spent.
+    data_flow_diagram: str | None = None
+    if findings and (not max_llm_calls or llm_calls < max_llm_calls):
+        progress.status("Generating system-level Data Flow Diagram...")
+        try:
+            data_flow_diagram = _generate_system_dfd(models, plan, findings)
+            llm_calls += 1
+        except Exception:
+            data_flow_diagram = None
+
     report = AnalysisReport(
         plan=plan,
         findings=findings,
         cross_cutting_threats=cross_cutting,
+        data_flow_diagram=data_flow_diagram,
         metadata=_build_metadata(
             models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
             subsystems_analyzed=len(findings),
@@ -459,6 +473,49 @@ def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dic
     if data is None:
         return []
     return data.get("cross_cutting_threats", [])
+
+
+def _generate_system_dfd(
+    models: ModelPair, plan: AnalysisPlan, findings: list[SubsystemFinding]
+) -> str | None:
+    """Produce a system-level DFD in Mermaid form, or None on any failure.
+
+    Single architect-tier LLM call. The architect already saw the
+    cross-cutting synthesis; this gives it the same finding-level summary
+    plus the plan, and asks for a JSON DFD that we render to Mermaid via
+    the canonical converter.
+
+    DFD generation is auxiliary — never let it fail the whole report.
+    Callers wrap in try/except too as belt-and-braces.
+    """
+    from stride_gpt.core.dfd import generate_dfd
+    from stride_gpt.core.prompts import create_dfd_prompt
+
+    # Build a description that combines the plan overview with the per-
+    # subsystem context the agent actually surfaced. Files-analyzed lists
+    # are noisy and not useful here.
+    description_parts = [plan.overall_description, "", "Subsystems and files identified:"]
+    for sub in plan.subsystems:
+        description_parts.append(f"- {sub.name}: {sub.description}")
+
+    description_parts.append("")
+    description_parts.append("Subsystem threat findings (for context only):")
+    for finding in findings:
+        if not finding.threats:
+            continue
+        threat_types = sorted({t.get("Threat Type", "") for t in finding.threats if t.get("Threat Type")})
+        description_parts.append(f"- {finding.subsystem}: {', '.join(threat_types)}")
+
+    prompt = create_dfd_prompt(
+        app_type=plan.detected_app_type,
+        authentication="See subsystem details",
+        internet_facing="Inferred from findings",
+        sensitive_data="Inferred from findings",
+        app_input="\n".join(description_parts),
+    )
+
+    mermaid, _ = generate_dfd(models.for_architect(), prompt)
+    return mermaid or None
 
 
 def _truncate_findings_to_fit(
