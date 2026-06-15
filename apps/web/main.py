@@ -33,6 +33,18 @@ from attack_tree import (
     get_attack_tree_lm_studio,
     get_attack_tree_mistral,
 )
+from dfd import (
+    get_dfd_anthropic,
+    get_dfd_from_image_anthropic,
+    get_dfd_from_image_google,
+    get_dfd_from_image_openai,
+    get_dfd_google,
+    get_dfd_groq,
+    get_dfd_lm_studio,
+    get_dfd_mistral,
+    get_dfd_openai,
+)
+from stride_gpt.core.prompts import create_dfd_prompt
 from dread import (
     create_dread_assessment_prompt,
     dread_json_to_markdown,
@@ -1003,10 +1015,26 @@ with st.sidebar:
     )
 
 
+# ------------------ Provider API keys (module scope) ------------------ #
+#
+# `load_env_variables()` reads .env into FUNCTION-LOCAL variables, and the
+# sidebar's password fields only write to st.session_state — neither path
+# defines `openai_api_key` / `anthropic_api_key` / etc. at module scope.
+# Hoist them here, after the sidebar has run, so the bare names referenced
+# throughout the tab bodies (image analysis, threat model, attack tree,
+# mitigations, DREAD, test cases) resolve to the live values. Streamlit's
+# hot-reload was masking this by leaking stale locals across reruns.
+openai_api_key = st.session_state.get("openai_api_key", "")
+anthropic_api_key = st.session_state.get("anthropic_api_key", "")
+google_api_key = st.session_state.get("google_api_key", "")
+mistral_api_key = st.session_state.get("mistral_api_key", "")
+groq_api_key = st.session_state.get("groq_api_key", "")
+
+
 # ------------------ Main App UI ------------------ #
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["Threat Model", "Attack Tree", "Mitigations", "DREAD", "Test Cases"]
+tab1, tab2, dfd_tab, tab3, tab4, tab5 = st.tabs(
+    ["Threat Model", "Attack Tree", "Data Flow Diagram", "Mitigations", "DREAD", "Test Cases"]
 )
 
 with tab1:
@@ -1196,13 +1224,17 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     if threat_model_submit_button and st.session_state.get("app_input"):
         app_input = st.session_state["app_input"]  # Retrieve from session state
 
-        # Generate the prompt using the create_prompt function
+        # Generate the prompt using the create_prompt function. If the user
+        # has confirmed a DFD on the Data Flow Diagram tab, splice it in as
+        # an authoritative system model so the threats align with the
+        # diagram's components and trust boundaries.
         threat_model_prompt = create_threat_model_prompt(
             app_type,
             authentication,
             internet_facing,
             sensitive_data,
             app_input,
+            confirmed_dfd=st.session_state.get("confirmed_dfd"),
         )
 
         # Clear thinking content when switching models or starting a new operation
@@ -1341,13 +1373,16 @@ vulnerabilities and prioritising mitigation efforts.
         if attack_tree_submit_button and st.session_state.get("app_input"):
             app_input = st.session_state.get("app_input")
 
-            # Generate the prompt using the create_attack_tree_prompt function
+            # Generate the prompt using the create_attack_tree_prompt function.
+            # When a DFD has been confirmed on the Data Flow Diagram tab it
+            # is appended so the attack paths reference the same components.
             attack_tree_prompt = create_attack_tree_prompt(
                 app_type,
                 authentication,
                 internet_facing,
                 sensitive_data,
                 app_input,
+                confirmed_dfd=st.session_state.get("confirmed_dfd"),
             )
 
             # Clear thinking content when switching models or starting a new operation
@@ -1445,6 +1480,222 @@ vulnerabilities and prioritising mitigation efforts.
 
                 except Exception as e:
                     st.error(f"Error generating attack tree: {e}")
+
+
+# ------------------ Data Flow Diagram Generation ------------------ #
+
+with dfd_tab:
+    st.markdown(
+        """
+A Data Flow Diagram (DFD) makes the system under analysis legible: it names every external entity,
+process, and data store, and shows the data flows between them. Crucially, it lets you mark
+**trust boundaries** — the lines a threat must cross to attack the system. DFDs are foundational to
+threat modelling; reviewing one is the cleanest way to confirm STRIDE-GPT has understood your system
+the same way you have.
+
+Three ways to use this tab:
+
+1. **Generate a DFD** from your application description, then edit it to match your understanding.
+2. **Upload an existing DFD image** to convert it into editable Mermaid form.
+3. Once the diagram looks right, tick **Use this DFD for the threat model** to feed it into the next
+   Threat Model and Attack Tree runs.
+"""
+    )
+    st.markdown("""---""")
+
+    # --- Section 1: Inputs (generate from description OR parse an image) --- #
+
+    dfd_input_col1, dfd_input_col2 = st.columns([1, 1])
+
+    with dfd_input_col1:
+        st.markdown("**Generate from description**")
+        dfd_generate_button = st.button(
+            label="Generate DFD",
+            help="Uses your application description and sidebar settings to draft a DFD.",
+        )
+
+    with dfd_input_col2:
+        st.markdown("**Or parse an existing DFD image**")
+        # Vision support set is the same as for architecture diagrams.
+        dfd_vision_supported = (
+            (model_provider == "OpenAI API" and (
+                selected_model.startswith("gpt-4") or selected_model.startswith("gpt-5")
+            ))
+            or model_provider == "Google AI API"
+            or (model_provider == "Anthropic API" and selected_model.startswith("claude"))
+        )
+        if dfd_vision_supported:
+            uploaded_dfd_image = st.file_uploader(
+                "Upload DFD image",
+                type=["jpg", "jpeg", "png"],
+                key="dfd_image_uploader",
+                help="PNG or JPEG. The diagram is parsed into editable Mermaid below.",
+            )
+        else:
+            uploaded_dfd_image = None
+            st.caption(
+                "Image parsing requires a vision-capable model "
+                "(OpenAI GPT-4/5, Anthropic Claude, or Google Gemini)."
+            )
+
+    # --- Section 2: Handle Generation --- #
+
+    # API keys live in st.session_state once the sidebar has run (loaded from
+    # .env in load_env_variables and/or typed into the password field). The
+    # bare names openai_api_key / anthropic_api_key etc. are only ever local
+    # to load_env_variables, so always go through session_state here.
+    _dfd_api_key = st.session_state.get(
+        {
+            "OpenAI API": "openai_api_key",
+            "Anthropic API": "anthropic_api_key",
+            "Google AI API": "google_api_key",
+            "Mistral API": "mistral_api_key",
+            "Groq API": "groq_api_key",
+        }.get(model_provider, ""),
+        "",
+    )
+
+    if dfd_generate_button and st.session_state.get("app_input"):
+        dfd_prompt = create_dfd_prompt(
+            app_type,
+            authentication,
+            internet_facing,
+            sensitive_data,
+            st.session_state["app_input"],
+        )
+        if model_provider != "LM Studio Server" and not _dfd_api_key:
+            st.error(
+                f"Please enter your {model_provider} key in the sidebar (or set it in "
+                "your .env file) before generating a DFD."
+            )
+        else:
+            with st.spinner("Generating Data Flow Diagram..."):
+                try:
+                    if model_provider == "OpenAI API":
+                        dfd_mermaid = get_dfd_openai(_dfd_api_key, selected_model, dfd_prompt)
+                    elif model_provider == "Anthropic API":
+                        dfd_mermaid = get_dfd_anthropic(_dfd_api_key, selected_model, dfd_prompt)
+                    elif model_provider == "Google AI API":
+                        dfd_mermaid = get_dfd_google(_dfd_api_key, selected_model, dfd_prompt)
+                    elif model_provider == "Mistral API":
+                        dfd_mermaid = get_dfd_mistral(_dfd_api_key, selected_model, dfd_prompt)
+                    elif model_provider == "Groq API":
+                        dfd_mermaid = get_dfd_groq(_dfd_api_key, selected_model, dfd_prompt)
+                    elif model_provider == "LM Studio Server":
+                        dfd_mermaid = get_dfd_lm_studio(
+                            st.session_state["lm_studio_endpoint"],
+                            selected_model,
+                            dfd_prompt,
+                            st.session_state.get("lm_studio_api_key", ""),
+                        )
+                    else:
+                        dfd_mermaid = ""
+                    # Generation invalidates any previous confirmation — the user
+                    # needs to re-tick "Use this DFD" to opt back in.
+                    st.session_state["dfd_mermaid"] = dfd_mermaid
+                    st.session_state.pop("confirmed_dfd", None)
+                except Exception as e:
+                    st.error(f"Error generating DFD: {e}")
+    elif dfd_generate_button and not st.session_state.get("app_input"):
+        st.error("Please enter your application details on the Threat Model tab first.")
+
+    # --- Section 3: Handle Image Parsing --- #
+
+    if uploaded_dfd_image is not None:
+        # Re-parse on every change of the upload — the file_uploader returns
+        # the same object across reruns, so we key on the file name + size.
+        upload_key = f"{uploaded_dfd_image.name}:{uploaded_dfd_image.size}"
+        if st.session_state.get("dfd_last_upload_key") != upload_key:
+            if not _dfd_api_key:
+                st.error(
+                    f"Please enter your {model_provider} key in the sidebar before "
+                    "uploading a DFD image."
+                )
+            else:
+                with st.spinner("Parsing DFD image..."):
+                    try:
+                        image_bytes = uploaded_dfd_image.read()
+                        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+                        media_type = (
+                            "image/png" if uploaded_dfd_image.type == "image/png" else "image/jpeg"
+                        )
+                        if model_provider == "OpenAI API":
+                            dfd_mermaid = get_dfd_from_image_openai(
+                                _dfd_api_key, selected_model, base64_image
+                            )
+                        elif model_provider == "Anthropic API":
+                            dfd_mermaid = get_dfd_from_image_anthropic(
+                                _dfd_api_key, selected_model, base64_image, media_type
+                            )
+                        elif model_provider == "Google AI API":
+                            dfd_mermaid = get_dfd_from_image_google(
+                                _dfd_api_key, selected_model, base64_image
+                            )
+                        else:
+                            dfd_mermaid = ""
+                        st.session_state["dfd_mermaid"] = dfd_mermaid
+                        st.session_state["dfd_last_upload_key"] = upload_key
+                        st.session_state.pop("confirmed_dfd", None)
+                    except Exception as e:
+                        st.error(f"Error parsing DFD image: {e}")
+
+    # --- Section 4: Editor + Preview --- #
+
+    st.markdown("---")
+    st.markdown("**Mermaid source** (edit freely — the preview updates on rerun):")
+    dfd_editor_value = st.text_area(
+        "DFD Mermaid code",
+        value=st.session_state.get("dfd_mermaid", ""),
+        height=260,
+        key="dfd_editor",
+        label_visibility="collapsed",
+        placeholder="No DFD yet. Use 'Generate DFD' or upload an image to populate this editor.",
+    )
+    # Keep dfd_mermaid in sync with the editor so it survives reruns.
+    st.session_state["dfd_mermaid"] = dfd_editor_value
+
+    if dfd_editor_value.strip():
+        st.markdown("**Diagram preview:**")
+        try:
+            mermaid(dfd_editor_value)
+        except Exception as e:
+            st.warning(f"Could not render preview: {e}")
+
+        # --- Section 5: Confirm + Download --- #
+
+        confirmed = st.checkbox(
+            "Use this DFD for the threat model",
+            value=bool(st.session_state.get("confirmed_dfd")),
+            help=(
+                "When ticked, this DFD is included in the Threat Model and Attack Tree "
+                "prompts so the analysis aligns with the diagram."
+            ),
+            key="dfd_confirm_checkbox",
+        )
+        # Keep confirmed_dfd in lockstep with the checkbox AND the editor.
+        if confirmed:
+            st.session_state["confirmed_dfd"] = dfd_editor_value
+            st.success(
+                "DFD confirmed — it will be used as the system model in the next "
+                "Threat Model and Attack Tree runs."
+            )
+        else:
+            st.session_state.pop("confirmed_dfd", None)
+            st.caption(
+                "Not in use. Tick the checkbox above to feed this DFD into the next analysis."
+            )
+
+        dfd_dl_col1, dfd_dl_col2, _ = st.columns([1, 1, 3])
+        with dfd_dl_col1:
+            st.download_button(
+                label="Download Diagram Code",
+                data=dfd_editor_value,
+                file_name="data_flow_diagram.md",
+                mime="text/plain",
+                help="Download the Mermaid source for this DFD.",
+            )
+        with dfd_dl_col2:
+            st.link_button("Open Mermaid Live", "https://mermaid.live")
 
 
 # ------------------ Mitigations Generation ------------------ #

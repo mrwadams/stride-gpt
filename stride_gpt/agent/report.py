@@ -32,6 +32,15 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.append(report.plan.overall_description)
     lines.append("")
 
+    # Data Flow Diagram (optional — generated during synthesis)
+    if report.data_flow_diagram:
+        lines.append("## Data Flow Diagram")
+        lines.append("")
+        lines.append("```mermaid")
+        lines.append(report.data_flow_diagram)
+        lines.append("```")
+        lines.append("")
+
     # Analysis plan summary
     lines.append("## Analysis Plan")
     lines.append("")
@@ -127,6 +136,7 @@ def render_json(report: AnalysisReport) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "target": report.plan.target_path,
         "overview": report.plan.overall_description,
+        "data_flow_diagram": report.data_flow_diagram,
         "subsystems": [
             {
                 "name": f.subsystem,
@@ -510,6 +520,15 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     lines.append("")
     lines.append(data.get("overview", ""))
     lines.append("")
+
+    dfd = data.get("data_flow_diagram")
+    if dfd:
+        lines.append("## Data Flow Diagram")
+        lines.append("")
+        lines.append("```mermaid")
+        lines.append(dfd)
+        lines.append("```")
+        lines.append("")
 
     cross_cutting = data.get("cross_cutting_threats", [])
     all_threats: list[dict[str, Any]] = []

@@ -155,14 +155,108 @@ def create_insider_threat_prompt_section() -> str:
     return "\n" + load_reference("insider_threat")
 
 
-def create_threat_model_prompt(
+def dfd_to_prompt_section(dfd_mermaid: str) -> str:
+    """Render a confirmed DFD into a prompt section.
+
+    When the user has reviewed (and possibly edited) a DFD in the web UI
+    and confirmed it for use, the Mermaid source is spliced into the
+    threat-model and attack-tree prompts. The DFD is the user's canonical
+    statement of the system under analysis, so we surface it explicitly
+    rather than just appending to the free-form description.
+    """
+    return f"""
+CONFIRMED DATA FLOW DIAGRAM (Mermaid):
+The user has reviewed the following Data Flow Diagram and confirmed it as
+an accurate representation of the system under analysis. Use it as the
+authoritative model of components, data flows, and trust boundaries when
+identifying threats — pay particular attention to flows that cross trust
+boundaries.
+
+```mermaid
+{dfd_mermaid.strip()}
+```
+"""
+
+
+def create_dfd_prompt(
     app_type: str,
     authentication: str,
     internet_facing: str,
     sensitive_data: str,
     app_input: str,
 ) -> str:
-    """Build the threat-model prompt for a given application profile."""
+    """Build the DFD-generation prompt for a given application profile.
+
+    The output of this prompt is fed to `core.dfd.generate_dfd`, which
+    expects JSON conforming to `DFD_SCHEMA`. The detailed JSON shape and
+    rules live in the system prompt set by `core.dfd._get_system_prompt`;
+    this user prompt provides the application context.
+    """
+    return f"""APPLICATION TYPE: {app_type}
+AUTHENTICATION METHODS: {authentication}
+INTERNET FACING: {internet_facing}
+SENSITIVE DATA: {sensitive_data}
+APPLICATION DESCRIPTION: {app_input}
+
+Produce a Data Flow Diagram (DFD) for this application as JSON conforming
+to the schema described in your system instructions. Cover every external
+entity, process, and data store you can identify from the description, and
+group internal components inside trust boundaries (e.g. "Internal Network",
+"Cloud VPC") so the diagram is useful for STRIDE threat modelling. Edge
+labels should name the data crossing the flow."""
+
+
+def create_dfd_image_analysis_prompt() -> str:
+    """Instruction for vision models parsing a user-supplied DFD image.
+
+    Asks the model to extract structured DFD JSON (nodes/edges/trust
+    boundaries) so we can re-render the user's existing diagram in our
+    canonical Mermaid form. Falls back gracefully if the model emits raw
+    Mermaid in a code fence — `_parse_dfd_response` handles that path.
+    """
+    return """You are reviewing a Data Flow Diagram (DFD) that a security architect has provided.
+
+Extract the diagram's structure as a JSON object with this exact shape:
+
+{
+    "nodes": [
+        {"id": "<short-id>", "label": "<displayed name>", "type": "external_entity" | "process" | "data_store"}
+    ],
+    "edges": [
+        {"from": "<node id>", "to": "<node id>", "label": "<data flow name>"}
+    ],
+    "trust_boundaries": [
+        {"name": "<boundary name>", "node_ids": ["<node id>", "..."]}
+    ]
+}
+
+Classification rules:
+- external_entity: actors outside the system (users, third-party APIs, browsers)
+- process: components that transform data (services, functions, workers)
+- data_store: persistent stores (databases, queues, caches, file systems)
+
+If the diagram shows trust boundaries (dashed lines, labelled zones, network
+perimeters), capture them in `trust_boundaries`. If no boundaries are shown,
+return an empty list.
+
+ONLY RESPOND WITH THE JSON OBJECT, NO ADDITIONAL TEXT. Do not infer
+components that aren't visible in the diagram."""
+
+
+def create_threat_model_prompt(
+    app_type: str,
+    authentication: str,
+    internet_facing: str,
+    sensitive_data: str,
+    app_input: str,
+    confirmed_dfd: str | None = None,
+) -> str:
+    """Build the threat-model prompt for a given application profile.
+
+    If `confirmed_dfd` is supplied (Mermaid source the user has confirmed
+    in the DFD tab), it's spliced in as an authoritative system model so
+    the LLM threats reference the same components and trust boundaries.
+    """
     is_genai = app_type == "Generative AI application"
     is_agentic = app_type == "Agentic AI application"
     include_llm_risks = is_genai or is_agentic
@@ -243,6 +337,9 @@ SENSITIVE DATA: {sensitive_data}
     if is_agentic:
         prompt += create_agentic_stride_prompt_section()
         prompt += create_insider_threat_prompt_section()
+
+    if confirmed_dfd:
+        prompt += dfd_to_prompt_section(confirmed_dfd)
 
     prompt += f"""
 CODE SUMMARY, README CONTENT, AND APPLICATION DESCRIPTION:

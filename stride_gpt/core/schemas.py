@@ -92,6 +92,10 @@ class AnalysisReport(BaseModel):
     plan: AnalysisPlan
     findings: list[SubsystemFinding]
     cross_cutting_threats: list[dict[str, Any]] = []
+    # System-level Data Flow Diagram in Mermaid `flowchart` form. Generated
+    # during synthesis from the full set of subsystem findings. None when
+    # generation was skipped or failed — DFD is auxiliary, not load-bearing.
+    data_flow_diagram: str | None = None
     metadata: dict[str, Any] = {}
 
 
