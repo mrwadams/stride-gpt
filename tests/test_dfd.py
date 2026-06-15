@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
-import pytest
-
 from stride_gpt.core.dfd import (
     convert_dfd_to_mermaid,
     generate_dfd,
@@ -22,7 +20,6 @@ from stride_gpt.core.prompts.builder import (
 from stride_gpt.core.schemas import (
     AnalysisReport,
     LLMResponse,
-    SubsystemFinding,
 )
 
 
