@@ -37,7 +37,9 @@ stride_gpt/                 # CLI package + shared library
     │       ├── quick_base.md
     │       ├── genai.md
     │       ├── agentic.md
-    │       └── insider_threat.md
+    │       ├── insider_threat.md
+    │       ├── mitre_enterprise.md
+    │       └── mitre_atlas.md
     └── ...                 # attack_tree, dread, mitigations, test_cases, threat_model
 
 apps/web/                   # Streamlit UI (separate product)
@@ -64,6 +66,8 @@ Current card catalogue (in `core/prompts/threat_model/`):
 - `genai.md` — OWASP Top 10 for LLM Applications (LLM01–LLM10). Asset-under-attack lens for LLM-using subsystems.
 - `agentic.md` — OWASP Top 10 for Agentic Applications (ASI01–ASI10). Asset-under-attack lens for agentic subsystems; loaded in addition to the genai card.
 - `insider_threat.md` — AI Insider Threat framework (distilled from <https://ai-insider-threat.matt-adams.co.uk>). Agent-as-insider lens; complementary to the OWASP cards rather than alternative. Loaded for high-autonomy agentic subsystems.
+- `mitre_enterprise.md` — MITRE ATT&CK Enterprise (v17.1) technique catalogue. Annotates threats with standardized adversary technique IDs for traditional-infrastructure attacks; constrains the agent to catalogued IDs/names to avoid hallucination. Regenerated from upstream STIX via `scripts/refresh_mitre_cards.py`.
+- `mitre_atlas.md` — MITRE ATLAS (2026.05) technique catalogue. Same as above but for ML/LLM-specific adversary techniques. Regenerated from upstream YAML via `scripts/refresh_mitre_cards.py`.
 
 ### How it's wired together
 

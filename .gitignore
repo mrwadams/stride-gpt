@@ -11,3 +11,6 @@ build/
 dist/
 *.egg-info/
 *.egg
+
+# Doc-review report (local only)
+doc-review.html
