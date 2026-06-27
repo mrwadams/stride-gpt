@@ -5,14 +5,15 @@
 STRIDE GPT is an AI-powered threat modelling tool that leverages Large Language Models (LLMs) to generate threat models and attack trees for a given application based on the STRIDE methodology. Users provide application details, such as the application type, authentication methods, and whether the application is internet-facing or processes sensitive data. The model then generates its output based on the provided information.
 
 ## Table of Contents
-- [Star the Repo](#star-the-repo)
+- [Support the Project](#support-the-project)
 - [Features](#features)
 - [Enterprise Deployment](#enterprise-deployment)
-- [Roadmap](#roadmap)
 - [Talk at Open Security Summit](#talk-at-open-security-summit)
 - [Changelog](#changelog)
 - [Installation](#installation)
+- [Repository layout](#repository-layout)
 - [Usage](#usage)
+- [Security Best Practices](#security-best-practices)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -44,7 +45,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
 - Multiple output formats: Markdown, JSON, SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs), and a self-contained HTML view for sharing with stakeholders
-- Advanced reasoning model support (OpenAI GPT-5.2 series, Anthropic Claude 4.5 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
+- Advanced reasoning model support (OpenAI GPT-5.4/5.5 series, Anthropic Claude 4.6/4.8 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
 - Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, plus local hosting via LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
@@ -307,7 +308,7 @@ This installs the `stride-gpt` command. The CLI and the Streamlit web UI are now
    cp .env.example .env
    ```
 
-   Edit `.env` to add your API keys — or configure them later via `stride-gpt config` or the Streamlit UI.
+   Edit `.env` to add your API keys — or configure them later by running `stride-gpt` and using the `/config` command in the interactive REPL, or via the Streamlit UI.
 
 ### Option 3: Docker (web UI)
 
@@ -329,7 +330,7 @@ stride-gpt/
 ├── apps/
 │   └── web/       # Streamlit web UI
 ├── tests/         # pytest suite
-└── pyproject.toml # single project file; install [ui] extra to add Streamlit
+└── pyproject.toml # single project file; web UI deps live in apps/web/requirements.txt
 ```
 
 The `apps/` directory is the slot for additional deployable frontends — for example, a future Node/TypeScript CLI would live alongside `apps/web/`. The Python CLI itself stays in `stride_gpt/cli.py` because it's tightly coupled to the shared library.
@@ -345,7 +346,7 @@ The `apps/` directory is the slot for additional deployable frontends — for ex
 stride-gpt analyze .
 
 # Specify a model and auto-approve the analysis plan
-stride-gpt analyze ./my-app --model anthropic/claude-sonnet-4-5 -y
+stride-gpt analyze ./my-app --worker-model anthropic/claude-sonnet-4-6 -y
 
 # Export as JSON, SARIF, or browser-viewable HTML
 stride-gpt analyze . -o report.json -f json    # also writes report.html alongside
@@ -381,8 +382,19 @@ Inside the REPL, type `/help` to see available commands and flags.
 |------|-------------|
 | `-o`, `--output` | Save report to a file |
 | `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
-| `-y`, `--yes` | Auto-approve the analysis plan |
-| `--model` | Model to use (e.g. `anthropic/claude-sonnet-4-5`, `openai/gpt-5.2`) |
+| `-y`, `--yes` | Auto-approve the analysis plan (`analyze` only) |
+| `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-4-6`). Uses saved config if omitted. |
+| `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-5.4`). Uses saved config if omitted. |
+
+**Structured intermediates** — when `-o <path>` is used, three JSON siblings are written alongside the report so the run can be audited or consumed by downstream tools:
+
+| File | Contents |
+|------|----------|
+| `<stem>.plan.json` | The `AnalysisPlan` the architect produced — subsystems, focus areas, detected app type (analyze only). |
+| `<stem>.findings.json` | Per-subsystem `SubsystemFinding` list, cross-cutting threats, and the system-level data flow diagram (analyze only). |
+| `<stem>.run.json` | A `RunManifest` — models, prompt + config hash, references the agent actually loaded, git SHA, version, timing. Emitted for both `analyze` and `quick`. |
+
+The format flag (`-f`) controls the report artefact only; the siblings are always JSON. File paths in the manifest and findings are redacted (`./…` when under the working directory, `~/…` when under `$HOME`) so a manifest is safe to share. The auto-archive at `~/.stride-gpt/reports/{analyze,quick}/` is unaffected — siblings are only emitted when you pass `-o`.
 
 **View previous reports:**
 
