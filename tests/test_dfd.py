@@ -6,10 +6,10 @@ import json
 from unittest.mock import patch
 
 from stride_gpt.core.dfd import (
+    _parse_dfd_response,
     convert_dfd_to_mermaid,
     generate_dfd,
     parse_dfd_from_image,
-    _parse_dfd_response,
 )
 from stride_gpt.core.prompts.builder import (
     create_dfd_image_analysis_prompt,
@@ -21,7 +21,6 @@ from stride_gpt.core.schemas import (
     AnalysisReport,
     LLMResponse,
 )
-
 
 # ---------------------------------------------------------------------------
 # convert_dfd_to_mermaid
@@ -98,6 +97,41 @@ class TestConvertDfdToMermaid:
         between = result.split('api(("')[1].split('"))')[0]
         assert '"' not in between, f"Inner quotes survived sanitization: {between!r}"
         assert "|" not in between, f"Pipe survived sanitization: {between!r}"
+
+    def test_boundary_referencing_unknown_node_is_skipped(self):
+        """A trust boundary that references a node id which doesn't exist must
+        not crash — the dangling reference is skipped, real nodes still render."""
+        dfd = {
+            "nodes": [{"id": "api", "label": "API", "type": "process"}],
+            "edges": [],
+            "trust_boundaries": [
+                {"name": "VPC", "node_ids": ["api", "ghost"]},
+            ],
+        }
+        result = convert_dfd_to_mermaid(dfd)
+        assert 'subgraph tb0["VPC"]' in result
+        assert 'api(("API"))' in result
+        # The non-existent node produces no node line.
+        assert "ghost" not in result
+
+    def test_edges_missing_from_or_to_are_skipped(self):
+        """Malformed edges (missing endpoint) are dropped rather than rendered
+        as broken Mermaid."""
+        dfd = {
+            "nodes": [
+                {"id": "a", "label": "A", "type": "process"},
+                {"id": "b", "label": "B", "type": "process"},
+            ],
+            "edges": [
+                {"from": "a", "to": "b", "label": "ok"},
+                {"from": "a", "label": "no-to"},
+                {"to": "b", "label": "no-from"},
+            ],
+        }
+        result = convert_dfd_to_mermaid(dfd)
+        assert "a -->|ok| b" in result
+        assert "no-to" not in result
+        assert "no-from" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +294,7 @@ class TestAgentReportRendersDfd:
         assert "## Data Flow Diagram" not in md
 
     def test_render_json_carries_dfd(self, sample_plan, sample_finding):
-        from stride_gpt.agent.report import render_markdown_from_json, render_json
+        from stride_gpt.agent.report import render_json, render_markdown_from_json
 
         report = AnalysisReport(
             plan=sample_plan,
