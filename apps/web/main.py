@@ -304,14 +304,43 @@ def get_input():
         if "github_api_key" not in st.session_state or not st.session_state["github_api_key"]:
             st.warning("Please enter a GitHub API key to analyze the repository.")
         else:
-            with st.spinner("Analyzing GitHub repository..."):
-                system_description = analyze_github_repo(github_url)
+            try:
+                with st.spinner("Analyzing GitHub repository..."):
+                    system_description = analyze_github_repo(github_url)
                 st.session_state["github_analysis"] = system_description
                 st.session_state["last_analyzed_url"] = github_url
                 st.session_state["app_input"] = (
                     system_description + "\n\n" + st.session_state.get("app_input", "")
                 )
                 st.session_state["_sync_app_desc"] = True
+            except GithubException as e:
+                status = getattr(e, "status", None)
+                if status == 404:
+                    st.error(
+                        "Repository not found (404). Check the URL is correct, and "
+                        "note that a **fine-grained** personal access token only sees "
+                        "repositories in its selected set — repos outside that set "
+                        "return 404 even when they're public. Make sure the token "
+                        "grants access to this repository (Contents: read-only) and, "
+                        "for org repos behind SSO, that it's been authorised for the org."
+                    )
+                elif status == 401:
+                    st.error(
+                        "GitHub rejected the token (401). The personal access token "
+                        "is invalid or expired — generate a new one and try again."
+                    )
+                elif status == 403:
+                    st.error(
+                        "GitHub returned 403 — this is usually rate limiting or an "
+                        "SSO authorisation prompt for the token. Wait a moment, or "
+                        "authorise the token for the organisation, then retry."
+                    )
+                else:
+                    st.error(f"GitHub API error: {e}")
+            except ValueError as e:
+                st.error(str(e))
+            except Exception as e:  # network errors, unexpected failures
+                st.error(f"Couldn't analyze the repository: {e}")
 
     render_guided_description_builder()
 
@@ -359,9 +388,19 @@ def estimate_tokens(text, model="gpt-5.2"):
 
 
 def analyze_github_repo(repo_url):
-    # Extract owner and repo name from URL
+    # Extract owner and repo name from URL. Normalise the path first so a
+    # trailing slash or a ".git" suffix (e.g. ".../repo/" or ".../repo.git")
+    # doesn't get baked into the repo name and turn into a spurious 404.
     parsed_url = urlparse(repo_url)
-    parts = parsed_url.path.split("/")
+    path = parsed_url.path.rstrip("/")
+    if path.endswith(".git"):
+        path = path[: -len(".git")]
+    parts = [p for p in path.split("/") if p]
+    if len(parts) < 2:
+        raise ValueError(
+            f"'{repo_url}' doesn't look like a GitHub repository URL. "
+            "Expected the form https://github.com/owner/repo."
+        )
     owner = parts[-2]
     repo_name = parts[-1]
 
