@@ -64,11 +64,13 @@
   ></iframe>
 
   <script>
-    /* ── Streamlit component IPC (raw postMessage, no npm build needed) ── */
+    /* ── Streamlit component IPC (raw postMessage, no npm build needed) ──
+       All outgoing messages MUST include isStreamlitMessage: true or
+       Streamlit's frontend will silently ignore them.               ── */
     var FRAME_HEIGHT = 650;
 
     function stPost(type, extra) {
-      var msg = Object.assign({ type: "streamlit:" + type }, extra || {});
+      var msg = Object.assign({ isStreamlitMessage: true, type: "streamlit:" + type }, extra || {});
       window.parent.postMessage(msg, "*");
     }
 
@@ -113,7 +115,7 @@
       var data = evt.data;
 
       /* --- Streamlit → component: render with new props --- */
-      if (data && typeof data === "object" && data.type === "streamlit:render") {
+      if (data && typeof data === "object" && data.isStreamlitMessage && data.type === "streamlit:render") {
         var xml = (data.args && data.args.xml) || "";
         stPost("setFrameHeight", { height: FRAME_HEIGHT });
 

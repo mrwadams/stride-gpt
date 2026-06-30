@@ -1048,6 +1048,36 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     )
     st.markdown("""---""")
 
+    # Editor renders full-width here (above the form columns) so it is
+    # immediately visible after the button in col1 is clicked.
+    if st.session_state.get("show_drawio_editor"):
+        _hdr_l, _hdr_r = st.columns([1, 3])
+        with _hdr_l:
+            if st.button("Close Diagram Editor", key="close_drawio", use_container_width=True):
+                st.session_state["show_drawio_editor"] = False
+                st.rerun()
+        with _hdr_r:
+            if st.session_state.get("drawio_xml"):
+                st.success("Diagram saved – will be used for threat model generation.")
+        _drawio_result = drawio_editor_component(
+            xml=st.session_state.get("drawio_xml", ""),
+            key="drawio_editor_widget",
+        )
+        if _drawio_result:
+            if _drawio_result.get("action") == "save" and _drawio_result.get("xml"):
+                _xml = _drawio_result["xml"]
+                st.session_state["drawio_xml"] = _xml
+                _summary = drawio_to_prompt_section(_xml)
+                if _summary:
+                    st.session_state["app_input"] = _summary
+                    st.session_state["_sync_app_desc"] = True
+                st.session_state["show_drawio_editor"] = False
+                st.rerun()
+            elif _drawio_result.get("action") == "close":
+                st.session_state["show_drawio_editor"] = False
+                st.rerun()
+        st.markdown("---")
+
     # Two column layout for the main app content
     col1, col2 = st.columns([1, 1])
 
@@ -1141,15 +1171,8 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                     st.error(f"An error occurred while analyzing the image: {e!s}")
 
         st.markdown("---")
-        _open_lbl = (
-            "Close Diagram Editor"
-            if st.session_state.get("show_drawio_editor")
-            else "Open Diagram Editor"
-        )
-        if st.button(_open_lbl, key="toggle_drawio", use_container_width=True):
-            st.session_state["show_drawio_editor"] = not st.session_state.get(
-                "show_drawio_editor", False
-            )
+        if st.button("Open Diagram Editor", key="toggle_drawio", use_container_width=True):
+            st.session_state["show_drawio_editor"] = True
             st.rerun()
         if st.session_state.get("drawio_xml"):
             st.success("Diagram saved – will be used for threat model generation.")
@@ -1233,21 +1256,6 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
 - Credential access (OAuth tokens, API keys, service accounts)
 - Autonomous action scope (what can it do without approval?)"""
             )
-
-    # Embedded draw.io editor (full width, below the two-column input section)
-    if st.session_state.get("show_drawio_editor"):
-        _drawio_result = drawio_editor_component(
-            xml=st.session_state.get("drawio_xml", ""),
-            key="drawio_editor_widget",
-        )
-        if _drawio_result:
-            if _drawio_result.get("action") == "save" and _drawio_result.get("xml"):
-                st.session_state["drawio_xml"] = _drawio_result["xml"]
-                st.session_state["show_drawio_editor"] = False
-                st.rerun()
-            elif _drawio_result.get("action") == "close":
-                st.session_state["show_drawio_editor"] = False
-                st.rerun()
 
     # ------------------ Threat Model Generation ------------------ #
 
