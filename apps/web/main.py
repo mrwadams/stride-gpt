@@ -87,6 +87,8 @@ from threat_model import (
     get_threat_model_mistral,
     json_to_markdown,
 )
+from components.drawio_editor import drawio_editor_component
+from stride_gpt.core.drawio_parser import drawio_to_prompt_section
 
 # ------------------ Helper Functions ------------------ #
 
@@ -1138,6 +1140,23 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                 except Exception as e:
                     st.error(f"An error occurred while analyzing the image: {e!s}")
 
+        st.markdown("---")
+        _open_lbl = (
+            "Close Diagram Editor"
+            if st.session_state.get("show_drawio_editor")
+            else "Open Diagram Editor"
+        )
+        if st.button(_open_lbl, key="toggle_drawio", use_container_width=True):
+            st.session_state["show_drawio_editor"] = not st.session_state.get(
+                "show_drawio_editor", False
+            )
+            st.rerun()
+        if st.session_state.get("drawio_xml"):
+            st.success("Diagram saved – will be used for threat model generation.")
+            if st.button("Clear diagram", key="clear_drawio"):
+                st.session_state.pop("drawio_xml", None)
+                st.rerun()
+
         # Use the get_input() function to get the application description and GitHub URL
         app_input = get_input()
         # Update session state only if the text area content has changed
@@ -1215,6 +1234,21 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
 - Autonomous action scope (what can it do without approval?)"""
             )
 
+    # Embedded draw.io editor (full width, below the two-column input section)
+    if st.session_state.get("show_drawio_editor"):
+        _drawio_result = drawio_editor_component(
+            xml=st.session_state.get("drawio_xml", ""),
+            key="drawio_editor_widget",
+        )
+        if _drawio_result:
+            if _drawio_result.get("action") == "save" and _drawio_result.get("xml"):
+                st.session_state["drawio_xml"] = _drawio_result["xml"]
+                st.session_state["show_drawio_editor"] = False
+                st.rerun()
+            elif _drawio_result.get("action") == "close":
+                st.session_state["show_drawio_editor"] = False
+                st.rerun()
+
     # ------------------ Threat Model Generation ------------------ #
 
     # Create a submit button for Threat Modelling
@@ -1223,6 +1257,15 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     # If the Generate Threat Model button is clicked and the user has provided an application description
     if threat_model_submit_button and st.session_state.get("app_input"):
         app_input = st.session_state["app_input"]  # Retrieve from session state
+
+        # If the user created a draw.io diagram, prepend extracted architecture
+        # context (components, data flows, trust boundaries) to the app description
+        # so the LLM has richer structural input for threat model generation.
+        _effective_app_input = app_input
+        if st.session_state.get("drawio_xml"):
+            _drawio_ctx = drawio_to_prompt_section(st.session_state["drawio_xml"])
+            if _drawio_ctx:
+                _effective_app_input = _drawio_ctx + "\n\n" + app_input
 
         # Generate the prompt using the create_prompt function. If the user
         # has confirmed a DFD on the Data Flow Diagram tab, splice it in as
@@ -1233,7 +1276,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             authentication,
             internet_facing,
             sensitive_data,
-            app_input,
+            _effective_app_input,
             confirmed_dfd=st.session_state.get("confirmed_dfd"),
         )
 

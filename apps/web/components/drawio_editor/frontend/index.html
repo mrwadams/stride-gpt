@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>draw.io Editor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fff; }
+
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f0f2f6;
+      border-bottom: 1px solid #d0d3da;
+    }
+
+    .btn {
+      padding: 5px 16px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      background: #fff;
+      transition: background 0.1s;
+    }
+    .btn:hover { background: #e8eaf0; }
+
+    .btn-primary {
+      background: #ff4b4b;
+      color: #fff;
+      border-color: #c83030;
+    }
+    .btn-primary:hover { background: #d93030; }
+
+    #status {
+      margin-left: auto;
+      font-size: 12px;
+      color: #6c757d;
+      white-space: nowrap;
+    }
+
+    #drawio-frame {
+      width: 100%;
+      height: 590px;
+      border: none;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <button class="btn btn-primary" id="btn-save">Save &amp; Close</button>
+    <button class="btn" id="btn-cancel">Cancel</button>
+    <span id="status">Loading editor…</span>
+  </div>
+  <iframe
+    id="drawio-frame"
+    src="https://embed.diagrams.net/?embed=1&proto=json&spin=1&ui=min&dark=0&noSaveBtn=0&saveAndExit=0"
+    allowfullscreen
+  ></iframe>
+
+  <script>
+    /* ── Streamlit component IPC (raw postMessage, no npm build needed) ── */
+    var FRAME_HEIGHT = 650;
+
+    function stPost(type, extra) {
+      var msg = Object.assign({ type: "streamlit:" + type }, extra || {});
+      window.parent.postMessage(msg, "*");
+    }
+
+    stPost("componentReady", { apiVersion: 1 });
+    stPost("setFrameHeight", { height: FRAME_HEIGHT });
+
+    /* ── draw.io editor state ── */
+    var drawioFrame = document.getElementById("drawio-frame");
+    var statusEl    = document.getElementById("status");
+
+    var editorReady = false;   // draw.io fired "init"
+    var pendingXml  = null;    // XML to load once the editor is ready
+    var savedXml    = "";      // last XML we know about (auto-saved or explicitly exported)
+    var pendingSave = false;   // we fired an export request and are awaiting the result
+
+    var BLANK_XML = [
+      '<mxGraphModel>',
+      '  <root>',
+      '    <mxCell id="0"/>',
+      '    <mxCell id="1" parent="0"/>',
+      '  </root>',
+      '</mxGraphModel>'
+    ].join("\n");
+
+    function postToDrawio(msg) {
+      drawioFrame.contentWindow.postMessage(JSON.stringify(msg), "*");
+    }
+
+    /* ── Toolbar buttons ── */
+    document.getElementById("btn-save").addEventListener("click", function () {
+      pendingSave = true;
+      statusEl.textContent = "Exporting…";
+      postToDrawio({ action: "export", format: "xml" });
+    });
+
+    document.getElementById("btn-cancel").addEventListener("click", function () {
+      stPost("setComponentValue", { value: { action: "close", xml: savedXml }, dataType: "json" });
+    });
+
+    /* ── Message hub ── */
+    window.addEventListener("message", function (evt) {
+      var data = evt.data;
+
+      /* --- Streamlit → component: render with new props --- */
+      if (data && typeof data === "object" && data.type === "streamlit:render") {
+        var xml = (data.args && data.args.xml) || "";
+        stPost("setFrameHeight", { height: FRAME_HEIGHT });
+
+        if (editorReady) {
+          /* Only reload if we don't have local unsaved edits. */
+          if (!savedXml) {
+            postToDrawio({ action: "load", xml: xml || BLANK_XML });
+          }
+        } else {
+          /* Buffer until the editor fires "init". */
+          if (!pendingXml) pendingXml = xml || null;
+        }
+        return;
+      }
+
+      /* --- draw.io → component: JSON string events --- */
+      if (typeof data !== "string") return;
+      var msg;
+      try { msg = JSON.parse(data); } catch (_) { return; }
+
+      switch (msg.event) {
+        case "init":
+          editorReady = true;
+          statusEl.textContent = "Ready";
+          postToDrawio({ action: "load", xml: pendingXml || BLANK_XML });
+          pendingXml = null;
+          break;
+
+        case "load":
+          statusEl.textContent = "Diagram loaded";
+          break;
+
+        case "save":
+          /* Native draw.io Ctrl+S / save button. */
+          savedXml = msg.xml || savedXml;
+          statusEl.textContent = "Saved";
+          break;
+
+        case "export":
+          if (pendingSave) {
+            pendingSave = false;
+            /* draw.io returns XML in msg.xml for format=xml; msg.data is a fallback. */
+            var xml = msg.xml || msg.data || savedXml;
+            savedXml = xml;
+            stPost("setComponentValue", { value: { action: "save", xml: xml }, dataType: "json" });
+          }
+          break;
+
+        case "close":
+          stPost("setComponentValue", { value: { action: "close", xml: savedXml }, dataType: "json" });
+          break;
+      }
+    });
+  </script>
+</body>
+</html>
