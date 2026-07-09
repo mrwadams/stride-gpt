@@ -15,6 +15,7 @@ from stride_gpt.core.schemas import LLMConfig
 
 __all__ = [
     "get_dfd_anthropic",
+    "get_dfd_deepseek",
     "get_dfd_from_image_anthropic",
     "get_dfd_from_image_google",
     "get_dfd_from_image_openai",
@@ -82,6 +83,12 @@ def get_dfd_lm_studio(
 
 def get_dfd_mistral(api_key: str, model_name: str, prompt: str) -> str:
     config = LLMConfig(provider="Mistral API", model_name=model_name, api_key=api_key)
+    mermaid, _ = generate_dfd(config, prompt)
+    return mermaid
+
+
+def get_dfd_deepseek(api_key: str, model_name: str, prompt: str) -> str:
+    config = LLMConfig(provider="DeepSeek API", model_name=model_name, api_key=api_key)
     mermaid, _ = generate_dfd(config, prompt)
     return mermaid
 
