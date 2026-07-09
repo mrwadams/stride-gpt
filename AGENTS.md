@@ -56,7 +56,7 @@ Three phases, all driven from `cli.py:analyze` (the subcommand) or `_handle_anal
 2. **Per-subsystem analysis** (`agent/loop.py:_analyze_subsystem`) — for each subsystem, a tool-using agent loop. The model reads files, greps, lists directories, and loads OWASP reference cards on demand, then emits a JSON finding. Token budget is shared across subsystems (remaining-budget arithmetic in `run_analysis`).
 3. **Synthesis** (`agent/loop.py:_synthesize`) — one LLM call. Reviews all per-subsystem findings and surfaces cross-cutting threats.
 
-Reports auto-save to `~/.stride-gpt/reports/<target>_<timestamp>.json`. The `/reports` slash command lists and re-renders saved reports.
+Reports auto-save under `~/.stride-gpt/reports/`, split by kind: `/analyze` runs land in `reports/analyze/<target>_<timestamp>.json` and `/quick` runs in `reports/quick/<name>_<timestamp>.json` (see `config.py:analyze_reports_dir` / `quick_reports_dir`). The `/reports` slash command lists and re-renders saved reports (`--quick` / `--all` switch which kind it shows).
 
 ## Progressive disclosure pattern
 

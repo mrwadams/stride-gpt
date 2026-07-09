@@ -688,7 +688,7 @@ def _resolve_provider(model: str) -> tuple[str, str]:
 @app.command()
 def analyze(
     path: Annotated[Path, typer.Argument(help="Path to the codebase to analyze.")] = Path("."),
-    worker_model: Annotated[Optional[str], typer.Option(help="Worker model — default tier, handles the bulk of calls (e.g. anthropic/claude-sonnet-4-5). A fast, low-cost model usually pays off here. Uses saved config if omitted.")] = None,
+    worker_model: Annotated[Optional[str], typer.Option(help="Worker model — default tier, handles the bulk of calls (e.g. anthropic/claude-sonnet-4-6). A fast, low-cost model usually pays off here. Uses saved config if omitted.")] = None,
     worker_api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="Worker API key.")] = None,
     worker_api_base: Annotated[Optional[str], typer.Option(help="Worker API base URL (LM Studio).")] = None,
     worker_max_tokens: Annotated[Optional[int], typer.Option(help="Worker per-call output token cap.")] = None,

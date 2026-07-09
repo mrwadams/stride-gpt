@@ -386,9 +386,16 @@ Inside the REPL, type `/help` to see available commands and flags.
 |------|-------------|
 | `-o`, `--output` | Save report to a file |
 | `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
+| `-i`, `--input` | Read the app description from a file (`quick` only) |
 | `-y`, `--yes` | Auto-approve the analysis plan (`analyze` only) |
 | `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-4-6`). Uses saved config if omitted. |
 | `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-5.4`). Uses saved config if omitted. |
+| `--no-architect` | Skip the architect tier for this run; the worker handles every call. |
+| `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |
+| `--max-llm-calls` | Cap total LLM calls across both tiers (`analyze` only; `0` = unlimited). |
+| `--max-tool-calls` | Cap total tool executions (`analyze` only; `0` = unlimited). |
+
+Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-tokens` (and the `--architect-*` equivalents). Run `stride-gpt analyze --help` or `stride-gpt quick --help` for the complete list.
 
 **Structured intermediates** — when `-o <path>` is used, three JSON siblings are written alongside the report so the run can be audited or consumed by downstream tools:
 
