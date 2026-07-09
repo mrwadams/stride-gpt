@@ -108,6 +108,55 @@ class TestGetApiKey:
         assert get_api_key(cfg, tier="architect") == ""
 
 
+class TestGetApiKeyWorkerFallback:
+    """The worker tier's last-resort scan of common env vars, used when the
+    provider's own env var is unset (legacy behaviour)."""
+
+    @staticmethod
+    def _clear_all(monkeypatch):
+        for var in (
+            "ANTHROPIC_API_KEY",
+            "STRIDE_GPT_API_KEY",
+            "OPENAI_API_KEY",
+            "GOOGLE_API_KEY",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_falls_back_to_generic_env_var_when_provider_var_unset(
+        self, single_tier_config, monkeypatch
+    ):
+        # Anthropic's own ANTHROPIC_API_KEY is unset, so the worker falls back
+        # to the generic STRIDE_GPT_API_KEY.
+        self._clear_all(monkeypatch)
+        monkeypatch.setenv("STRIDE_GPT_API_KEY", "generic-key")
+        assert get_api_key(single_tier_config, tier="worker") == "generic-key"
+
+    def test_stride_gpt_key_takes_precedence_in_fallback_chain(
+        self, single_tier_config, monkeypatch
+    ):
+        # STRIDE_GPT_API_KEY is checked before the provider-branded vars.
+        self._clear_all(monkeypatch)
+        monkeypatch.setenv("STRIDE_GPT_API_KEY", "first")
+        monkeypatch.setenv("OPENAI_API_KEY", "second")
+        assert get_api_key(single_tier_config, tier="worker") == "first"
+
+    def test_provider_var_wins_over_generic_fallback(
+        self, single_tier_config, monkeypatch
+    ):
+        # When the provider's own env var IS set, the generic fallback is never
+        # consulted — no risk of the wrong key winning.
+        self._clear_all(monkeypatch)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "provider-key")
+        monkeypatch.setenv("STRIDE_GPT_API_KEY", "generic-key")
+        assert get_api_key(single_tier_config, tier="worker") == "provider-key"
+
+    def test_returns_empty_string_when_no_key_available(
+        self, single_tier_config, monkeypatch
+    ):
+        self._clear_all(monkeypatch)
+        assert get_api_key(single_tier_config, tier="worker") == ""
+
+
 class TestLoadConfig:
     def test_returns_none_when_no_worker_model(self, tmp_path, monkeypatch):
         cfg_dir = tmp_path / ".stride-gpt"

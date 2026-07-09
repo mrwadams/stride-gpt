@@ -14,3 +14,6 @@ dist/
 
 # Doc-review report (local only)
 doc-review.html
+
+# Test-optimizer report (local only)
+test-optimization.html
