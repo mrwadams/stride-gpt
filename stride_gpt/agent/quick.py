@@ -66,6 +66,10 @@ def run_quick_analysis(
     # Cache load_reference results so the model doesn't waste turns calling
     # the same card twice. Card content is idempotent so the cache is safe.
     tool_cache: dict[str, str] = {}
+    # Names the agent loads via the ``load_reference`` tool. Surfaced on the
+    # returned ``ThreatModelOutput`` so the run manifest can record which
+    # cards actually shaped the output.
+    loaded_refs: set[str] = set()
 
     target_path = Path("/")  # load_reference ignores the root parameter
 
@@ -92,7 +96,7 @@ def run_quick_analysis(
                         "earlier tool response instead of requesting it again."
                     )
                 else:
-                    result = execute_tool(target_path, tc)
+                    result = execute_tool(target_path, tc, loaded_refs=loaded_refs)
                     tool_cache[key] = result
                 tool_calls += 1
                 tools_used[tc.function_name] = tools_used.get(tc.function_name, 0) + 1
@@ -110,7 +114,7 @@ def run_quick_analysis(
             # JSON parse failed — one retry with forced JSON mode.
             parsed = _retry_as_json(models.worker, messages)
             llm_calls += 1
-        return _attach_counts(parsed, llm_calls, tool_calls, tools_used)
+        return _attach_counts(parsed, llm_calls, tool_calls, tools_used, loaded_refs)
 
     # Hit the call cap before getting a final JSON — coerce one last attempt.
     messages.append({
@@ -123,7 +127,7 @@ def run_quick_analysis(
     })
     parsed = _retry_as_json(models.worker, messages)
     llm_calls += 1
-    return _attach_counts(parsed, llm_calls, tool_calls, tools_used)
+    return _attach_counts(parsed, llm_calls, tool_calls, tools_used, loaded_refs)
 
 
 def _attach_counts(
@@ -131,10 +135,12 @@ def _attach_counts(
     llm_calls: int,
     tool_calls: int,
     tools_used: dict[str, int],
+    loaded_refs: set[str],
 ) -> ThreatModelOutput:
     output.llm_calls = llm_calls
     output.tool_calls = tool_calls
     output.tools_used = tools_used
+    output.references_loaded = sorted(loaded_refs)
     return output
 
 

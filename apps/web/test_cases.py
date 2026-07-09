@@ -353,6 +353,13 @@ def get_test_cases_mistral(mistral_api_key, mistral_model, prompt):
     return content
 
 
+# Function to get test cases from the DeepSeek model's response.
+def get_test_cases_deepseek(deepseek_api_key, deepseek_model, prompt):
+    config = LLMConfig(provider="DeepSeek API", model_name=deepseek_model, api_key=deepseek_api_key)
+    content, _response = generate_test_cases(config, prompt)
+    return content
+
+
 # Function to get test cases from the Anthropic model's response.
 def get_test_cases_anthropic(anthropic_api_key, anthropic_model, prompt):
     config = LLMConfig(

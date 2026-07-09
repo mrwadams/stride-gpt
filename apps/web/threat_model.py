@@ -18,6 +18,7 @@ __all__ = [
     "get_image_analysis_google",
     "get_threat_model",
     "get_threat_model_anthropic",
+    "get_threat_model_deepseek",
     "get_threat_model_google",
     "get_threat_model_groq",
     "get_threat_model_lm_studio",
@@ -153,6 +154,13 @@ def get_threat_model_google(google_api_key, google_model, prompt):
 # Function to get threat model from the Mistral response.
 def get_threat_model_mistral(mistral_api_key, mistral_model, prompt):
     config = LLMConfig(provider="Mistral API", model_name=mistral_model, api_key=mistral_api_key)
+    result, _response = generate_threat_model(config, prompt)
+    return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
+
+
+# Function to get threat model from the DeepSeek response.
+def get_threat_model_deepseek(deepseek_api_key, deepseek_model, prompt):
+    config = LLMConfig(provider="DeepSeek API", model_name=deepseek_model, api_key=deepseek_api_key)
     result, _response = generate_threat_model(config, prompt)
     return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
 

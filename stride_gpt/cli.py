@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import TYPE_CHECKING, Annotated, Optional
+
+if TYPE_CHECKING:
+    from stride_gpt.core.schemas import (
+        AnalysisPlan,
+        AnalysisReport,
+        ModelPair,
+        ThreatModelOutput,
+    )
 
 from dotenv import load_dotenv
 
@@ -188,6 +197,94 @@ def _handle_config(config: dict) -> None:
             console.print("[dim]Keeping existing configuration.[/dim]")
 
 
+def _persist_analyze_intermediates(
+    *,
+    output: Path,
+    target: Path,
+    models: ModelPair,
+    plan: AnalysisPlan,
+    report: AnalysisReport,
+    started_at: datetime,
+    finished_at: datetime,
+    app_type_source: str,
+) -> None:
+    """Write plan/findings/run.json siblings next to a /analyze -o report.
+
+    No-op for cancelled runs — matches the existing skip of save_report.
+    """
+    if report.metadata.get("status") == "cancelled":
+        return
+
+    from stride_gpt.agent.persistence import (
+        build_analyze_manifest,
+        write_intermediates,
+    )
+    from stride_gpt.core.prompts import base_system_prompt
+
+    refs = report.metadata.get("references_loaded", []) or []
+    manifest = build_analyze_manifest(
+        models=models,
+        plan=plan,
+        target=target,
+        started_at=started_at,
+        finished_at=finished_at,
+        app_type_source=app_type_source,
+        system_prompt=base_system_prompt(),
+        references_loaded=refs,
+        llm_calls=report.metadata.get("llm_calls", 0),
+        tool_calls=report.metadata.get("tool_calls", 0),
+        subsystems_analyzed=report.metadata.get(
+            "subsystems_analyzed", len(report.findings)
+        ),
+    )
+    written = write_intermediates(
+        output,
+        manifest=manifest,
+        plan=plan,
+        findings=report.findings,
+        cross_cutting=report.cross_cutting_threats,
+        data_flow_diagram=report.data_flow_diagram,
+    )
+    for path in written:
+        console.print(f"[green]Intermediate written to {path}[/green]")
+
+
+def _persist_quick_intermediates(
+    *,
+    output: Path,
+    target_label: str,
+    models: ModelPair,
+    result: ThreatModelOutput,
+    started_at: datetime,
+    finished_at: datetime,
+    hint: str | None,
+) -> None:
+    """Write the run.json sibling next to a /quick -o report."""
+    from stride_gpt.agent.persistence import (
+        build_quick_manifest,
+        write_intermediates,
+    )
+    from stride_gpt.core.prompts import coerce_app_type, quick_base_prompt
+
+    detected = coerce_app_type(hint)
+    app_type_source = f"hint:{hint}" if hint else "default"
+    manifest = build_quick_manifest(
+        models=models,
+        target_label=target_label,
+        detected_app_type=detected,
+        app_type_source=app_type_source,
+        started_at=started_at,
+        finished_at=finished_at,
+        system_prompt=quick_base_prompt(),
+        references_loaded=result.references_loaded,
+        llm_calls=result.llm_calls,
+        tool_calls=result.tool_calls,
+    )
+    written = write_intermediates(output, manifest=manifest)
+    for path in written:
+        console.print(f"[green]Intermediate written to {path}[/green]")
+
+
 def _handle_analyze(config: dict, args_str: str) -> None:
     """Run agentic analysis from interactive session."""
     from stride_gpt.agent.html_report import render_html
@@ -240,6 +337,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     progress = RichProgress(console)
 
     # Phase 1: Plan
+    started_at = datetime.now(timezone.utc)
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
     plan = create_analysis_plan(models, target_path)
@@ -258,6 +356,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         plan=plan,
         progress=progress,
     )
+    finished_at = datetime.now(timezone.utc)
 
     # Auto-save (skip cancelled runs)
     saved_path = None
@@ -283,6 +382,16 @@ def _handle_analyze(config: dict, args_str: str) -> None:
             html_path = output_path.with_suffix(".html")
             html_path.write_text(render_html(report))
             console.print(f"[green]HTML view written to {html_path}[/green]")
+        _persist_analyze_intermediates(
+            output=output_path,
+            target=target_path,
+            models=models,
+            plan=plan,
+            report=report,
+            started_at=started_at,
+            finished_at=finished_at,
+            app_type_source="planner",
+        )
     else:
         console.print()
         if output_format == OutputFormat.markdown:
@@ -514,8 +623,10 @@ def _handle_quick(config: dict, args_str: str) -> None:
         )
     )
 
+    started_at = datetime.now(timezone.utc)
     with console.status("Analysing description..."):
         result = run_quick_analysis(models, app_description, hint=hint)
+    finished_at = datetime.now(timezone.utc)
 
     saved_path = save_quick_report(
         result,
@@ -536,6 +647,15 @@ def _handle_quick(config: dict, args_str: str) -> None:
         else:
             output_path.write_text(markdown)
         console.print(f"[green]Report written to {output_path}[/green]")
+        _persist_quick_intermediates(
+            output=output_path,
+            target_label=str(input_file) if input_file else "stdin",
+            models=models,
+            result=result,
+            started_at=started_at,
+            finished_at=finished_at,
+            hint=hint,
+        )
     else:
         console.print()
         console.print(Markdown(markdown))
@@ -557,6 +677,7 @@ def _resolve_provider(model: str) -> tuple[str, str]:
         "groq/": "Groq API",
         "openai/": "OpenAI API",
         "google/": "Google AI API",
+        "deepseek/": "DeepSeek API",
     }
     for prefix, provider in prefixes.items():
         if model.startswith(prefix):
@@ -622,6 +743,7 @@ def analyze(
     progress = RichProgress(console)
 
     # Phase 1: Plan
+    started_at = datetime.now(timezone.utc)
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
     plan = create_analysis_plan(models, target)
@@ -652,6 +774,7 @@ def analyze(
         max_tool_calls=max_tool_calls,
         progress=progress,
     )
+    finished_at = datetime.now(timezone.utc)
 
     # Auto-save
     saved_path = None
@@ -674,6 +797,21 @@ def analyze(
             html_path = output.with_suffix(".html")
             html_path.write_text(render_html(report))
             console.print(f"[green]HTML view written to {html_path}[/green]")
+        app_type_source = (
+            f"override:{app_type.value}"
+            if app_type != AppTypeOverride.auto
+            else "planner"
+        )
+        _persist_analyze_intermediates(
+            output=output,
+            target=target,
+            models=models,
+            plan=plan,
+            report=report,
+            started_at=started_at,
+            finished_at=finished_at,
+            app_type_source=app_type_source,
+        )
     else:
         console.print()
         if output_format == OutputFormat.markdown:
@@ -755,8 +893,10 @@ def quick(
         )
     )
 
+    started_at = datetime.now(timezone.utc)
     with console.status("Analysing description..."):
         result = run_quick_analysis(models, app_description, hint=app_type)
+    finished_at = datetime.now(timezone.utc)
 
     saved_path = save_quick_report(
         result,
@@ -774,6 +914,15 @@ def quick(
         else:
             output.write_text(markdown)
         console.print(f"[green]Report written to {output}[/green]")
+        _persist_quick_intermediates(
+            output=output,
+            target_label=str(input_file) if input_file else "stdin",
+            models=models,
+            result=result,
+            started_at=started_at,
+            finished_at=finished_at,
+            hint=app_type,
+        )
     else:
         console.print()
         console.print(Markdown(markdown))

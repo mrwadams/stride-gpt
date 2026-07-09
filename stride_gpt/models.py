@@ -115,6 +115,19 @@ PROVIDERS: dict[str, ProviderInfo] = {
             "3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀"
         ),
     ),
+    "DeepSeek": ProviderInfo(
+        name="DeepSeek",
+        provider_key="DeepSeek API",
+        litellm_prefix="deepseek/",
+        env_var="DEEPSEEK_API_KEY",
+        api_key_url="https://platform.deepseek.com/api_keys",
+        setup_instructions=(
+            "1. Enter your [DeepSeek API key](https://platform.deepseek.com/api_keys) "
+            "and chosen model below 🔑\n"
+            "2. Provide details of the application that you would like to threat model  📝\n"
+            "3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀"
+        ),
+    ),
     "LM Studio": ProviderInfo(
         name="LM Studio",
         provider_key="LM Studio Server",
@@ -308,6 +321,21 @@ MODELS: list[ModelInfo] = [
         default_tokens=64000,
         max_tokens=131072,
         help_text="Qwen3 32B delivers balanced performance.",
+    ),
+    # --- DeepSeek ---
+    ModelInfo(
+        model_id="deepseek-v4-pro",
+        provider_key="DeepSeek API",
+        default_tokens=64000,
+        max_tokens=128000,
+        help_text="DeepSeek V4 Pro is a large MoE model with strong reasoning, coding, and long-context performance.",
+    ),
+    ModelInfo(
+        model_id="deepseek-v4-flash",
+        provider_key="DeepSeek API",
+        default_tokens=64000,
+        max_tokens=128000,
+        help_text="DeepSeek V4 Flash is the fast, cost-efficient tier.",
     ),
     # --- LM Studio (no static models — discovered at runtime) ---
 ]
