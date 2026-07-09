@@ -25,6 +25,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
 from stride_gpt.config import CONFIG_DIR
+from stride_gpt.version import get_version
 
 # Slash commands available in the REPL. Order matters for menu display.
 COMMANDS: list[tuple[str, str]] = [
@@ -151,8 +152,10 @@ def build_session(
             )
         else:
             tier_line = f" <b>{worker_provider}</b> / <ansigreen>{worker_model}</ansigreen>"
+        version_text = get_version()
         return HTML(
             f"{tier_line}  "
+            f"<ansicyan>v{version_text}</ansicyan>  "
             f"<ansicyan>cwd:</ansicyan> {cwd}  "
             f"<ansibrightblack>·  Tab to complete  ·  Ctrl+L to clear  ·  /help</ansibrightblack>"
         )

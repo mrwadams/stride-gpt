@@ -36,6 +36,7 @@ from stride_gpt.config import (
     run_setup,
     show_config,
 )
+from stride_gpt.version import get_version
 
 app = typer.Typer(
     name="stride-gpt",
@@ -44,13 +45,14 @@ app = typer.Typer(
 )
 console = Console()
 
-BANNER = r"""[bold blue]
+BANNER = rf"""[bold blue]
  _____ _____ _____ _____ ____  _____     _____ _____ _____
 |   __|_   _| __  |     |    \|   __|___|   __|  _  |_   _|
 |__   | | | |    -|-   -|  |  |   __|___|  |  |   __| | |
 |_____| |_| |__|__|_____|____/|_____|   |_____|__|    |_|[/bold blue]
 
-[dim]AI-powered threat modeling agent[/dim]"""
+[dim]AI-powered threat modeling agent[/dim]
+[dim]v{get_version()}[/dim]"""
 
 HELP_TEXT = """
 [bold]Commands:[/bold]
@@ -100,8 +102,22 @@ class AppTypeOverride(StrEnum):
 
 
 @app.callback(invoke_without_command=True)
-def interactive(ctx: typer.Context) -> None:
+def interactive(
+    ctx: typer.Context,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show the installed STRIDE-GPT version and exit.",
+            is_eager=True,
+        ),
+    ] = False,
+) -> None:
     """Launch interactive session if no subcommand is given."""
+    if version:
+        console.print(f"stride-gpt {get_version()}")
+        raise typer.Exit()
+
     if ctx.invoked_subcommand is not None:
         return
 
