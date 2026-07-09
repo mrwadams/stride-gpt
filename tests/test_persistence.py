@@ -9,6 +9,7 @@ from pathlib import Path
 from stride_gpt.agent.persistence import (
     ModelDescriptor,
     RunManifest,
+    RunSummary,
     build_analyze_manifest,
     build_quick_manifest,
     compute_config_hash,
@@ -152,6 +153,13 @@ def _make_analyze_manifest(tmp_path: Path) -> RunManifest:
         target_git_sha=None,
         config_hash="0" * 64,
         references_loaded=["genai"],
+        run_summary=RunSummary(
+            status="completed",
+            subsystems_planned=2,
+            subsystems_analyzed=2,
+            llm_calls=5,
+            tool_calls=12,
+        ),
         mode="analyze",
     )
 
@@ -251,6 +259,13 @@ def _make_quick_manifest() -> RunManifest:
         target_git_sha=None,
         config_hash="f" * 64,
         references_loaded=[],
+        run_summary=RunSummary(
+            status="completed",
+            subsystems_planned=None,
+            subsystems_analyzed=None,
+            llm_calls=3,
+            tool_calls=1,
+        ),
         mode="quick",
     )
 
@@ -322,6 +337,13 @@ def test_run_manifest_round_trip():
         target_git_sha="abc123",
         config_hash="a" * 64,
         references_loaded=["agentic", "genai"],
+        run_summary=RunSummary(
+            status="partial",
+            subsystems_planned=5,
+            subsystems_analyzed=1,
+            llm_calls=8,
+            tool_calls=8,
+        ),
         mode="analyze",
     )
     # JSON round-trip: model_dump_json → load → RunManifest(**) reproduces.
@@ -350,6 +372,9 @@ def test_build_analyze_manifest_populates_expected_fields(
         app_type_source="planner",
         system_prompt="hello",
         references_loaded=["genai"],
+        llm_calls=5,
+        tool_calls=12,
+        subsystems_analyzed=len(sample_plan.subsystems),
     )
 
     assert manifest.mode == "analyze"
@@ -366,6 +391,55 @@ def test_build_analyze_manifest_populates_expected_fields(
     int(manifest.config_hash, 16)
 
 
+def test_build_analyze_manifest_status_completed_when_all_subsystems_analyzed(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    monkeypatch.chdir(tmp_path)
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=5,
+        tool_calls=12,
+        subsystems_analyzed=len(sample_plan.subsystems),
+    )
+
+    assert manifest.run_summary.status == "completed"
+    assert manifest.run_summary.subsystems_planned == len(sample_plan.subsystems)
+    assert manifest.run_summary.subsystems_analyzed == len(sample_plan.subsystems)
+    assert manifest.run_summary.llm_calls == 5
+    assert manifest.run_summary.tool_calls == 12
+
+
+def test_build_analyze_manifest_status_partial_when_cap_truncates(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    # A call cap stopped analysis after 1 of the plan's 2 subsystems.
+    monkeypatch.chdir(tmp_path)
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=8,
+        tool_calls=8,
+        subsystems_analyzed=1,
+    )
+
+    assert manifest.run_summary.status == "partial"
+    assert manifest.run_summary.subsystems_planned == 2
+    assert manifest.run_summary.subsystems_analyzed == 1
+
+
 def test_build_quick_manifest_uses_target_label_verbatim(model_pair):
     manifest = build_quick_manifest(
         models=model_pair,
@@ -376,6 +450,8 @@ def test_build_quick_manifest_uses_target_label_verbatim(model_pair):
         finished_at=datetime.now(UTC),
         system_prompt="quick prompt",
         references_loaded=["genai", "agentic"],
+        llm_calls=3,
+        tool_calls=1,
     )
 
     assert manifest.mode == "quick"
@@ -383,3 +459,25 @@ def test_build_quick_manifest_uses_target_label_verbatim(model_pair):
     assert manifest.target_git_sha is None
     # references_loaded is sorted by the builder.
     assert manifest.references_loaded == ["agentic", "genai"]
+
+
+def test_build_quick_manifest_run_summary_completed_with_null_subsystems(model_pair):
+    # /quick is single-shot: always "completed", no subsystem counts.
+    manifest = build_quick_manifest(
+        models=model_pair,
+        target_label="stdin",
+        detected_app_type="web",
+        app_type_source="default",
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        system_prompt="quick prompt",
+        references_loaded=[],
+        llm_calls=4,
+        tool_calls=2,
+    )
+
+    assert manifest.run_summary.status == "completed"
+    assert manifest.run_summary.subsystems_planned is None
+    assert manifest.run_summary.subsystems_analyzed is None
+    assert manifest.run_summary.llm_calls == 4
+    assert manifest.run_summary.tool_calls == 2

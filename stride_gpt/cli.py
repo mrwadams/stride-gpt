@@ -231,6 +231,11 @@ def _persist_analyze_intermediates(
         app_type_source=app_type_source,
         system_prompt=base_system_prompt(),
         references_loaded=refs,
+        llm_calls=report.metadata.get("llm_calls", 0),
+        tool_calls=report.metadata.get("tool_calls", 0),
+        subsystems_analyzed=report.metadata.get(
+            "subsystems_analyzed", len(report.findings)
+        ),
     )
     written = write_intermediates(
         output,
@@ -272,6 +277,8 @@ def _persist_quick_intermediates(
         finished_at=finished_at,
         system_prompt=quick_base_prompt(),
         references_loaded=result.references_loaded,
+        llm_calls=result.llm_calls,
+        tool_calls=result.tool_calls,
     )
     written = write_intermediates(output, manifest=manifest)
     for path in written:

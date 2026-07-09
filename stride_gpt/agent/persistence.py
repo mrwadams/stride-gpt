@@ -10,7 +10,9 @@ siblings next to the report:
 * ``<stem>.findings.json`` — the ``SubsystemFinding`` list + cross-cutting
   threats + data flow diagram (analyze only)
 * ``<stem>.run.json`` — a ``RunManifest`` describing models, config, version,
-  and which reference cards the agent actually loaded (analyze and quick)
+  which reference cards the agent actually loaded, and a ``run_summary``
+  recording whether the run completed or a call cap truncated it (analyze
+  and quick)
 
 The format flag (`-f`) controls only the report artefact; siblings are
 always JSON.
@@ -53,6 +55,29 @@ class ModelDescriptor(BaseModel):
         return cls(provider=config.provider, model_name=config.model_name)
 
 
+class RunSummary(BaseModel):
+    """Completeness of a run, so the intermediates are self-describing.
+
+    Without this, an auditor reading ``findings.json`` in isolation can't
+    tell a full analysis from one a call/tool cap cut short — a truncated
+    run and a complete one look identical. ``status`` is:
+
+    * ``"completed"`` — every planned subsystem was reached (analyze), or the
+      single-shot model returned (quick).
+    * ``"partial"`` — a call/tool cap stopped /analyze before every planned
+      subsystem was reached (``subsystems_analyzed < subsystems_planned``).
+
+    ``subsystems_planned`` / ``subsystems_analyzed`` are ``None`` for /quick,
+    which has no per-subsystem phase.
+    """
+
+    status: Literal["completed", "partial"]
+    subsystems_planned: int | None = None
+    subsystems_analyzed: int | None = None
+    llm_calls: int
+    tool_calls: int
+
+
 class RunManifest(BaseModel):
     """Provenance for a single STRIDE-GPT run.
 
@@ -84,6 +109,9 @@ class RunManifest(BaseModel):
     config_hash: str
     # Names of reference cards the agent actually loaded during the run.
     references_loaded: list[str]
+    # Outcome / coverage of the run — distinguishes a complete analysis from
+    # one a call cap truncated.
+    run_summary: RunSummary
     mode: Literal["analyze", "quick"]
 
 
@@ -314,8 +342,24 @@ def build_analyze_manifest(
     app_type_source: str,
     system_prompt: str,
     references_loaded: list[str],
+    llm_calls: int,
+    tool_calls: int,
+    subsystems_analyzed: int,
 ) -> RunManifest:
-    """Assemble the manifest for a /analyze run."""
+    """Assemble the manifest for a /analyze run.
+
+    ``subsystems_analyzed`` is the number of subsystems that produced a
+    finding; when it's below the planned count a call/tool cap truncated the
+    run and ``run_summary.status`` is reported as ``"partial"``.
+    """
+    subsystems_planned = len(plan.subsystems)
+    run_summary = RunSummary(
+        status="partial" if subsystems_analyzed < subsystems_planned else "completed",
+        subsystems_planned=subsystems_planned,
+        subsystems_analyzed=subsystems_analyzed,
+        llm_calls=llm_calls,
+        tool_calls=tool_calls,
+    )
     return RunManifest(
         stride_gpt_version=_stride_gpt_version(),
         python_version=_python_version(),
@@ -333,6 +377,7 @@ def build_analyze_manifest(
             references=references_loaded,
         ),
         references_loaded=sorted(references_loaded),
+        run_summary=run_summary,
         mode="analyze",
     )
 
@@ -347,13 +392,25 @@ def build_quick_manifest(
     finished_at: datetime,
     system_prompt: str,
     references_loaded: list[str],
+    llm_calls: int,
+    tool_calls: int,
 ) -> RunManifest:
     """Assemble the manifest for a /quick run.
 
     ``target_label`` is the input filename (when ``-i`` is used) or the
     literal ``"stdin"`` — /quick has no codebase target, so the redaction
     rule doesn't apply to a filesystem path here.
+
+    /quick is single-shot with no per-subsystem phase, so ``run_summary``
+    always reports ``"completed"`` with ``None`` subsystem counts.
     """
+    run_summary = RunSummary(
+        status="completed",
+        subsystems_planned=None,
+        subsystems_analyzed=None,
+        llm_calls=llm_calls,
+        tool_calls=tool_calls,
+    )
     return RunManifest(
         stride_gpt_version=_stride_gpt_version(),
         python_version=_python_version(),
@@ -371,5 +428,6 @@ def build_quick_manifest(
             references=references_loaded,
         ),
         references_loaded=sorted(references_loaded),
+        run_summary=run_summary,
         mode="quick",
     )
