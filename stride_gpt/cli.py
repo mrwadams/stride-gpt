@@ -6,6 +6,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from enum import StrEnum
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -95,17 +96,47 @@ class AppTypeOverride(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# Interactive session
+# Version + interactive session
 # ---------------------------------------------------------------------------
 
 
+def get_version() -> str:
+    """Return the installed package version, read from distribution metadata.
+
+    Falls back to "0.0.0" for source/editable runs where package metadata is
+    absent, so the flag still reports something sane instead of crashing.
+    """
+    try:
+        return version("stride-gpt")
+    except PackageNotFoundError:
+        return "0.0.0"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"stride-gpt {get_version()}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
-def interactive(ctx: typer.Context) -> None:
+def interactive(
+    ctx: typer.Context,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show the installed version and exit.",
+            is_eager=True,
+            callback=_version_callback,
+        ),
+    ] = False,
+) -> None:
     """Launch interactive session if no subcommand is given."""
     if ctx.invoked_subcommand is not None:
         return
 
     console.print(BANNER)
+    console.print(f"[dim]v{get_version()}[/dim]")
 
     # Load or create config
     config = load_config()

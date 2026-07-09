@@ -8,11 +8,16 @@ mocking the config layer.
 
 from __future__ import annotations
 
+import importlib.metadata
+
 import pytest
 import typer
+from typer.testing import CliRunner
 
 from stride_gpt import cli
 from stride_gpt.core.schemas import LLMConfig, ModelPair
+
+runner = CliRunner()
 
 # ---------------------------------------------------------------------------
 # _resolve_provider — pure prefix routing
@@ -154,6 +159,45 @@ class TestCheckTierApiKeys:
     def test_single_tier_skips_architect_check(self):
         models = ModelPair(worker=_cfg())
         assert cli._check_tier_api_keys({}, models) is True
+
+
+# ---------------------------------------------------------------------------
+# Version reporting (issue #144)
+# ---------------------------------------------------------------------------
+
+
+class TestVersion:
+    def test_version_flag_prints_and_exits_zero(self):
+        result = runner.invoke(cli.app, ["--version"])
+        assert result.exit_code == 0
+        assert result.stdout.strip() == f"stride-gpt {cli.get_version()}"
+
+    def test_version_resolves_from_metadata(self):
+        try:
+            # When installed, the reported version must come from distribution
+            # metadata (not a hardcoded constant) and match it exactly.
+            assert cli.get_version() == importlib.metadata.version("stride-gpt")
+        except importlib.metadata.PackageNotFoundError:
+            pytest.skip("stride-gpt distribution not installed")
+
+    def test_banner_shows_version(self, monkeypatch):
+        """The TUI startup banner surfaces the version (issue #144)."""
+        monkeypatch.setattr(
+            cli,
+            "load_config",
+            lambda: {"worker_provider": "OpenAI API", "worker_model": "m"},
+        )
+
+        class _ExitSession:
+            def prompt(self):
+                raise EOFError
+
+        monkeypatch.setattr(
+            "stride_gpt.prompt.build_session", lambda _: _ExitSession()
+        )
+        result = runner.invoke(cli.app, [])
+        assert result.exit_code == 0
+        assert f"v{cli.get_version()}" in result.stdout
 
 
 # ---------------------------------------------------------------------------
