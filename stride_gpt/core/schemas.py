@@ -12,7 +12,7 @@ class LLMConfig(BaseModel):
     """Configuration for an LLM call. Constructed by UI layer from session state."""
 
     provider: str  # "OpenAI API", "Anthropic API", "Google AI API", etc.
-    model_name: str  # bare name e.g. "gpt-5.2", "claude-sonnet-4-5-20250929"
+    model_name: str  # bare name e.g. "gpt-5.4", "claude-sonnet-4-6"
     api_key: str  # BYOK key, passed per-call
     api_base: str | None = None  # For LM Studio custom endpoints
     timeout: int | None = None  # Request timeout in seconds

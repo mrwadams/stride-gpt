@@ -318,7 +318,7 @@ The file should define your security context as a text string including:
 
 ### Step 3: Modify the Threat Model Prompt
 
-Open `apps/web/threat_model.py` and find the `create_threat_model_prompt` function.
+Open `stride_gpt/core/prompts/builder.py` and find the `create_threat_model_prompt` function. (The web UI re-exports it from `apps/web/threat_model.py`, but the prompt body now lives in the shared core builder — so this one change affects both the Streamlit UI and any code path that builds the single-shot prompt.)
 
 **Key changes needed:**
 1. Import your organizational context: `from apps.web.org_context import get_org_context`
