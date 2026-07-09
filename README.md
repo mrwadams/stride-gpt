@@ -73,14 +73,16 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Unreleased
+### Version 0.18 (latest)
 
 - **Embedded draw.io diagram editor** (#132, #138): The Streamlit Threat Model tab now embeds the [diagrams.net](https://www.diagrams.net/) editor so you can sketch an architecture diagram in-app; on save the diagram XML is parsed (components, connections, trust boundaries) and folded into the threat-model prompt. GitHub analysis, image upload, the diagram editor, and an AI-assisted guided builder are unified into one tabbed *"describe your application"* section over a single description canvas, so the optional inputs no longer crowd out the primary description field. The guided builder now calls the selected model to draft a description and suggest missing security-relevant details, replacing the previous static template and coverage checks. For self-hosted or air-gapped deployments the editor host is configurable via `STRIDE_GPT_DRAWIO_URL` (defaults to `embed.diagrams.net`), the iframe `postMessage` origin is scoped to it, and untrusted diagram XML is parsed with `defusedxml`.
 - **DeepSeek provider support** (closes #133): DeepSeek is now a first-class model provider in both the CLI setup wizard and the Streamlit UI, offering `deepseek-v4-pro` and `deepseek-v4-flash`. Calls route through LiteLLM's native `deepseek/` integration (hosted endpoint, no custom base URL needed); set your key via `DEEPSEEK_API_KEY`.
 - **Data Flow Diagram support** (closes #56): New "Data Flow Diagram" tab in the Streamlit UI generates DFDs from the application description, parses uploaded DFD images via vision-capable models, and renders an editable Mermaid source pane with a live preview. Ticking *"Use this DFD for the threat model"* stores the confirmed diagram in session state and splices it into subsequent Threat Model and Attack Tree prompts as the authoritative system model — closing the description → DFD → review → refined threat model loop the issue asks for. The CLI's `/analyze` agent also produces a system-level DFD after synthesis, rendered as a Mermaid block in the markdown report, carried in the JSON `data_flow_diagram` field, and shown in the HTML view via a CDN-loaded Mermaid runtime. DFD generation is wrapped so a bad diagram never fails a good report.
 - **Graceful GitHub repo analysis errors** (closes #92): The Streamlit UI now catches GitHub API failures during repository analysis instead of surfacing a raw stack trace, with actionable messages for 404 (including fine-grained PAT scoping, which 404s even public repos), 401, 403/rate-limit, and network errors. Repo URLs are normalised (trailing `/` and `.git` suffix stripped) before parsing so `.../repo/` and `.../repo.git` no longer 404 spuriously.
 - **Structured intermediates alongside reports** (closes #122): When `-o <path>` is passed to `/analyze` or `/quick`, JSON siblings are written next to the report — `<stem>.plan.json` (the `AnalysisPlan`), `<stem>.findings.json` (subsystem findings, cross-cutting threats, and the data flow diagram), and `<stem>.run.json` (a `RunManifest` recording models, config hash, version, timing, which reference cards actually loaded, and a `run_summary` marking whether the run completed or a call cap truncated it). Manifests exclude API keys and endpoints and redact filesystem paths, so they're safe to commit or attach to a ticket. The `-f` format flag governs only the report artefact; siblings are always JSON.
-### Version 0.17 (latest)
+- **Comma-separated MITRE ATT&CK recovery** (closes #134): When a worker model returns `MITRE_ATTACK` as a comma-separated string (e.g. `"T1190, T1059, AML.T0053"`) instead of the canonical list shape, the technique IDs are now recovered rather than dropped. Previously the markdown/HTML reports showed the "MITRE ATT&CK" column but left every cell blank, and the SARIF export lost the IDs entirely. All renderers (markdown, HTML pills, SARIF) and the column-visibility check now route through a single normaliser, and free-form prose that isn't a technique ID is filtered out so the column never fills with false positives.
+
+### Version 0.17
 
 - **MITRE ATT&CK and ATLAS integration** (closes #36): Threats emitted by `/analyze` and `/quick` can now carry standardized adversary technique IDs from MITRE ATT&CK Enterprise (v17.1) and MITRE ATLAS (2026.05). Two new progressive-disclosure reference cards (`mitre_enterprise`, `mitre_atlas`) instruct the agent to use only the catalogued IDs and names, eliminating ID hallucination. Cards are regenerated from upstream STIX/YAML via `scripts/refresh_mitre_cards.py` rather than written from model recall. Techniques render as a `MITRE ATT&CK` column in markdown tables, clickable sky-tinted pills in HTML, and `properties.mitre_attack` arrays in SARIF.
 - **HTML report companion**: `/analyze` and `/quick` now emit a self-contained browser-viewable HTML report alongside the markdown / JSON / SARIF outputs, suitable for sharing with stakeholders.
@@ -97,6 +99,9 @@ This video is an excellent resource for anyone interested in understanding how S
 - **Interactive REPL**: Full-featured terminal experience with tab completion, history, real-time progress, and a status line.
 - **Multi-format output**: Markdown, JSON, and SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs).
 - **0.16.1 patch**: Raised the LiteLLM logger to ERROR in `stride_gpt/__init__.py` so the Bedrock/SageMaker pre-load warnings don't appear on fresh installs that lack `botocore`.
+
+<details>
+  <summary>Click to view release notes for earlier versions (0.15 and older).</summary>
 
 ### Version 0.15
 
@@ -198,10 +203,6 @@ This release added support for the following models:
 - **GPT4o mini**: I've added support for OpenAI's recently released GPT4o mini model. GPT4o mini is a cost-efficient small model that still provides high-quality responses for threat modelling tasks.
 
 - **Gemini 1.5 Pro (stable)**: Users can now choose from either the stable or preview versions of the Gemini 1.5 Pro model.
-
-<details>
-  <summary>Click to view release notes for earlier versions.</summary>
-
 
 ### Version 0.8
 
