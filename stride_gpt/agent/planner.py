@@ -92,17 +92,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
 
     # Retry once with explicit JSON-only instruction if first attempt failed
     if data is None:
-        retry_messages = messages + [
-            {"role": "assistant", "content": response.content},
-            {
-                "role": "user",
-                "content": (
-                    "Your previous response was not valid JSON. Respond with ONLY a "
-                    "valid JSON object matching the schema in your instructions. "
-                    "No prose, no markdown fences, no commentary."
-                ),
-            },
-        ]
+        retry_messages = [*messages, {"role": "assistant", "content": response.content}, {"role": "user", "content": "Your previous response was not valid JSON. Respond with ONLY a " "valid JSON object matching the schema in your instructions. " "No prose, no markdown fences, no commentary."}]
         retry_response = call_llm(json_config, retry_messages)
         data = extract_json_object(retry_response.content)
 

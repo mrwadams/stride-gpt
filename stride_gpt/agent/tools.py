@@ -126,7 +126,7 @@ def search_files(root: Path, pattern: str, path: str = ".") -> str:
                 rel = str(full.relative_to(root_resolved))
                 matches.append(rel)
                 if len(matches) >= MAX_SEARCH_RESULTS:
-                    return json.dumps(matches + [f"... (truncated at {MAX_SEARCH_RESULTS})"])
+                    return json.dumps([*matches, f"... (truncated at {MAX_SEARCH_RESULTS})"])
     return json.dumps(matches)
 
 
@@ -206,7 +206,7 @@ def grep_content(
                     rel = str(full.relative_to(root_resolved))
                     results.append({"file": rel, "line": i, "content": line.strip()[:200]})
                     if len(results) >= max_results:
-                        return json.dumps(results + [{"truncated": True, "total_limit": max_results}])
+                        return json.dumps([*results, {"truncated": True, "total_limit": max_results}])
     return json.dumps(results)
 
 

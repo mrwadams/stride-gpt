@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from pathlib import Path
 
 import pytest
 
 from stride_gpt.agent.html_report import render_html, render_html_from_json
 from stride_gpt.agent.report import (
+    list_reports,
+    load_report,
     render_json,
     render_markdown,
-    render_sarif,
     render_markdown_from_json,
+    render_sarif,
     render_sarif_from_json,
-    save_report,
     save_quick_report,
-    load_report,
-    list_reports,
+    save_report,
 )
 from stride_gpt.core.schemas import AnalysisReport, ThreatModelOutput
-
 
 # ---------------------------------------------------------------------------
 # render_markdown
@@ -161,15 +161,15 @@ class TestReportPersistence:
             assert len(data["subsystems"]) == 1
 
     def test_list_reports(self, sample_report: AnalysisReport, tmp_path: Path):
+        from datetime import datetime
         from unittest.mock import patch
-        from datetime import datetime, timezone
 
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
 
             # Use different timestamps so filenames don't collide
-            t1 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-            t2 = datetime(2026, 1, 1, 0, 0, 1, tzinfo=timezone.utc)
+            t1 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+            t2 = datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)
             with patch("stride_gpt.agent.report.datetime") as mock_dt:
                 mock_dt.now.return_value = t1
                 mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)

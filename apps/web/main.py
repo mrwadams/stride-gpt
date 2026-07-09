@@ -20,10 +20,6 @@ import requests
 import streamlit as st
 import streamlit.components.v1 as components
 import tiktoken
-from dotenv import load_dotenv
-from github import Github, GithubException
-from openai import OpenAI
-
 from attack_tree import (
     create_attack_tree_prompt,
     get_attack_tree,
@@ -34,6 +30,7 @@ from attack_tree import (
     get_attack_tree_lm_studio,
     get_attack_tree_mistral,
 )
+from components.drawio_editor import drawio_editor_component
 from dfd import (
     get_dfd_anthropic,
     get_dfd_deepseek,
@@ -46,7 +43,7 @@ from dfd import (
     get_dfd_mistral,
     get_dfd_openai,
 )
-from stride_gpt.core.prompts import create_dfd_prompt
+from dotenv import load_dotenv
 from dread import (
     create_dread_assessment_prompt,
     dread_json_to_markdown,
@@ -58,6 +55,7 @@ from dread import (
     get_dread_assessment_lm_studio,
     get_dread_assessment_mistral,
 )
+from github import Github, GithubException
 from mitigations import (
     create_mitigations_prompt,
     get_mitigations,
@@ -68,6 +66,8 @@ from mitigations import (
     get_mitigations_lm_studio,
     get_mitigations_mistral,
 )
+from openai import OpenAI
+from provider_keys import PROVIDER_API_KEY_STATE
 from test_cases import (
     create_test_cases_prompt,
     get_test_cases,
@@ -93,11 +93,11 @@ from threat_model import (
     get_threat_model_mistral,
     json_to_markdown,
 )
-from components.drawio_editor import drawio_editor_component
-from provider_keys import PROVIDER_API_KEY_STATE
+
 from stride_gpt.core.drawio_parser import drawio_to_prompt_section
 from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm
+from stride_gpt.core.prompts import create_dfd_prompt
 from stride_gpt.core.schemas import LLMConfig
 
 # ------------------ Helper Functions ------------------ #
@@ -484,9 +484,7 @@ def render_app_description():
     Must run *after* every writer so the sync sees their updates in the same
     rerun.
     """
-    if st.session_state.pop("_sync_app_desc", False):
-        st.session_state["app_desc"] = st.session_state.get("app_input", "")
-    elif "app_desc" not in st.session_state:
+    if st.session_state.pop("_sync_app_desc", False) or "app_desc" not in st.session_state:
         st.session_state["app_desc"] = st.session_state.get("app_input", "")
 
     input_text = st.text_area(
@@ -863,7 +861,7 @@ def mermaid(code: str, height: int = 500) -> None:
 
 def load_env_variables():
     # Try to load from .env file
-    if os.path.exists(".env"):
+    if Path(".env").exists():
         load_dotenv(".env")
 
     # Load GitHub API key from environment variable
@@ -906,7 +904,8 @@ load_env_variables()
 
 # ------------------ Model Registry ------------------ #
 
-from stride_gpt.models import PROVIDERS as _PROVIDERS, get_model, get_models_for_provider
+from stride_gpt.models import PROVIDERS as _PROVIDERS
+from stride_gpt.models import get_model, get_models_for_provider
 
 st.set_page_config(
     page_title="STRIDE GPT",
@@ -1229,7 +1228,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                 st.rerun()
         with _hdr_r:
             if st.session_state.get("drawio_xml"):
-                st.success("Diagram saved – will be used for threat model generation.")
+                st.success("Diagram saved. Will be used for threat model generation.")
         # The key carries a per-open nonce (bumped by "Open Diagram Editor"). A
         # stable key makes Streamlit replay the component's last return value when
         # it re-mounts on reopen, which re-fires the previous save/close and shuts
@@ -1382,7 +1381,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                 )
                 st.rerun()
             if st.session_state.get("drawio_xml"):
-                st.success("Diagram saved – will be used for threat model generation.")
+                st.success("Diagram saved. Will be used for threat model generation.")
                 if st.button("Clear diagram", key="clear_drawio"):
                     st.session_state.pop("drawio_xml", None)
                     st.rerun()

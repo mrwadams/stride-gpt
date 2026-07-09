@@ -29,7 +29,6 @@ from stride_gpt.core.prompts.builder import (
 from stride_gpt.core.schemas import LLMConfig, LLMResponse
 from stride_gpt.models import model_uses_completion_tokens
 
-
 VALID_NODE_TYPES = ("external_entity", "process", "data_store")
 
 
@@ -227,8 +226,7 @@ def convert_dfd_to_mermaid(dfd_data: dict) -> str:
     # Dashed trust-boundary styling so they read as boundaries, not groups.
     if boundaries:
         lines.append("    classDef trustBoundary stroke-dasharray: 5 5,fill:transparent;")
-        for idx in range(len(boundaries)):
-            lines.append(f"    class tb{idx} trustBoundary;")
+        lines.extend(f"    class tb{idx} trustBoundary;" for idx in range(len(boundaries)))
 
     return "\n".join(lines)
 
@@ -252,5 +250,4 @@ def _sanitize_label(label: str) -> str:
     them with safe equivalents rather than failing the render.
     """
     cleaned = re.sub(r'["|`]', "'", str(label))
-    cleaned = cleaned.replace("\n", " ").strip()
-    return cleaned
+    return cleaned.replace("\n", " ").strip()

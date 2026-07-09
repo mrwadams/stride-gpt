@@ -94,7 +94,7 @@ class ContextManager:
             "content": f"[Previous exploration summary]\n{compressed_text}",
         }
 
-        return system_msgs + [summary_msg] + to_keep
+        return [*system_msgs, summary_msg, *to_keep]
 
     def _summarize(self, config: LLMConfig, messages: list[dict]) -> str:
         """Summarize a list of messages into key findings."""

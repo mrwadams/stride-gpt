@@ -64,7 +64,7 @@ def call_llm_with_image(
 # ---------------------------------------------------------------------------
 
 
-def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
+def _build_litellm_kwargs(config: LLMConfig) -> dict:
     """Build kwargs dict for litellm.completion() from config."""
     prefix = get_litellm_prefix(config.provider)
     model = prefix + config.model_name
@@ -93,11 +93,10 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:  # noqa: C901
             "type": "json_schema",
             "json_schema": {"name": "response", "schema": config.response_format},
         }
-    elif config.response_format == "json":
+    elif config.response_format == "json" and config.provider != "LM Studio Server":
         # Generic JSON mode — use json_object where supported.
         # LM Studio only accepts json_schema or text.
-        if config.provider != "LM Studio Server":
-            kwargs["response_format"] = {"type": "json_object"}
+        kwargs["response_format"] = {"type": "json_object"}
 
     # --- Google AI API specifics ---
     if config.provider == "Google AI API":

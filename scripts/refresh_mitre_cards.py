@@ -119,7 +119,7 @@ def _fetch(url: str) -> bytes:
     """GET a URL and return the body. Raises a clear error on failure."""
     req = urllib.request.Request(url, headers={"User-Agent": "stride-gpt-refresh/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=60) as resp:
             return resp.read()
     except urllib.error.HTTPError as exc:
         raise SystemExit(f"HTTP {exc.code} fetching {url}") from exc
@@ -137,7 +137,7 @@ def _load_attack_json(source: str | Path) -> dict:
 def _load_atlas_yaml(source: str | Path) -> dict:
     """Load the ATLAS YAML bundle from a URL or local path."""
     try:
-        import yaml  # noqa: PLC0415 — optional, only needed at refresh time
+        import yaml
     except ImportError as exc:
         raise SystemExit(
             "PyYAML is required to parse ATLAS. Install with `pip install pyyaml`."
@@ -286,12 +286,9 @@ def render_catalog(catalog: Catalog, tactic_order: Iterable[str]) -> str:
     sections: list[str] = []
     for key in ordered_keys:
         tactic = catalog.tactics.get(key)
-        if tactic is None:
-            # Tactic referenced by techniques but missing from tactic table —
-            # render with the raw key so the gap is visible rather than hidden.
-            heading = f"### {key}"
-        else:
-            heading = f"### {tactic.name} ({tactic.id})"
+        # A tactic referenced by techniques but missing from the tactic table is
+        # rendered with its raw key so the gap is visible rather than hidden.
+        heading = f"### {key}" if tactic is None else f"### {tactic.name} ({tactic.id})"
         techs = sorted(by_tactic[key], key=_technique_sort_key)
         bullets = "\n".join(f"- **{t.id}** — {t.name}" for t in techs)
         sections.append(f"{heading}\n{bullets}")
@@ -352,7 +349,7 @@ not merely a related concept.
 > If both this card and `mitre_atlas` are loaded, merge techniques from both
 > into the same `MITRE_ATTACK` list on each threat.
 
-Prefer 1–3 techniques per threat. Avoid stuffing techniques that share a
+Prefer 1-3 techniques per threat. Avoid stuffing techniques that share a
 tactic — pick the most specific one.
 
 ## Schema additions

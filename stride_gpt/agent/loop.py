@@ -110,7 +110,7 @@ def run_analysis(
 
         progress.status(format_plan_for_display(plan))
 
-        if not auto_approve:
+        if not auto_approve:  # noqa: SIM102 (trailing comment below belongs to this block)
             # When no plan is provided and auto_approve is False,
             # the caller should have handled approval. For backward compat
             # with CLI, we use Rich console input if available.
@@ -506,8 +506,7 @@ def _generate_system_dfd(
     # subsystem context the agent actually surfaced. Files-analyzed lists
     # are noisy and not useful here.
     description_parts = [plan.overall_description, "", "Subsystems and files identified:"]
-    for sub in plan.subsystems:
-        description_parts.append(f"- {sub.name}: {sub.description}")
+    description_parts.extend(f"- {sub.name}: {sub.description}" for sub in plan.subsystems)
 
     description_parts.append("")
     description_parts.append("Subsystem threat findings (for context only):")
@@ -547,7 +546,7 @@ def _truncate_findings_to_fit(
         if litellm.token_counter(model=architect.model_name, messages=messages) <= budget:
             return rendered
 
-        trimmed = json.dumps(
+        return json.dumps(
             [
                 {
                     "subsystem": f.subsystem,
@@ -558,7 +557,6 @@ def _truncate_findings_to_fit(
             ],
             indent=2,
         )
-        return trimmed
     except Exception:
         return rendered
 

@@ -10,7 +10,7 @@ surface as outline pills when present.
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +58,7 @@ def render_html(report: AnalysisReport) -> str:
     """
     data: dict[str, Any] = {
         "version": "1.0",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "target": report.plan.target_path,
         "overview": report.plan.overall_description,
         "data_flow_diagram": report.data_flow_diagram,
@@ -111,8 +111,7 @@ def render_html_from_json(data: dict[str, Any]) -> str:
     if dfd_mermaid:
         parts.append(_render_dfd(dfd_mermaid))
 
-    for sub in subsystems:
-        parts.append(_render_subsystem(sub))
+    parts.extend(_render_subsystem(sub) for sub in subsystems)
 
     if cross_cutting:
         parts.append(_render_cross_cutting(cross_cutting))
@@ -425,8 +424,8 @@ def _format_generated_at(raw: str) -> str:
         cleaned = raw.rstrip("Z")
         dt = datetime.fromisoformat(cleaned)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
     except (ValueError, TypeError):
         return raw
 
