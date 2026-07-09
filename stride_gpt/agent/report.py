@@ -10,6 +10,7 @@ from typing import Any
 
 from stride_gpt.core.report_utils import (
     detect_extra_columns,
+    normalize_mitre_techniques,
     threat_table_header,
     threat_table_row,
 )
@@ -302,23 +303,14 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
 def _sarif_mitre_ids(value: Any) -> list[str]:
     """Extract a plain list of MITRE technique IDs for SARIF properties.
 
-    Accepts the canonical list-of-objects shape and the list-of-strings
-    fallback. Returns an empty list for missing / malformed input so callers
-    can use truthiness to decide whether to attach the property.
+    Delegates shape handling to
+    :func:`stride_gpt.core.report_utils.normalize_mitre_techniques`, so the
+    canonical list-of-objects, the list-of-strings fallback, and the comma-
+    separated-string shape all contribute IDs. Returns an empty list for
+    missing / malformed input so callers can use truthiness to decide whether
+    to attach the property.
     """
-    if not isinstance(value, list):
-        return []
-    ids: list[str] = []
-    for entry in value:
-        if isinstance(entry, dict):
-            tid = str(entry.get("id") or "").strip()
-        elif isinstance(entry, str):
-            tid = entry.strip()
-        else:
-            continue
-        if tid:
-            ids.append(tid)
-    return ids
+    return [tid for tid, _name in normalize_mitre_techniques(value)]
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from stride_gpt.core.report_utils import mitre_url
+from stride_gpt.core.report_utils import mitre_url, normalize_mitre_techniques
 from stride_gpt.core.schemas import AnalysisReport
 
 # STRIDE category → Tailwind badge classes. Six categories carry distinct
@@ -372,26 +372,19 @@ def _render_threat_card(threat: dict[str, Any], *, cross_cutting: bool) -> str:
 def _render_mitre_pills(value: Any) -> list[str]:
     """Render MITRE ATT&CK techniques as linked pills.
 
-    Accepts the canonical list-of-objects shape and the simpler list-of-
-    strings fallback. Each pill links to attack.mitre.org / atlas.mitre.org
-    when the ID matches a known prefix; otherwise it renders as plain text.
-    Returns an empty list if the field is absent / empty / malformed —
-    threat cards without MITRE mappings render exactly as before.
+    Delegates shape handling to
+    :func:`stride_gpt.core.report_utils.normalize_mitre_techniques`, so the
+    canonical list-of-objects, the list-of-strings fallback, and the comma-
+    separated-string shape all render. Each pill links to attack.mitre.org /
+    atlas.mitre.org when the ID matches a known prefix; otherwise it renders
+    as plain text. Returns an empty list if the field is absent / empty /
+    malformed — threat cards without MITRE mappings render exactly as before.
     """
-    if not isinstance(value, list) or not value:
+    techniques = normalize_mitre_techniques(value)
+    if not techniques:
         return []
     pills: list[str] = []
-    for entry in value:
-        if isinstance(entry, dict):
-            tid = str(entry.get("id") or "").strip()
-            name = str(entry.get("name") or "").strip()
-        elif isinstance(entry, str):
-            tid = entry.strip()
-            name = ""
-        else:
-            continue
-        if not tid:
-            continue
+    for tid, name in techniques:
         label = f"{tid} {name}" if name else tid
         url = mitre_url(tid)
         if url:

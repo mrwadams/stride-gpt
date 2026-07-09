@@ -42,7 +42,12 @@ def detect_extra_columns(
         show_llm=any(t.get("OWASP_LLM") for t in threats),
         show_asi=any(t.get("OWASP_ASI") for t in threats),
         show_insider=any(t.get("INSIDER_CATEGORY") for t in threats),
-        show_mitre=any(t.get("MITRE_ATTACK") for t in threats),
+        # Use the same normaliser as the cell renderer so the column is shown
+        # only when at least one threat yields a technique the cell can render.
+        # A truthiness check here would resurface the present-but-blank column
+        # bug for values that are truthy but normalize to nothing (e.g. a bare
+        # int, or the string shape before it was handled).
+        show_mitre=any(normalize_mitre_techniques(t.get("MITRE_ATTACK")) for t in threats),
     )
 
 
@@ -121,29 +126,79 @@ def threat_table_row(
     return "| " + " | ".join(cells) + " |"
 
 
-def format_mitre_cell(value: Any) -> str:
-    """Render a ``MITRE_ATTACK`` list as a compact markdown cell.
+def is_mitre_technique_id(value: str) -> bool:
+    """Return ``True`` if ``value`` looks like a MITRE technique ID.
 
-    Accepts the canonical list-of-objects shape
-    (``[{"id": "T1190", "name": "..."}]``) and the simpler list-of-strings
-    fallback (``["T1190", "T1078"]``). Pipes and newlines inside names are
-    sanitized so the table stays valid even if the model emits unusual
-    characters. Empty / missing / non-list input renders as an empty cell.
+    Recognizes the same shapes :func:`mitre_url` links: enterprise ATT&CK
+    ``T####`` (with an optional ``.###`` sub-technique suffix) and ATLAS
+    ``AML.*``. Used to tell real technique IDs apart from prose when a model
+    emits ``MITRE_ATTACK`` as a bare or comma-separated string, so junk like
+    ``"see the notes"`` is dropped rather than rendered as a technique.
     """
-    if not isinstance(value, list) or not value:
-        return ""
-    parts: list[str] = []
-    for entry in value:
+    tid = value.strip()
+    if tid.startswith("AML.") and len(tid) > len("AML."):
+        return True
+    return tid.startswith("T") and len(tid) > 1 and tid[1].isdigit()
+
+
+def normalize_mitre_techniques(value: Any) -> list[tuple[str, str]]:
+    """Normalize a ``MITRE_ATTACK`` field into ``(id, name)`` pairs.
+
+    Accepts every shape models emit for this field:
+
+    - the canonical list-of-objects (``[{"id": "T1190", "name": "..."}]``),
+    - the list-of-strings fallback (``["T1190", "T1078"]``), and
+    - the comma-separated-string shape that smaller/cheaper worker models
+      often emit instead (``"T1190, T1059, AML.T0053"``).
+
+    Names are only carried by the list-of-objects shape; the other shapes
+    yield an empty name. String values (whether the whole field or a single
+    list entry) are split on commas so the string shape is recovered rather
+    than dropped. Tokens parsed out of a string are kept only when they look
+    like MITRE IDs (see :func:`is_mitre_technique_id`), so a prose value never
+    turns into a fake technique; ``id``s from the structured object shape are
+    trusted as-is. Empty / missing / unrecognized input yields ``[]``.
+
+    This is the single source of truth for interpreting ``MITRE_ATTACK`` so
+    the markdown, HTML, and SARIF renderers can never disagree on which
+    shapes count as populated.
+    """
+    if not value:
+        return []
+    if isinstance(value, str):
+        entries: list[Any] = [value]
+    elif isinstance(value, list):
+        entries = value
+    else:
+        return []
+    techniques: list[tuple[str, str]] = []
+    for entry in entries:
         if isinstance(entry, dict):
             tid = str(entry.get("id") or "").strip()
             name = str(entry.get("name") or "").strip()
-            if not tid:
-                continue
-            parts.append(f"{tid} ({name})" if name else tid)
-        elif isinstance(entry, str):
-            tid = entry.strip()
             if tid:
-                parts.append(tid)
+                techniques.append((tid, name))
+        elif isinstance(entry, str):
+            for part in entry.split(","):
+                tid = part.strip()
+                if tid and is_mitre_technique_id(tid):
+                    techniques.append((tid, ""))
+    return techniques
+
+
+def format_mitre_cell(value: Any) -> str:
+    """Render a ``MITRE_ATTACK`` value as a compact markdown cell.
+
+    Delegates shape handling to :func:`normalize_mitre_techniques`, so the
+    canonical list-of-objects, the list-of-strings fallback, and the comma-
+    separated-string shape all render. Pipes and newlines inside names are
+    sanitized so the table stays valid even if the model emits unusual
+    characters. Empty / missing / unrecognized input renders as an empty cell.
+    """
+    techniques = normalize_mitre_techniques(value)
+    if not techniques:
+        return ""
+    parts = [f"{tid} ({name})" if name else tid for tid, name in techniques]
     return _escape_md_cell(", ".join(parts))
 
 
@@ -157,12 +212,12 @@ def mitre_url(technique_id: str) -> str:
     to plain text in that case rather than producing a broken link.
     """
     tid = technique_id.strip()
+    if not is_mitre_technique_id(tid):
+        return ""
     if tid.startswith("AML."):
         return f"https://atlas.mitre.org/techniques/{tid}/"
-    if tid.startswith("T") and len(tid) > 1 and tid[1].isdigit():
-        # Enterprise sub-techniques: T1078.004 → /techniques/T1078/004/
-        if "." in tid:
-            parent, _, sub = tid.partition(".")
-            return f"https://attack.mitre.org/techniques/{parent}/{sub}/"
-        return f"https://attack.mitre.org/techniques/{tid}/"
-    return ""
+    # Enterprise sub-techniques: T1078.004 → /techniques/T1078/004/
+    if "." in tid:
+        parent, _, sub = tid.partition(".")
+        return f"https://attack.mitre.org/techniques/{parent}/{sub}/"
+    return f"https://attack.mitre.org/techniques/{tid}/"

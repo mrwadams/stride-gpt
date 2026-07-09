@@ -5,7 +5,9 @@ from __future__ import annotations
 from stride_gpt.core.report_utils import (
     detect_extra_columns,
     format_mitre_cell,
+    is_mitre_technique_id,
     mitre_url,
+    normalize_mitre_techniques,
     threat_table_header,
     threat_table_row,
 )
@@ -43,6 +45,17 @@ class TestDetectExtraColumns:
             {"Threat Type": "C", "MITRE_ATTACK": [{"id": "T1078", "name": "Valid Accounts"}]},
         ]
         assert detect_extra_columns(threats) == (True, False, False, True)
+
+    def test_mitre_comma_separated_string_shows_column(self):
+        """#134: a comma-separated MITRE string must surface the column, and
+        (paired with format_mitre_cell) fill the cells — not show a blank one."""
+        threats = [{"Threat Type": "T", "MITRE_ATTACK": "T1190, T1059"}]
+        assert detect_extra_columns(threats).show_mitre is True
+
+    def test_mitre_prose_string_does_not_show_column(self):
+        """A truthy-but-not-a-technique value must not surface a blank column."""
+        threats = [{"Threat Type": "T", "MITRE_ATTACK": "n/a"}]
+        assert detect_extra_columns(threats).show_mitre is False
 
     def test_named_attribute_access(self):
         """The return value exposes positional unpacking AND named attributes
@@ -130,6 +143,14 @@ class TestFormatMitreCell:
     def test_string_form_falls_back_to_id_only(self):
         assert format_mitre_cell(["T1190", "T1078"]) == "T1190, T1078"
 
+    def test_comma_separated_string_recovered(self):
+        """Smaller worker models emit MITRE_ATTACK as one comma-separated
+        string; #134 — it must render instead of leaving the cell blank."""
+        assert format_mitre_cell("T1190, T1059, AML.T0053") == "T1190, T1059, AML.T0053"
+
+    def test_single_id_string(self):
+        assert format_mitre_cell("T1190") == "T1190"
+
     def test_missing_id_skipped(self):
         techs = [{"id": "T1190", "name": "A"}, {"name": "no id"}, {"id": "T1078", "name": "B"}]
         assert format_mitre_cell(techs) == "T1190 (A), T1078 (B)"
@@ -137,11 +158,78 @@ class TestFormatMitreCell:
     def test_empty_or_invalid_yields_empty_string(self):
         assert format_mitre_cell(None) == ""
         assert format_mitre_cell([]) == ""
+        # Prose that isn't a technique ID must not be rendered as a fake one.
         assert format_mitre_cell("not a list") == ""
+        assert format_mitre_cell("see the attached notes for details") == ""
 
     def test_pipes_inside_names_escaped(self):
         techs = [{"id": "T1", "name": "foo | bar"}]
         assert format_mitre_cell(techs) == "T1 (foo \\| bar)"
+
+
+class TestNormalizeMitreTechniques:
+    """The single source of truth every MITRE renderer delegates to (#134)."""
+
+    def test_list_of_objects(self):
+        value = [{"id": "T1190", "name": "Exploit Public-Facing Application"}]
+        assert normalize_mitre_techniques(value) == [
+            ("T1190", "Exploit Public-Facing Application")
+        ]
+
+    def test_list_of_strings(self):
+        assert normalize_mitre_techniques(["T1190", "T1078"]) == [
+            ("T1190", ""),
+            ("T1078", ""),
+        ]
+
+    def test_comma_separated_string(self):
+        assert normalize_mitre_techniques("T1190, T1059, AML.T0053") == [
+            ("T1190", ""),
+            ("T1059", ""),
+            ("AML.T0053", ""),
+        ]
+
+    def test_empty_and_none(self):
+        assert normalize_mitre_techniques(None) == []
+        assert normalize_mitre_techniques("") == []
+        assert normalize_mitre_techniques([]) == []
+        assert normalize_mitre_techniques("   ") == []
+
+    def test_unrecognized_scalar_yields_empty(self):
+        assert normalize_mitre_techniques(123) == []
+        assert normalize_mitre_techniques({"id": "T1190"}) == []  # bare dict, not a list
+
+    def test_string_tokens_filtered_to_ids(self):
+        """Only ID-shaped tokens survive from the string shape, so a prose
+        value never becomes a fake technique."""
+        assert normalize_mitre_techniques("just some prose") == []
+        assert normalize_mitre_techniques("T1190, and some notes, T1078") == [
+            ("T1190", ""),
+            ("T1078", ""),
+        ]
+
+    def test_object_ids_trusted_without_id_filter(self):
+        """Structured objects are authoritative — an unusual id is kept even
+        if it wouldn't pass the string-token ID filter."""
+        assert normalize_mitre_techniques([{"id": "DS0015", "name": "App Log"}]) == [
+            ("DS0015", "App Log")
+        ]
+
+
+class TestIsMitreTechniqueId:
+    def test_enterprise_ids(self):
+        assert is_mitre_technique_id("T1190")
+        assert is_mitre_technique_id("T1078.004")
+
+    def test_atlas_ids(self):
+        assert is_mitre_technique_id("AML.T0053")
+
+    def test_rejects_prose_and_partials(self):
+        assert not is_mitre_technique_id("not an id")
+        assert not is_mitre_technique_id("TA0001")  # tactic, not a technique
+        assert not is_mitre_technique_id("AML.")  # prefix only
+        assert not is_mitre_technique_id("T")
+        assert not is_mitre_technique_id("")
 
 
 class TestMitreUrl:
