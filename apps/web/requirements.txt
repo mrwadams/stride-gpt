@@ -13,3 +13,4 @@ groq
 pyGithub
 tiktoken
 requests
+defusedxml>=0.7.1
