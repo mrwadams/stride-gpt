@@ -77,7 +77,7 @@ class TestSarifText:
 
 
 # ---------------------------------------------------------------------------
-# _sarif_mitre_ids — list-of-objects + list-of-strings shapes
+# _sarif_mitre_ids — list-of-objects, list-of-strings, comma-string shapes
 # ---------------------------------------------------------------------------
 
 
@@ -89,9 +89,14 @@ class TestSarifMitreIds:
     def test_list_of_strings_fallback(self):
         assert _sarif_mitre_ids(["T1059", "T1078"]) == ["T1059", "T1078"]
 
-    def test_non_list_returns_empty(self):
-        assert _sarif_mitre_ids("T1059") == []
+    def test_comma_separated_string_recovered(self):
+        """#134: string-shaped MITRE IDs must reach SARIF, not get dropped."""
+        assert _sarif_mitre_ids("T1190, T1059, AML.T0053") == ["T1190", "T1059", "AML.T0053"]
+
+    def test_empty_and_prose_return_empty(self):
         assert _sarif_mitre_ids(None) == []
+        assert _sarif_mitre_ids("") == []
+        assert _sarif_mitre_ids("no techniques identified") == []
 
     def test_skips_malformed_and_empty_entries(self):
         value = [{"id": "T1"}, {"id": ""}, 42, {"no_id": "x"}, "  ", "T2"]

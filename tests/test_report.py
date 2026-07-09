@@ -494,6 +494,26 @@ class TestMitreAttackColumn:
         assert "MITRE ATT&CK" in md
         assert "T1565 (Data Manipulation)" in md
 
+    def test_comma_separated_string_shape_renders_everywhere(self, sample_plan):
+        """#134: smaller worker models emit MITRE_ATTACK as one comma-separated
+        string. The column previously showed but every cell (and the SARIF
+        property) came out blank. Assert the string shape now flows through
+        markdown, SARIF, and HTML alike."""
+        report = self._report_with_mitre(sample_plan, "T1110, T1078, AML.T0051")
+
+        md = render_markdown(report)
+        assert "MITRE ATT&CK" in md
+        assert "| T1110, T1078, AML.T0051 |" in md
+
+        sarif = render_sarif(report)
+        result = sarif["runs"][0]["results"][0]
+        assert result["properties"]["mitre_attack"] == ["T1110", "T1078", "AML.T0051"]
+
+        html = render_html(report)
+        # Each ID becomes a linked pill; AML routes to ATLAS, T-codes to ATT&CK.
+        assert "https://attack.mitre.org/techniques/T1110/" in html
+        assert "https://atlas.mitre.org/techniques/AML.T0051/" in html
+
 
 # ---------------------------------------------------------------------------
 # Report persistence — separate folders for /analyze and /quick
