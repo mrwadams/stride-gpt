@@ -540,6 +540,7 @@ streamlit run apps/web/main.py --server.port 8501 --server.address 0.0.0.0
 - Put behind authentication (SSO, VPN)
 - Use HTTPS (reverse proxy with nginx/Apache)
 - Store API keys in environment variables, not in code
+- The embedded draw.io diagram editor loads from the hosted `embed.diagrams.net` by default, i.e. outbound egress from each analyst's browser. For air-gapped or egress-restricted environments, self-host draw.io and set `STRIDE_GPT_DRAWIO_URL` to its host so no diagram traffic leaves your network
 
 #### Option C: Docker Deployment
 
