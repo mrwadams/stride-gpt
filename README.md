@@ -75,6 +75,7 @@ This video is an excellent resource for anyone interested in understanding how S
 ### Unreleased
 
 - **Data Flow Diagram support** (closes #56): New "Data Flow Diagram" tab in the Streamlit UI generates DFDs from the application description, parses uploaded DFD images via vision-capable models, and renders an editable Mermaid source pane with a live preview. Ticking *"Use this DFD for the threat model"* stores the confirmed diagram in session state and splices it into subsequent Threat Model and Attack Tree prompts as the authoritative system model — closing the description → DFD → review → refined threat model loop the issue asks for. The CLI's `/analyze` agent also produces a system-level DFD after synthesis, rendered as a Mermaid block in the markdown report, carried in the JSON `data_flow_diagram` field, and shown in the HTML view via a CDN-loaded Mermaid runtime. DFD generation is wrapped so a bad diagram never fails a good report.
+- **Graceful GitHub repo analysis errors** (closes #92): The Streamlit UI now catches GitHub API failures during repository analysis instead of surfacing a raw stack trace, with actionable messages for 404 (including fine-grained PAT scoping, which 404s even public repos), 401, 403/rate-limit, and network errors. Repo URLs are normalised (trailing `/` and `.git` suffix stripped) before parsing so `.../repo/` and `.../repo.git` no longer 404 spuriously.
 
 ### Version 0.17 (latest)
 
