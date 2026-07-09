@@ -342,12 +342,34 @@ _TOOL_DISPATCH = {
 }
 
 
-def execute_tool(root: Path, tool_call: ToolCallResult) -> str:
-    """Execute a tool call and return the result as a string."""
+def execute_tool(
+    root: Path,
+    tool_call: ToolCallResult,
+    *,
+    loaded_refs: set[str] | None = None,
+) -> str:
+    """Execute a tool call and return the result as a string.
+
+    When ``loaded_refs`` is passed, every successful ``load_reference`` call
+    appends its ``name`` argument to the set so the run manifest can record
+    which cards the agent actually loaded. Failed loads (the loader returns
+    a string starting with ``"Error:"``) are not counted.
+    """
     handler = _TOOL_DISPATCH.get(tool_call.function_name)
     if handler is None:
         return f"Error: unknown tool '{tool_call.function_name}'"
     try:
-        return handler(root, tool_call.arguments)
+        result = handler(root, tool_call.arguments)
     except Exception as e:
         return f"Error executing {tool_call.function_name}: {e}"
+
+    if (
+        loaded_refs is not None
+        and tool_call.function_name == "load_reference"
+        and not result.startswith("Error:")
+    ):
+        name = tool_call.arguments.get("name")
+        if isinstance(name, str) and name:
+            loaded_refs.add(name)
+
+    return result

@@ -96,6 +96,10 @@ def run_analysis(
     ctx = ContextManager(config=models.worker)
     llm_calls = 0
     tool_calls = 0
+    # Names the agent loads via the ``load_reference`` tool. Surfaced on
+    # ``report.metadata["references_loaded"]`` so the run manifest can record
+    # which cards actually shaped the output.
+    loaded_refs: set[str] = set()
 
     # --- Phase 1: Planning ---
     if plan is None:
@@ -114,13 +118,15 @@ def run_analysis(
                 response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
                 if response.lower() not in ("y", "yes"):
                     progress.complete("Analysis cancelled.")
+                    cancel_meta = _build_metadata(
+                        models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
+                        subsystems_analyzed=0, status="cancelled",
+                    )
+                    cancel_meta["references_loaded"] = sorted(loaded_refs)
                     return AnalysisReport(
                         plan=plan,
                         findings=[],
-                        metadata=_build_metadata(
-                            models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
-                            subsystems_analyzed=0, status="cancelled",
-                        ),
+                        metadata=cancel_meta,
                     )
             # If no console and not auto_approve, proceed anyway
             # (caller should use the split API for interactive approval)
@@ -169,6 +175,7 @@ def run_analysis(
                 max_tool_calls=remaining_tool,
                 progress=progress,
                 call_counts=sub_counts,
+                loaded_refs=loaded_refs,
             )
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
@@ -215,15 +222,18 @@ def run_analysis(
         except Exception:
             data_flow_diagram = None
 
+    metadata = _build_metadata(
+        models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
+        subsystems_analyzed=len(findings),
+    )
+    metadata["references_loaded"] = sorted(loaded_refs)
+
     report = AnalysisReport(
         plan=plan,
         findings=findings,
         cross_cutting_threats=cross_cutting,
         data_flow_diagram=data_flow_diagram,
-        metadata=_build_metadata(
-            models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
-            subsystems_analyzed=len(findings),
-        ),
+        metadata=metadata,
     )
 
     total_threats = sum(len(f.threats) for f in findings) + len(cross_cutting)
@@ -286,6 +296,7 @@ def _analyze_subsystem(
     max_tool_calls: int,
     progress: ProgressCallback,
     call_counts: dict[str, int],
+    loaded_refs: set[str] | None = None,
 ) -> SubsystemFinding:
     """Analyze a single subsystem using the agent loop."""
     user_prompt = f"""Analyze the "{subsystem_name}" subsystem for STRIDE threats.
@@ -333,7 +344,7 @@ Start by reading the key files. Use grep to find security-relevant patterns like
                     )
                     progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=True)
                 else:
-                    result = execute_tool(target_path, tc)
+                    result = execute_tool(target_path, tc, loaded_refs=loaded_refs)
                     tool_cache[cache_key] = result
                     progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=False)
                 tool_calls += 1
