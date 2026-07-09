@@ -94,7 +94,11 @@ from threat_model import (
     json_to_markdown,
 )
 from components.drawio_editor import drawio_editor_component
+from provider_keys import PROVIDER_API_KEY_STATE
 from stride_gpt.core.drawio_parser import drawio_to_prompt_section
+from stride_gpt.core.json_extract import extract_json_object
+from stride_gpt.core.llm import call_llm
+from stride_gpt.core.schemas import LLMConfig
 
 # ------------------ Helper Functions ------------------ #
 
@@ -151,16 +155,6 @@ GUIDED_DESCRIPTION_FIELDS = [
     },
 ]
 
-GUIDED_REQUIRED_FIELD_KEYS = [
-    "guided_purpose",
-    "guided_components",
-    "guided_data",
-    "guided_flows",
-    "guided_auth",
-    "guided_trust_boundaries",
-]
-
-
 def build_guided_description_draft():
     """Build a structured application description from guided inputs."""
 
@@ -192,18 +186,120 @@ def build_guided_description_draft():
     return "\n".join(lines)
 
 
+def resolve_active_llm_config(*, response_format="text"):
+    """Build an LLMConfig for the provider/model/key currently in session state.
+
+    Reads everything from session state so callers outside ``main()`` (e.g. the
+    guided-description builder) can reach the active model. Returns ``None`` when
+    no usable key is available, letting callers fall back gracefully.
+    """
+    provider = st.session_state.get("model_provider", "OpenAI API")
+    model_name = st.session_state.get("selected_model", "")
+    if not model_name:
+        return None
+
+    api_base = None
+    if provider == "LM Studio Server":
+        api_key = st.session_state.get("lm_studio_api_key", "") or "not-needed"
+        api_base = st.session_state.get("lm_studio_endpoint", "http://localhost:1234")
+    else:
+        state_key = PROVIDER_API_KEY_STATE.get(provider)
+        if not state_key:
+            return None
+        api_key = st.session_state.get(state_key, "")
+        if not api_key:
+            return None
+
+    return LLMConfig(
+        provider=provider,
+        model_name=model_name,
+        api_key=api_key,
+        api_base=api_base,
+        response_format=response_format,
+    )
+
+
+def generate_guided_draft(config, app_type, answers):
+    """Turn the guided answers into a polished description plus suggestions.
+
+    Returns ``(description, suggestions)``. The description synthesises the
+    user's answers into threat-modelling-ready prose; suggestions name
+    security-relevant details still worth adding. Suggestions are guidance only
+    and must not be folded into the description that gets threat modelled.
+    """
+    field_lines = []
+    for field in GUIDED_DESCRIPTION_FIELDS:
+        value = answers.get(field["key"], "").strip()
+        field_lines.append(f"{field['label']}\n{value if value else '(not provided)'}")
+    answers_block = "\n\n".join(field_lines)
+
+    system_message = (
+        "You are a security architect helping a user write a clear, structured "
+        "application description for STRIDE threat modelling. Work only from the "
+        "user's answers; never invent facts. Where an answer is missing or thin, "
+        "do not fabricate it: raise it as a suggestion instead."
+    )
+    user_message = (
+        f"Application type: {app_type}\n\n"
+        f"The user answered these prompts:\n\n{answers_block}\n\n"
+        "Return a JSON object with exactly two keys:\n"
+        '  "description": a coherent, well-organised application description in '
+        "markdown that synthesises the answers into prose suitable for threat "
+        "modelling. Do not include meta-commentary or the suggestions here.\n"
+        '  "suggestions": an array of short, specific strings, each naming a '
+        "piece of additional information the user should add to strengthen the "
+        "threat model. Focus on security-relevant gaps (trust boundaries, data "
+        "sensitivity, authn/authz, external dependencies, deployment). Omit "
+        "anything already well covered. Use an empty array if nothing is missing.\n"
+        "Return only the JSON object."
+    )
+
+    response = call_llm(
+        config,
+        [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message},
+        ],
+    )
+
+    parsed = extract_json_object(response.content) or {}
+    description = str(parsed.get("description") or "").strip()
+    raw_suggestions = parsed.get("suggestions") or []
+    if not isinstance(raw_suggestions, list):
+        raw_suggestions = [raw_suggestions]
+    suggestions = [str(item).strip() for item in raw_suggestions if str(item).strip()]
+
+    # If the model didn't return usable JSON, treat its whole reply as the draft
+    # rather than losing the user's work.
+    if not description:
+        description = (response.content or "").strip()
+
+    return description, suggestions
+
+
 def clear_guided_description_answers():
     """Reset all guided description answers."""
     for field in GUIDED_DESCRIPTION_FIELDS:
         st.session_state[field["key"]] = ""
     st.session_state.pop("guided_description_draft", None)
+    st.session_state.pop("guided_description_suggestions", None)
 
 
-def render_guided_description_builder():
-    """Render helper UI to guide users toward high-quality app descriptions."""
-    with st.expander("Need help writing your app description?", expanded=False):
+def render_guided_description_builder(*, wrap_in_expander=False):
+    """Render helper UI to guide users toward high-quality app descriptions.
+
+    Renders directly inside its host container by default (e.g. a tab). Pass
+    ``wrap_in_expander=True`` to nest it in a collapsible expander instead.
+    """
+    container = (
+        st.expander("Need help writing your app description?", expanded=False)
+        if wrap_in_expander
+        else st.container()
+    )
+    with container:
         st.caption(
-            "Answer these prompts to generate a structured draft you can insert into the main description field."
+            "Answer these prompts, then generate a draft description with the "
+            "selected model. It will also suggest extra details worth adding."
         )
 
         for field in GUIDED_DESCRIPTION_FIELDS:
@@ -215,26 +311,6 @@ def render_guided_description_builder():
                 height=80,
             )
 
-        completed_sections = sum(
-            1
-            for key in GUIDED_REQUIRED_FIELD_KEYS
-            if st.session_state.get(key, "").strip()
-        )
-        completion_ratio = completed_sections / len(GUIDED_REQUIRED_FIELD_KEYS)
-        st.progress(completion_ratio)
-        st.caption(
-            f"Guided coverage: {completed_sections}/{len(GUIDED_REQUIRED_FIELD_KEYS)} core sections completed."
-        )
-
-        missing_sections = [
-            field["label"].split(") ", 1)[1]
-            for field in GUIDED_DESCRIPTION_FIELDS
-            if field["key"] in GUIDED_REQUIRED_FIELD_KEYS
-            and not st.session_state.get(field["key"], "").strip()
-        ]
-        if missing_sections:
-            st.info("To improve quality, add details for: " + ", ".join(missing_sections))
-
         insert_mode = st.radio(
             "How should the draft be applied to the description?",
             options=["Replace current description", "Append to current description"],
@@ -245,7 +321,39 @@ def render_guided_description_builder():
         action_col1, action_col2, action_col3 = st.columns([1, 1, 1])
         with action_col1:
             if st.button("Generate Guided Draft"):
-                st.session_state["guided_description_draft"] = build_guided_description_draft()
+                config = resolve_active_llm_config(response_format="json")
+                answers = {
+                    field["key"]: st.session_state.get(field["key"], "")
+                    for field in GUIDED_DESCRIPTION_FIELDS
+                }
+                app_type = st.session_state.get("app_type", "Web application")
+                if config is None:
+                    st.session_state["guided_description_draft"] = (
+                        build_guided_description_draft()
+                    )
+                    st.session_state.pop("guided_description_suggestions", None)
+                    st.info(
+                        "Add an API key for the selected provider to get an "
+                        "AI-generated draft with suggestions. Showing a structured "
+                        "draft assembled from your answers instead."
+                    )
+                else:
+                    try:
+                        with st.spinner("Generating draft..."):
+                            draft, suggestions = generate_guided_draft(
+                                config, app_type, answers
+                            )
+                        st.session_state["guided_description_draft"] = draft
+                        st.session_state["guided_description_suggestions"] = suggestions
+                    except Exception as exc:
+                        st.session_state["guided_description_draft"] = (
+                            build_guided_description_draft()
+                        )
+                        st.session_state.pop("guided_description_suggestions", None)
+                        st.error(
+                            "Draft generation failed; showing a structured draft "
+                            f"from your answers instead. ({exc!s})"
+                        )
         with action_col2:
             if st.button("Apply Guided Draft"):
                 draft = st.session_state.get("guided_description_draft", "").strip()
@@ -269,6 +377,15 @@ def render_guided_description_builder():
         if st.session_state.get("guided_description_draft"):
             st.markdown("##### Guided Draft Preview")
             st.code(st.session_state["guided_description_draft"], language="markdown")
+            suggestions = st.session_state.get("guided_description_suggestions")
+            if suggestions:
+                st.markdown("**Suggested additional information to include:**")
+                for suggestion in suggestions:
+                    st.markdown(f"- {suggestion}")
+                st.caption(
+                    "Suggestions are guidance only; they are not added to your "
+                    "description automatically."
+                )
 
 
 # Function to get available models from LM Studio Server
@@ -300,7 +417,14 @@ Please check:
 
 
 # Function to get user input for the application description and key details
-def get_input():
+def render_github_repo_input():
+    """Render the optional GitHub repository URL field and analyse on change.
+
+    This is a "writer": a successful analysis prepends the repo summary to
+    ``app_input`` and flags ``_sync_app_desc`` so the primary description box
+    picks it up. It must therefore run *before* ``render_app_description`` each
+    rerun so the sync happens in the same pass.
+    """
     github_url = st.text_input(
         label="Enter GitHub repository URL (optional)",
         placeholder="https://github.com/owner/repo",
@@ -350,10 +474,16 @@ def get_input():
             except Exception as e:  # network errors, unexpected failures
                 st.error(f"Couldn't analyze the repository: {e}")
 
-    render_guided_description_builder()
 
-    # Sync app_input → app_desc only on explicit external updates (GitHub, image, guided draft).
-    # Never overwrite the widget key based on stale app_input — that clears user text.
+def render_app_description():
+    """Render the primary application-description text area.
+
+    Pre-fills the box from ``app_input`` only on explicit external updates
+    (GitHub, image, guided draft) via ``_sync_app_desc``; otherwise it never
+    overwrites the widget's own value; doing so would clear the user's typing.
+    Must run *after* every writer so the sync sees their updates in the same
+    rerun.
+    """
     if st.session_state.pop("_sync_app_desc", False):
         st.session_state["app_desc"] = st.session_state.get("app_input", "")
     elif "app_desc" not in st.session_state:
@@ -839,16 +969,6 @@ with st.sidebar:
         help="Select the model provider you would like to use. This will determine the models available for selection.",
     )
 
-    # --- API key session-state keys (map provider_key → session key) ---
-    _API_KEY_SESSION = {
-        "OpenAI API": "openai_api_key",
-        "Anthropic API": "anthropic_api_key",
-        "Google AI API": "google_api_key",
-        "Mistral API": "mistral_api_key",
-        "Groq API": "groq_api_key",
-        "DeepSeek API": "deepseek_api_key",
-    }
-
     if model_provider == "LM Studio Server":
         # --- LM Studio: custom endpoint + dynamic model discovery ---
         provider_info = _PROVIDERS["LM Studio"]
@@ -896,7 +1016,7 @@ with st.sidebar:
         st.markdown(_current_provider.setup_instructions)
 
         # API key input
-        _session_key = _API_KEY_SESSION.get(model_provider, "")
+        _session_key = PROVIDER_API_KEY_STATE.get(model_provider, "")
         if _session_key:
             _api_key_val = st.text_input(
                 f"Enter your {_current_provider.name} API key:",
@@ -1110,9 +1230,14 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         with _hdr_r:
             if st.session_state.get("drawio_xml"):
                 st.success("Diagram saved – will be used for threat model generation.")
+        # The key carries a per-open nonce (bumped by "Open Diagram Editor"). A
+        # stable key makes Streamlit replay the component's last return value when
+        # it re-mounts on reopen, which re-fires the previous save/close and shuts
+        # the editor before the saved diagram can load. A fresh key per open gives
+        # a clean component that reloads the saved XML.
         _drawio_result = drawio_editor_component(
             xml=st.session_state.get("drawio_xml", ""),
-            key="drawio_editor_widget",
+            key=f"drawio_editor_widget_{st.session_state.get('drawio_editor_nonce', 0)}",
         )
         if _drawio_result:
             if _drawio_result.get("action") == "save" and _drawio_result.get("xml"):
@@ -1152,87 +1277,121 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         ):
             supports_image = True
 
-        if supports_image:
-            uploaded_file = st.file_uploader(
-                "Upload architecture diagram", type=["jpg", "jpeg", "png"]
-            )
+        # The application description is the primary input. GitHub analysis,
+        # image upload, and the draw.io editor are all *sources* that seed that
+        # description, so they're grouped as tabs of one section sitting above
+        # the description text area. Each is a "writer" (sets app_input +
+        # _sync_app_desc), so they must run before render_app_description()
+        # instantiates the text area, which the top-to-bottom order guarantees.
+        st.caption(
+            "Describe your application below. To get a head start, auto-generate "
+            "a draft from a source: a GitHub repo, an uploaded diagram, a diagram "
+            "you sketch in the built-in editor, or the guided builder. Then review "
+            "and edit."
+        )
+        _gh_tab, _img_tab, _draw_tab, _guided_tab = st.tabs(
+            ["🔗 GitHub repo", "📤 Upload image", "✏️ Draw diagram", "📝 Guided"]
+        )
 
-            if uploaded_file is not None:
+        with _gh_tab:
+            render_github_repo_input()
 
-                def encode_image(uploaded_file):
-                    return base64.b64encode(uploaded_file.read()).decode("utf-8")
+        with _img_tab:
+            if not supports_image:
+                st.info(
+                    "Image upload needs a vision-capable model (OpenAI, Google AI, "
+                    "or an Anthropic Claude model). Switch model in the sidebar, or "
+                    "use the **Draw diagram** or **Guided** tab, which work with "
+                    "any model."
+                )
+            else:
+                uploaded_file = st.file_uploader(
+                    "Upload architecture diagram", type=["jpg", "jpeg", "png"]
+                )
 
-                base64_image = encode_image(uploaded_file)
-                image_analysis_prompt = create_image_analysis_prompt()
+                if uploaded_file is not None:
 
-                # Determine media type from file extension
-                file_type = uploaded_file.type
-                if file_type == "image/png":
-                    media_type = "image/png"
-                elif file_type in ["image/jpeg", "image/jpg"]:
-                    media_type = "image/jpeg"
-                else:
-                    media_type = "image/jpeg"  # Default fallback
+                    def encode_image(uploaded_file):
+                        return base64.b64encode(uploaded_file.read()).decode("utf-8")
 
-                try:
-                    if model_provider == "OpenAI API":
-                        if not openai_api_key:
-                            st.error("Please enter your OpenAI API key to analyse the image.")
-                            raise ValueError
-                        image_analysis_output = get_image_analysis(
-                            openai_api_key, selected_model, image_analysis_prompt, base64_image
-                        )
-                    elif model_provider == "Google AI API":
-                        if not google_api_key:
-                            st.error("Please enter your Google AI API key to analyse the image.")
-                            raise ValueError
-                        image_analysis_output = get_image_analysis_google(
-                            google_api_key, selected_model, image_analysis_prompt, base64_image
-                        )
-                    elif model_provider == "Anthropic API":
-                        if not anthropic_api_key:
-                            st.error("Please enter your Anthropic API key to analyse the image.")
-                            raise ValueError
-                        image_analysis_output = get_image_analysis_anthropic(
-                            anthropic_api_key,
-                            selected_model,
-                            image_analysis_prompt,
-                            base64_image,
-                            media_type,
-                        )
+                    base64_image = encode_image(uploaded_file)
+                    image_analysis_prompt = create_image_analysis_prompt()
+
+                    # Determine media type from file extension
+                    file_type = uploaded_file.type
+                    if file_type == "image/png":
+                        media_type = "image/png"
+                    elif file_type in ["image/jpeg", "image/jpg"]:
+                        media_type = "image/jpeg"
                     else:
-                        image_analysis_output = None
+                        media_type = "image/jpeg"  # Default fallback
 
-                    if (
-                        image_analysis_output
-                        and "choices" in image_analysis_output
-                        and image_analysis_output["choices"][0]["message"]["content"]
-                    ):
-                        image_analysis_content = image_analysis_output["choices"][0]["message"][
-                            "content"
-                        ]
-                        st.session_state.image_analysis_content = image_analysis_content
-                        st.session_state["app_input"] = image_analysis_content
-                        st.session_state["_sync_app_desc"] = True
-                    else:
-                        st.error(
-                            "Failed to analyze the image. Please check the API key and try again."
-                        )
-                except Exception as e:
-                    st.error(f"An error occurred while analyzing the image: {e!s}")
+                    try:
+                        if model_provider == "OpenAI API":
+                            if not openai_api_key:
+                                st.error("Please enter your OpenAI API key to analyse the image.")
+                                raise ValueError
+                            image_analysis_output = get_image_analysis(
+                                openai_api_key, selected_model, image_analysis_prompt, base64_image
+                            )
+                        elif model_provider == "Google AI API":
+                            if not google_api_key:
+                                st.error("Please enter your Google AI API key to analyse the image.")
+                                raise ValueError
+                            image_analysis_output = get_image_analysis_google(
+                                google_api_key, selected_model, image_analysis_prompt, base64_image
+                            )
+                        elif model_provider == "Anthropic API":
+                            if not anthropic_api_key:
+                                st.error("Please enter your Anthropic API key to analyse the image.")
+                                raise ValueError
+                            image_analysis_output = get_image_analysis_anthropic(
+                                anthropic_api_key,
+                                selected_model,
+                                image_analysis_prompt,
+                                base64_image,
+                                media_type,
+                            )
+                        else:
+                            image_analysis_output = None
 
-        st.markdown("---")
-        if st.button("Open Diagram Editor", key="toggle_drawio", use_container_width=True):
-            st.session_state["show_drawio_editor"] = True
-            st.rerun()
-        if st.session_state.get("drawio_xml"):
-            st.success("Diagram saved – will be used for threat model generation.")
-            if st.button("Clear diagram", key="clear_drawio"):
-                st.session_state.pop("drawio_xml", None)
+                        if (
+                            image_analysis_output
+                            and "choices" in image_analysis_output
+                            and image_analysis_output["choices"][0]["message"]["content"]
+                        ):
+                            image_analysis_content = image_analysis_output["choices"][0][
+                                "message"
+                            ]["content"]
+                            st.session_state.image_analysis_content = image_analysis_content
+                            st.session_state["app_input"] = image_analysis_content
+                            st.session_state["_sync_app_desc"] = True
+                        else:
+                            st.error(
+                                "Failed to analyze the image. Please check the API key and try again."
+                            )
+                    except Exception as e:
+                        st.error(f"An error occurred while analyzing the image: {e!s}")
+
+        with _draw_tab:
+            if st.button("Open Diagram Editor", key="toggle_drawio", use_container_width=True):
+                st.session_state["show_drawio_editor"] = True
+                # Fresh nonce -> fresh component key -> no stale save/close replay.
+                st.session_state["drawio_editor_nonce"] = (
+                    st.session_state.get("drawio_editor_nonce", 0) + 1
+                )
                 st.rerun()
+            if st.session_state.get("drawio_xml"):
+                st.success("Diagram saved – will be used for threat model generation.")
+                if st.button("Clear diagram", key="clear_drawio"):
+                    st.session_state.pop("drawio_xml", None)
+                    st.rerun()
 
-        # Use the get_input() function to get the application description and GitHub URL
-        app_input = get_input()
+        with _guided_tab:
+            render_guided_description_builder()
+
+        # Description text area renders last so every source above can sync into it.
+        app_input = render_app_description()
         # Update session state only if the text area content has changed
         if app_input != st.session_state["app_input"]:
             st.session_state["app_input"] = app_input
@@ -1655,14 +1814,7 @@ Three ways to use this tab:
     # bare names openai_api_key / anthropic_api_key etc. are only ever local
     # to load_env_variables, so always go through session_state here.
     _dfd_api_key = st.session_state.get(
-        {
-            "OpenAI API": "openai_api_key",
-            "Anthropic API": "anthropic_api_key",
-            "Google AI API": "google_api_key",
-            "Mistral API": "mistral_api_key",
-            "Groq API": "groq_api_key",
-            "DeepSeek API": "deepseek_api_key",
-        }.get(model_provider, ""),
+        PROVIDER_API_KEY_STATE.get(model_provider, ""),
         "",
     )
 

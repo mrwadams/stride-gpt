@@ -24,6 +24,7 @@ dependencies = [
     "typer>=0.15",
     "rich>=13.0",
     "prompt_toolkit>=3.0",
+    "defusedxml>=0.7.1",
 ]
 
 [project.urls]

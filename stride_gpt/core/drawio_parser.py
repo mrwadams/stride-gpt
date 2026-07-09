@@ -5,7 +5,11 @@ Compressed .drawio files (base64+deflate) are not supported; the embed component
 always returns raw XML so this is fine in practice.
 """
 from __future__ import annotations
-import xml.etree.ElementTree as ET
+
+from xml.etree.ElementTree import ParseError
+
+from defusedxml.ElementTree import fromstring as _safe_fromstring
+from defusedxml.common import DefusedXmlException
 
 
 def parse_drawio_xml(xml: str) -> dict:
@@ -20,8 +24,10 @@ def parse_drawio_xml(xml: str) -> dict:
     All lists are empty on parse error.
     """
     try:
-        root = ET.fromstring(xml.strip())
-    except ET.ParseError:
+        # defusedxml blocks entity-expansion / DTD / external-entity attacks on
+        # this untrusted, user-supplied XML; malformed input raises ParseError.
+        root = _safe_fromstring(xml.strip())
+    except (ParseError, DefusedXmlException):
         return {"components": [], "connections": [], "trust_boundaries": []}
 
     # Support both bare <mxGraphModel> and <mxfile><diagram>...<mxGraphModel> wrappers.
