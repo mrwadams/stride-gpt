@@ -28,6 +28,7 @@ class TestResolveProvider:
             ("groq/llama", "Groq API", "llama"),
             ("openai/gpt-x", "OpenAI API", "gpt-x"),
             ("google/gemini-x", "Google AI API", "gemini-x"),
+            ("deepseek/deepseek-v4-pro", "DeepSeek API", "deepseek-v4-pro"),
         ],
     )
     def test_known_prefixes(self, model, expected_provider, expected_name):

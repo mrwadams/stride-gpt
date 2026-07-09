@@ -677,6 +677,7 @@ def _resolve_provider(model: str) -> tuple[str, str]:
         "groq/": "Groq API",
         "openai/": "OpenAI API",
         "google/": "Google AI API",
+        "deepseek/": "DeepSeek API",
     }
     for prefix, provider in prefixes.items():
         if model.startswith(prefix):
