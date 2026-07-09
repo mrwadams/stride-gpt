@@ -447,6 +447,13 @@ def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
     return mermaid
 
 
+# Function to get attack tree from the DeepSeek model's response.
+def get_attack_tree_deepseek(deepseek_api_key, deepseek_model, prompt):
+    config = LLMConfig(provider="DeepSeek API", model_name=deepseek_model, api_key=deepseek_api_key)
+    mermaid, _response = generate_attack_tree(config, prompt)
+    return mermaid
+
+
 # Function to get attack tree from Anthropic's Claude model.
 def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
     config = LLMConfig(

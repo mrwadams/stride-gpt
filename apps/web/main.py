@@ -28,6 +28,7 @@ from attack_tree import (
     create_attack_tree_prompt,
     get_attack_tree,
     get_attack_tree_anthropic,
+    get_attack_tree_deepseek,
     get_attack_tree_google,
     get_attack_tree_groq,
     get_attack_tree_lm_studio,
@@ -35,6 +36,7 @@ from attack_tree import (
 )
 from dfd import (
     get_dfd_anthropic,
+    get_dfd_deepseek,
     get_dfd_from_image_anthropic,
     get_dfd_from_image_google,
     get_dfd_from_image_openai,
@@ -50,6 +52,7 @@ from dread import (
     dread_json_to_markdown,
     get_dread_assessment,
     get_dread_assessment_anthropic,
+    get_dread_assessment_deepseek,
     get_dread_assessment_google,
     get_dread_assessment_groq,
     get_dread_assessment_lm_studio,
@@ -59,6 +62,7 @@ from mitigations import (
     create_mitigations_prompt,
     get_mitigations,
     get_mitigations_anthropic,
+    get_mitigations_deepseek,
     get_mitigations_google,
     get_mitigations_groq,
     get_mitigations_lm_studio,
@@ -68,6 +72,7 @@ from test_cases import (
     create_test_cases_prompt,
     get_test_cases,
     get_test_cases_anthropic,
+    get_test_cases_deepseek,
     get_test_cases_google,
     get_test_cases_groq,
     get_test_cases_lm_studio,
@@ -81,6 +86,7 @@ from threat_model import (
     get_image_analysis_google,
     get_threat_model,
     get_threat_model_anthropic,
+    get_threat_model_deepseek,
     get_threat_model_google,
     get_threat_model_groq,
     get_threat_model_lm_studio,
@@ -754,6 +760,10 @@ def load_env_variables():
     if groq_api_key:
         st.session_state["groq_api_key"] = groq_api_key
 
+    deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+    if deepseek_api_key:
+        st.session_state["deepseek_api_key"] = deepseek_api_key
+
     # Add LM Studio Server endpoint configuration
     lm_studio_endpoint = os.getenv("LM_STUDIO_ENDPOINT", "http://localhost:1234")
     st.session_state["lm_studio_endpoint"] = lm_studio_endpoint
@@ -834,6 +844,7 @@ with st.sidebar:
         "Google AI API": "google_api_key",
         "Mistral API": "mistral_api_key",
         "Groq API": "groq_api_key",
+        "DeepSeek API": "deepseek_api_key",
     }
 
     if model_provider == "LM Studio Server":
@@ -1068,6 +1079,7 @@ anthropic_api_key = st.session_state.get("anthropic_api_key", "")
 google_api_key = st.session_state.get("google_api_key", "")
 mistral_api_key = st.session_state.get("mistral_api_key", "")
 groq_api_key = st.session_state.get("groq_api_key", "")
+deepseek_api_key = st.session_state.get("deepseek_api_key", "")
 
 
 # ------------------ Main App UI ------------------ #
@@ -1326,6 +1338,10 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_groq(
                             groq_api_key, selected_model, threat_model_prompt
                         )
+                    elif model_provider == "DeepSeek API":
+                        model_output = get_threat_model_deepseek(
+                            deepseek_api_key, selected_model, threat_model_prompt
+                        )
 
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
@@ -1459,6 +1475,10 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree_groq(
                             groq_api_key, selected_model, attack_tree_prompt
                         )
+                    elif model_provider == "DeepSeek API":
+                        mermaid_code = get_attack_tree_deepseek(
+                            deepseek_api_key, selected_model, attack_tree_prompt
+                        )
 
                     # Display thinking content in an expander if available
                     if (
@@ -1590,6 +1610,7 @@ Three ways to use this tab:
             "Google AI API": "google_api_key",
             "Mistral API": "mistral_api_key",
             "Groq API": "groq_api_key",
+            "DeepSeek API": "deepseek_api_key",
         }.get(model_provider, ""),
         "",
     )
@@ -1620,6 +1641,8 @@ Three ways to use this tab:
                         dfd_mermaid = get_dfd_mistral(_dfd_api_key, selected_model, dfd_prompt)
                     elif model_provider == "Groq API":
                         dfd_mermaid = get_dfd_groq(_dfd_api_key, selected_model, dfd_prompt)
+                    elif model_provider == "DeepSeek API":
+                        dfd_mermaid = get_dfd_deepseek(_dfd_api_key, selected_model, dfd_prompt)
                     elif model_provider == "LM Studio Server":
                         dfd_mermaid = get_dfd_lm_studio(
                             st.session_state["lm_studio_endpoint"],
@@ -1803,6 +1826,10 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_groq(
                                 groq_api_key, selected_model, mitigations_prompt
                             )
+                        elif model_provider == "DeepSeek API":
+                            mitigations_markdown = get_mitigations_deepseek(
+                                deepseek_api_key, selected_model, mitigations_prompt
+                            )
 
                         # Display thinking content in an expander if available and using a model with thinking capabilities
                         if (
@@ -1917,6 +1944,10 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "Groq API":
                             dread_assessment = get_dread_assessment_groq(
                                 groq_api_key, selected_model, dread_assessment_prompt
+                            )
+                        elif model_provider == "DeepSeek API":
+                            dread_assessment = get_dread_assessment_deepseek(
+                                deepseek_api_key, selected_model, dread_assessment_prompt
                             )
 
                         # Save the DREAD assessment to the session state for later use in test cases
@@ -2047,6 +2078,10 @@ scenarios.
                         elif model_provider == "Groq API":
                             test_cases_markdown = get_test_cases_groq(
                                 groq_api_key, selected_model, test_cases_prompt
+                            )
+                        elif model_provider == "DeepSeek API":
+                            test_cases_markdown = get_test_cases_deepseek(
+                                deepseek_api_key, selected_model, test_cases_prompt
                             )
 
                         # Display thinking content in an expander if available and using a model with thinking capabilities

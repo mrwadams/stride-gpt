@@ -277,6 +277,13 @@ def get_dread_assessment_mistral(mistral_api_key, mistral_model, prompt):
     return parsed
 
 
+# Function to get DREAD risk assessment from the DeepSeek model's response.
+def get_dread_assessment_deepseek(deepseek_api_key, deepseek_model, prompt):
+    config = LLMConfig(provider="DeepSeek API", model_name=deepseek_model, api_key=deepseek_api_key)
+    parsed, _response = generate_dread_assessment(config, prompt)
+    return parsed
+
+
 # Function to get DREAD risk assessment from the Anthropic model's response.
 def get_dread_assessment_anthropic(anthropic_api_key, anthropic_model, prompt):
     config = LLMConfig(
