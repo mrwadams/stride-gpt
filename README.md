@@ -100,6 +100,9 @@ This video is an excellent resource for anyone interested in understanding how S
 - **Multi-format output**: Markdown, JSON, and SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs).
 - **0.16.1 patch**: Raised the LiteLLM logger to ERROR in `stride_gpt/__init__.py` so the Bedrock/SageMaker pre-load warnings don't appear on fresh installs that lack `botocore`.
 
+<details>
+  <summary>Click to view release notes for earlier versions (0.15 and older).</summary>
+
 ### Version 0.15
 
 - **Agentic AI Application Support**: Added comprehensive support for threat modeling agentic AI systems with OWASP Top 10 for Agentic Applications (ASI01-ASI10) integration. Simply select "Agentic AI application" and describe your system - the LLM automatically detects architectural patterns and applies relevant threat categories. Each ASI risk is mapped to the appropriate STRIDE category for consistent threat analysis.
@@ -200,10 +203,6 @@ This release added support for the following models:
 - **GPT4o mini**: I've added support for OpenAI's recently released GPT4o mini model. GPT4o mini is a cost-efficient small model that still provides high-quality responses for threat modelling tasks.
 
 - **Gemini 1.5 Pro (stable)**: Users can now choose from either the stable or preview versions of the Gemini 1.5 Pro model.
-
-<details>
-  <summary>Click to view release notes for earlier versions.</summary>
-
 
 ### Version 0.8
 
