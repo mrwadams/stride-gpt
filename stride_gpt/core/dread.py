@@ -8,7 +8,6 @@ import re
 from stride_gpt.core.llm import call_llm
 from stride_gpt.core.prompts import create_reasoning_system_prompt
 from stride_gpt.core.schemas import LLMConfig, LLMResponse
-
 from stride_gpt.models import model_uses_completion_tokens
 
 

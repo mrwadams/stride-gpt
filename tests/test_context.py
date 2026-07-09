@@ -121,8 +121,10 @@ class TestCompress:
         )
         # Build enough messages to trigger compression
         msgs = [{"role": "system", "content": "system prompt"}]
-        for i in range(12):
-            msgs.append({"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"})
+        msgs.extend(
+            {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"}
+            for i in range(12)
+        )
 
         result = ctx_small.compress(llm_config, msgs)
 
@@ -138,8 +140,7 @@ class TestCompress:
             content="compressed", thinking=None, reasoning=None, model="test"
         )
         msgs = [{"role": "system", "content": "important system prompt"}]
-        for i in range(12):
-            msgs.append({"role": "user", "content": f"msg {i}"})
+        msgs.extend({"role": "user", "content": f"msg {i}"} for i in range(12))
 
         result = ctx_small.compress(llm_config, msgs)
         assert result[0]["role"] == "system"

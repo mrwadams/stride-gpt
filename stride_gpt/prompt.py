@@ -6,8 +6,9 @@ Rich is still used for all output; prompt_toolkit only handles input.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -103,8 +104,7 @@ class StrideCompleter(Completer):
     def _yield_paths(self, last_token: str):
         """Delegate to PathCompleter for the current token."""
         sub_doc = Document(last_token, cursor_position=len(last_token))
-        for c in self._path.get_completions(sub_doc, CompleteEvent()):
-            yield c
+        yield from self._path.get_completions(sub_doc, CompleteEvent())
 
 
 def _build_keybindings() -> KeyBindings:

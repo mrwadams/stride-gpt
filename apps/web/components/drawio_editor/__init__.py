@@ -4,10 +4,13 @@ The component returns a dict  {action: "save"|"close", xml: str}
 when the user saves or cancels, and None while the editor is idle.
 """
 from __future__ import annotations
+
 import os
+from pathlib import Path
+
 import streamlit.components.v1 as components
 
-_FRONTEND = os.path.join(os.path.dirname(__file__), "frontend")
+_FRONTEND = str(Path(__file__).parent / "frontend")
 _component_func = components.declare_component("drawio_editor", path=_FRONTEND)
 
 _DEFAULT_DRAWIO_HOST = "https://embed.diagrams.net"

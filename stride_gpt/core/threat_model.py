@@ -8,9 +8,7 @@ import re
 from stride_gpt.core.llm import call_llm, call_llm_with_image
 from stride_gpt.core.prompts import create_image_analysis_prompt, create_reasoning_system_prompt
 from stride_gpt.core.schemas import LLMConfig, LLMResponse, ThreatModelOutput
-
 from stride_gpt.models import model_uses_completion_tokens
-
 
 THREAT_MODEL_SCHEMA: dict = {
     "type": "object",
@@ -87,14 +85,13 @@ def json_to_markdown(threat_model, improvement_suggestions):
     header, separator = threat_table_header(show_llm, show_asi, show_insider, show_mitre)
 
     lines = ["## Threat Model", "", header, separator]
-    for threat in threat_model:
-        lines.append(
-            threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
-        )
+    lines.extend(
+        threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
+        for threat in threat_model
+    )
 
     lines.extend(["", "", "## Improvement Suggestions", ""])
-    for suggestion in improvement_suggestions:
-        lines.append(f"- {suggestion}")
+    lines.extend(f"- {suggestion}" for suggestion in improvement_suggestions)
     lines.append("")
 
     return "\n".join(lines)

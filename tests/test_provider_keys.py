@@ -15,8 +15,9 @@ from pathlib import Path
 # apps/web isn't a package on the default path; add it so we can import the map.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "apps" / "web"))
 
-from provider_keys import PROVIDER_API_KEY_STATE  # noqa: E402
-from stride_gpt.models import PROVIDERS  # noqa: E402
+from provider_keys import PROVIDER_API_KEY_STATE
+
+from stride_gpt.models import PROVIDERS
 
 
 def test_every_api_key_provider_is_mapped():

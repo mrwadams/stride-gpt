@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Optional
+from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
     from stride_gpt.core.schemas import (
@@ -79,14 +79,14 @@ HELP_TEXT = """
 """
 
 
-class OutputFormat(str, Enum):
+class OutputFormat(StrEnum):
     markdown = "markdown"
     json = "json"
     sarif = "sarif"
     html = "html"
 
 
-class AppTypeOverride(str, Enum):
+class AppTypeOverride(StrEnum):
     """Override for the planner's detected app type. `auto` keeps the planner's choice."""
     auto = "auto"
     web = "web"
@@ -129,7 +129,7 @@ def interactive(ctx: typer.Context) -> None:
             )
         else:
             console.print(f"  Model: [cyan]{worker_provider} / {worker_model}[/cyan]")
-        console.print(f"  Type [cyan]/help[/cyan] for commands, [cyan]/config[/cyan] to change settings.")
+        console.print("  Type [cyan]/help[/cyan] for commands, [cyan]/config[/cyan] to change settings.")
     console.print()
 
     # Build interactive prompt session with tab completion, history, status line.
@@ -154,7 +154,7 @@ def interactive(ctx: typer.Context) -> None:
             console.print("[dim]Goodbye.[/dim]")
             break
 
-        elif user_input == "/help":
+        if user_input == "/help":
             console.print(HELP_TEXT)
 
         elif user_input == "/config":
@@ -337,7 +337,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     progress = RichProgress(console)
 
     # Phase 1: Plan
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
     plan = create_analysis_plan(models, target_path)
@@ -356,7 +356,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         plan=plan,
         progress=progress,
     )
-    finished_at = datetime.now(timezone.utc)
+    finished_at = datetime.now(UTC)
 
     # Auto-save (skip cancelled runs)
     saved_path = None
@@ -623,10 +623,10 @@ def _handle_quick(config: dict, args_str: str) -> None:
         )
     )
 
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     with console.status("Analysing description..."):
         result = run_quick_analysis(models, app_description, hint=hint)
-    finished_at = datetime.now(timezone.utc)
+    finished_at = datetime.now(UTC)
 
     saved_path = save_quick_report(
         result,
@@ -687,17 +687,17 @@ def _resolve_provider(model: str) -> tuple[str, str]:
 
 @app.command()
 def analyze(
-    path: Annotated[Path, typer.Argument(help="Path to the codebase to analyze.")] = Path("."),
-    worker_model: Annotated[Optional[str], typer.Option(help="Worker model — default tier, handles the bulk of calls (e.g. anthropic/claude-sonnet-4-6). A fast, low-cost model usually pays off here. Uses saved config if omitted.")] = None,
-    worker_api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="Worker API key.")] = None,
-    worker_api_base: Annotated[Optional[str], typer.Option(help="Worker API base URL (LM Studio).")] = None,
-    worker_max_tokens: Annotated[Optional[int], typer.Option(help="Worker per-call output token cap.")] = None,
-    architect_model: Annotated[Optional[str], typer.Option(help="Architect model — used only for the reasoning-heavy moments (planning, cross-cutting synthesis, context summarization). Infrequent but high-leverage; a stronger model is worth the cost. Uses saved config if omitted.")] = None,
-    architect_api_key: Annotated[Optional[str], typer.Option(help="Architect API key.")] = None,
-    architect_api_base: Annotated[Optional[str], typer.Option(help="Architect API base URL.")] = None,
-    architect_max_tokens: Annotated[Optional[int], typer.Option(help="Architect per-call output token cap.")] = None,
+    path: Annotated[Path, typer.Argument(help="Path to the codebase to analyze.")] = Path(),
+    worker_model: Annotated[str | None, typer.Option(help="Worker model — default tier, handles the bulk of calls (e.g. anthropic/claude-sonnet-4-6). A fast, low-cost model usually pays off here. Uses saved config if omitted.")] = None,
+    worker_api_key: Annotated[str | None, typer.Option(envvar="STRIDE_GPT_API_KEY", help="Worker API key.")] = None,
+    worker_api_base: Annotated[str | None, typer.Option(help="Worker API base URL (LM Studio).")] = None,
+    worker_max_tokens: Annotated[int | None, typer.Option(help="Worker per-call output token cap.")] = None,
+    architect_model: Annotated[str | None, typer.Option(help="Architect model — used only for the reasoning-heavy moments (planning, cross-cutting synthesis, context summarization). Infrequent but high-leverage; a stronger model is worth the cost. Uses saved config if omitted.")] = None,
+    architect_api_key: Annotated[str | None, typer.Option(help="Architect API key.")] = None,
+    architect_api_base: Annotated[str | None, typer.Option(help="Architect API base URL.")] = None,
+    architect_max_tokens: Annotated[int | None, typer.Option(help="Architect per-call output token cap.")] = None,
     no_architect: Annotated[bool, typer.Option("--no-architect", help="Bypass any saved architect tier for this run; worker handles every call.")] = False,
-    output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
+    output: Annotated[Path | None, typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
     max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls across both tiers (0 = unlimited).")] = 0,
     max_tool_calls: Annotated[int, typer.Option(help="Max tool executions (0 = unlimited).")] = 0,
@@ -743,7 +743,7 @@ def analyze(
     progress = RichProgress(console)
 
     # Phase 1: Plan
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
     plan = create_analysis_plan(models, target)
@@ -774,7 +774,7 @@ def analyze(
         max_tool_calls=max_tool_calls,
         progress=progress,
     )
-    finished_at = datetime.now(timezone.utc)
+    finished_at = datetime.now(UTC)
 
     # Auto-save
     saved_path = None
@@ -828,18 +828,18 @@ def analyze(
 
 @app.command()
 def quick(
-    worker_model: Annotated[Optional[str], typer.Option(help="Worker model — default tier, handles fallback / retry calls. A fast, low-cost model is usually fine here. Uses saved config if omitted.")] = None,
-    worker_api_key: Annotated[Optional[str], typer.Option(envvar="STRIDE_GPT_API_KEY", help="Worker API key.")] = None,
-    worker_api_base: Annotated[Optional[str], typer.Option(help="Worker API base URL (LM Studio).")] = None,
-    worker_max_tokens: Annotated[Optional[int], typer.Option(help="Worker per-call output token cap.")] = None,
-    architect_model: Annotated[Optional[str], typer.Option(help="Architect model — drives the main single-shot threat-model judgment. A stronger reasoning model is worth the cost here. Uses saved config if omitted.")] = None,
-    architect_api_key: Annotated[Optional[str], typer.Option(help="Architect API key.")] = None,
-    architect_api_base: Annotated[Optional[str], typer.Option(help="Architect API base URL.")] = None,
-    architect_max_tokens: Annotated[Optional[int], typer.Option(help="Architect per-call output token cap.")] = None,
+    worker_model: Annotated[str | None, typer.Option(help="Worker model — default tier, handles fallback / retry calls. A fast, low-cost model is usually fine here. Uses saved config if omitted.")] = None,
+    worker_api_key: Annotated[str | None, typer.Option(envvar="STRIDE_GPT_API_KEY", help="Worker API key.")] = None,
+    worker_api_base: Annotated[str | None, typer.Option(help="Worker API base URL (LM Studio).")] = None,
+    worker_max_tokens: Annotated[int | None, typer.Option(help="Worker per-call output token cap.")] = None,
+    architect_model: Annotated[str | None, typer.Option(help="Architect model — drives the main single-shot threat-model judgment. A stronger reasoning model is worth the cost here. Uses saved config if omitted.")] = None,
+    architect_api_key: Annotated[str | None, typer.Option(help="Architect API key.")] = None,
+    architect_api_base: Annotated[str | None, typer.Option(help="Architect API base URL.")] = None,
+    architect_max_tokens: Annotated[int | None, typer.Option(help="Architect per-call output token cap.")] = None,
     no_architect: Annotated[bool, typer.Option("--no-architect", help="Bypass any saved architect tier for this run; worker handles every call.")] = False,
-    input_file: Annotated[Optional[Path], typer.Option("-i", "--input", help="App description file.")] = None,
-    app_type: Annotated[Optional[str], typer.Option(help="Optional hint about the application type (Web / Generative AI / Agentic AI application). Leave unset to let the agent decide which reference cards to load.")] = None,
-    output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Output file path.")] = None,
+    input_file: Annotated[Path | None, typer.Option("-i", "--input", help="App description file.")] = None,
+    app_type: Annotated[str | None, typer.Option(help="Optional hint about the application type (Web / Generative AI / Agentic AI application). Leave unset to let the agent decide which reference cards to load.")] = None,
+    output: Annotated[Path | None, typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format: markdown (default) or html.")] = OutputFormat.markdown,
 ) -> None:
     """Quick threat model from a text description, via the mini agent loop."""
@@ -893,10 +893,10 @@ def quick(
         )
     )
 
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     with console.status("Analysing description..."):
         result = run_quick_analysis(models, app_description, hint=app_type)
-    finished_at = datetime.now(timezone.utc)
+    finished_at = datetime.now(UTC)
 
     saved_path = save_quick_report(
         result,
@@ -933,8 +933,8 @@ def quick(
 
 @app.command()
 def reports(
-    number: Annotated[Optional[int], typer.Argument(help="Report number to view.")] = None,
-    output: Annotated[Optional[Path], typer.Option("-o", "--output", help="Export report to file.")] = None,
+    number: Annotated[int | None, typer.Argument(help="Report number to view.")] = None,
+    output: Annotated[Path | None, typer.Option("-o", "--output", help="Export report to file.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
     limit: Annotated[int, typer.Option("-n", "--limit", help="Number of reports to list.")] = 10,
     quick: Annotated[bool, typer.Option("--quick", help="List description-based /quick reports instead of codebase analyses.")] = False,
@@ -1183,10 +1183,13 @@ def _check_lm_studio_context_for(saved: dict, models, console_, *, exit_on_fail:
     for cfg in (models.worker, models.architect):
         if cfg is None:
             continue
-        if cfg.provider == "LM Studio Server" and cfg.api_base:
-            if not check_lm_studio_context(cfg.api_base, cfg.model_name, console_):
-                if exit_on_fail:
-                    raise typer.Exit(1)
+        if (
+            cfg.provider == "LM Studio Server"
+            and cfg.api_base
+            and not check_lm_studio_context(cfg.api_base, cfg.model_name, console_)
+            and exit_on_fail
+        ):
+            raise typer.Exit(1)
 
 
 def _panel_target_body(target_path, models) -> str:

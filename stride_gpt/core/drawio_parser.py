@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from xml.etree.ElementTree import ParseError
 
-from defusedxml.ElementTree import fromstring as _safe_fromstring
 from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring as _safe_fromstring
 
 
 def parse_drawio_xml(xml: str) -> dict:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -152,21 +153,17 @@ def load_config() -> dict[str, Any] | None:
 def save_config(config: dict[str, Any]) -> None:
     """Save config to ~/.stride-gpt/config.json."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # Tighten perms even if the dir already existed at a looser mode.
-    try:
-        os.chmod(CONFIG_DIR, 0o700)
-    except OSError:
-        # Best-effort: filesystems without POSIX perms (Windows, FAT32, some
-        # network mounts) raise here. We've still written the config, so
-        # don't fail the save just because we couldn't tighten the dir mode.
-        pass
+    # Tighten perms even if the dir already existed at a looser mode. Best-effort:
+    # filesystems without POSIX perms (Windows, FAT32, some network mounts) raise
+    # here. We've still written the config, so don't fail the save just because we
+    # couldn't tighten the dir mode.
+    with contextlib.suppress(OSError):
+        CONFIG_DIR.chmod(0o700)
     CONFIG_FILE.write_text(json.dumps(config, indent=2) + "\n")
-    try:
-        os.chmod(CONFIG_FILE, 0o600)
-    except OSError:
-        # Same rationale as above — file write succeeded; perm tightening
-        # is best-effort on non-POSIX filesystems.
-        pass
+    # Same rationale as above — file write succeeded; perm tightening is
+    # best-effort on non-POSIX filesystems.
+    with contextlib.suppress(OSError):
+        CONFIG_FILE.chmod(0o600)
 
 
 def _is_quit(value: str) -> bool:
@@ -267,7 +264,7 @@ def _setup_tier(console: Console, tier: str) -> dict[str, Any] | None:
                     if 0 <= midx < len(models):
                         model_name = models[midx]
                         break
-                    elif midx == len(models):
+                    if midx == len(models):
                         model_name = Prompt.ask("Enter model name")
                         if _is_quit(model_name):
                             _cancel(console)
@@ -339,7 +336,7 @@ def _setup_tier(console: Console, tier: str) -> dict[str, Any] | None:
                     if 0 <= midx < len(discovered):
                         model_name = discovered[midx]
                         break
-                    elif midx == len(discovered):
+                    if midx == len(discovered):
                         model_name = Prompt.ask("Enter model name")
                         if _is_quit(model_name):
                             _cancel(console)
@@ -493,7 +490,6 @@ def _ask_architect(
 
 def _render_tier_table(console: Console, config: dict[str, Any], tier: str, title: str) -> None:
     """Render a single tier's config as a Rich table."""
-    import os
 
     provider = config.get(f"{tier}_provider", "Unknown")
     model = config.get(f"{tier}_model", "Unknown")
@@ -539,7 +535,6 @@ def get_api_key(config: dict[str, Any], *, tier: str = "worker") -> str:
     Falls back to the worker's API key only when the architect shares the
     worker's provider — never reuses a key across providers.
     """
-    import os
 
     provider = config.get(f"{tier}_provider", "")
     provider_info = PROVIDERS.get(provider)
