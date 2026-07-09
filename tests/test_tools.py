@@ -9,6 +9,7 @@ import pytest
 
 from stride_gpt.agent.tools import (
     AGENT_TOOLS,
+    MAX_GREP_PATTERN_LEN,
     execute_tool,
     grep_content,
     list_directory,
@@ -16,7 +17,6 @@ from stride_gpt.agent.tools import (
     search_files,
 )
 from stride_gpt.core.schemas import ToolCallResult
-
 
 # ---------------------------------------------------------------------------
 # read_file
@@ -149,6 +149,28 @@ class TestGrepContent:
         assert len(result) >= 1
         assert result[0]["file"] == "config.yaml"
 
+    def test_rejects_overlong_pattern(self, sandbox_dir: Path):
+        """ReDoS guard: an LLM-supplied pattern longer than the cap is refused
+        before it ever reaches re.compile, so it can't hang the agent loop."""
+        long_pattern = "a" * (MAX_GREP_PATTERN_LEN + 1)
+        result = grep_content(sandbox_dir, long_pattern)
+        assert result.startswith("Error:")
+        assert "too long" in result
+
+    def test_rejects_nested_quantifier(self, sandbox_dir: Path):
+        """ReDoS guard: the textbook catastrophic-backtracking shape `(a+)+`
+        is rejected by the heuristic, never compiled and run."""
+        result = grep_content(sandbox_dir, "(a+)+")
+        assert result.startswith("Error:")
+        assert "nested-quantifier" in result
+
+    def test_ordinary_quantified_group_still_allowed(self, sandbox_dir: Path):
+        """The guard must not block benign patterns like `(foo)+` — a single
+        quantifier on a non-quantified group is fine and should run normally."""
+        result = grep_content(sandbox_dir, "(Flask)+")
+        # Valid JSON result (a match list), not an Error string.
+        assert isinstance(json.loads(result), list)
+
 
 # ---------------------------------------------------------------------------
 # execute_tool
@@ -171,6 +193,14 @@ class TestExecuteTool:
         tc = ToolCallResult(id="3", function_name="delete_file", arguments={"path": "x"})
         result = execute_tool(sandbox_dir, tc)
         assert "unknown tool" in result.lower()
+
+    def test_handler_exception_is_caught(self, sandbox_dir: Path):
+        """A handler that raises (here read_file dispatched without its required
+        'path' arg -> KeyError) must be turned into an error string, not
+        propagated, so one bad tool call can't crash the agent loop."""
+        tc = ToolCallResult(id="4", function_name="read_file", arguments={})
+        result = execute_tool(sandbox_dir, tc)
+        assert result.startswith("Error executing read_file:")
 
     def test_dispatches_load_reference(self, sandbox_dir: Path):
         # load_reference is fs-independent — it reads packaged markdown, not

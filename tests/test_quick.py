@@ -9,11 +9,11 @@ from stride_gpt.agent.quick import (
     QUICK_TOOLS,
     _build_user_content,
     _parse_threat_model,
+    _retry_as_json,
     _strip_tool_artifacts,
     run_quick_analysis,
 )
 from stride_gpt.core.schemas import LLMResponse, ToolCallResult
-
 
 # ---------------------------------------------------------------------------
 # Tool set
@@ -304,3 +304,36 @@ class TestTierRouting:
         worker_name = model_pair.worker.model_name
         assert mock_tools.call_args.args[0].model_name == worker_name
         assert mock_llm.call_args.args[0].model_name == worker_name
+
+
+# ---------------------------------------------------------------------------
+# _retry_as_json — forced-JSON retry fallback
+# ---------------------------------------------------------------------------
+
+
+class TestRetryAsJson:
+    @patch("stride_gpt.agent.quick.call_llm")
+    def test_retry_success_returns_parsed_model(self, mock_llm, llm_config):
+        mock_llm.return_value = LLMResponse(
+            content=json.dumps({
+                "threat_model": [{"Threat Type": "Spoofing", "Scenario": "s"}],
+                "improvement_suggestions": ["x"],
+            }),
+            thinking=None, reasoning=None, model="t",
+        )
+        out = _retry_as_json(llm_config, [{"role": "user", "content": "hi"}])
+        assert len(out.threat_model) == 1
+        assert out.improvement_suggestions == ["x"]
+
+    @patch("stride_gpt.agent.quick.call_llm")
+    def test_double_failure_returns_empty_with_message(self, mock_llm, llm_config):
+        """When even the forced-JSON retry can't be parsed, the user gets an
+        empty threat model carrying a specific 'failed to parse' note rather
+        than an exception."""
+        mock_llm.return_value = LLMResponse(
+            content="still not json {{{",
+            thinking=None, reasoning=None, model="t",
+        )
+        out = _retry_as_json(llm_config, [{"role": "user", "content": "hi"}])
+        assert out.threat_model == []
+        assert out.improvement_suggestions == ["Failed to parse model response as JSON."]
