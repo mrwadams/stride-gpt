@@ -50,6 +50,10 @@ class ThreatModelOutput:
     llm_calls: int = 0
     tool_calls: int = 0
     tools_used: dict[str, int] = field(default_factory=dict)
+    # Names of reference cards the agent loaded via ``load_reference``.
+    # Populated by the /quick agent loop so the run manifest can record
+    # which cards actually shaped the output.
+    references_loaded: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
