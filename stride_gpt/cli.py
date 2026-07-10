@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -94,18 +95,39 @@ class AppTypeOverride(StrEnum):
     agentic = "agentic"
 
 
+
+
+def package_version() -> str:
+    """Installed package version, with a safe fallback for editable/source runs."""
+    try:
+        return pkg_version("stride-gpt")
+    except PackageNotFoundError:
+        return "0.0.0+dev"
+
+
 # ---------------------------------------------------------------------------
 # Interactive session
 # ---------------------------------------------------------------------------
 
 
 @app.callback(invoke_without_command=True)
-def interactive(ctx: typer.Context) -> None:
+def interactive(
+    ctx: typer.Context,
+    version: Annotated[
+        bool,
+        typer.Option("--version", help="Show version and exit."),
+    ] = False,
+) -> None:
     """Launch interactive session if no subcommand is given."""
+    if version:
+        console.print(f"stride-gpt {package_version()}")
+        raise typer.Exit()
+
     if ctx.invoked_subcommand is not None:
         return
 
     console.print(BANNER)
+    console.print(f"[dim]v{package_version()}[/dim]")
 
     # Load or create config
     config = load_config()
