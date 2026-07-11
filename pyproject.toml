@@ -40,6 +40,36 @@ dev = [
     "pytest>=8.4",
     "ruff==0.15.20",
 ]
+# Streamlit web-app deps (apps/web). Kept out of [project.dependencies] so the
+# published CLI wheel stays lean; a dependency-group is local/deploy-only and is
+# never shipped in the wheel. Streamlit Community Cloud installs these because it
+# resolves via uv.lock (uv.lock outranks requirements.txt in SCC's precedence)
+# and default-groups (below) makes `uv sync` install them. Mirrors the runtime
+# entries in apps/web/requirements.txt (deps already in [project.dependencies] —
+# httpx, litellm, pydantic, python-dotenv, defusedxml — are not repeated).
+web = [
+    "streamlit>=1.58.0",
+    "openai",
+    "anthropic",
+    "groq",
+    "pyGithub",
+    "tiktoken",
+    "requests>=2.34.2",
+]
+
+[tool.uv]
+# `uv sync` (used by SCC, CI, and release) installs these groups by default, so
+# the web app has its deps in every environment without extra flags.
+default-groups = ["dev", "web"]
+# Security floors for transitive deps not directly imported (mirrors the Snyk
+# pins in requirements.txt). Applied at lock time and baked into uv.lock.
+# (No tornado floor: Streamlit >=1.59 runs on Starlette/Uvicorn, not Tornado.)
+constraint-dependencies = [
+    "urllib3>=2.7.0",
+    "anyio>=4.14.1",
+    "zipp>=4.1.0",
+    "h11>=0.16.0",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]
