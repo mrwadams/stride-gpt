@@ -6,6 +6,8 @@ import json
 import sys
 from datetime import UTC, datetime
 from enum import StrEnum
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -44,13 +46,24 @@ app = typer.Typer(
 )
 console = Console()
 
-BANNER = r"""[bold blue]
+
+def _get_version() -> str:
+    """Return the installed package version, or 'unknown' for source runs."""
+    try:
+        return _pkg_version("stride-gpt")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+__version__ = _get_version()
+
+BANNER = rf"""[bold blue]
  _____ _____ _____ _____ ____  _____     _____ _____ _____
 |   __|_   _| __  |     |    \|   __|___|   __|  _  |_   _|
 |__   | | | |    -|-   -|  |  |   __|___|  |  |   __| | |
 |_____| |_| |__|__|_____|____/|_____|   |_____|__|    |_|[/bold blue]
 
-[dim]AI-powered threat modeling agent[/dim]"""
+[dim]AI-powered threat modeling agent · v{__version__}[/dim]"""
 
 HELP_TEXT = """
 [bold]Commands:[/bold]
@@ -99,8 +112,25 @@ class AppTypeOverride(StrEnum):
 # ---------------------------------------------------------------------------
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"stride-gpt {__version__}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
-def interactive(ctx: typer.Context) -> None:
+def interactive(
+    ctx: typer.Context,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show the version and exit.",
+            callback=_version_callback,
+            is_eager=True,
+        ),
+    ] = False,
+) -> None:
     """Launch interactive session if no subcommand is given."""
     if ctx.invoked_subcommand is not None:
         return

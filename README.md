@@ -380,12 +380,19 @@ echo "A web API that processes payments..." | stride-gpt quick
 stride-gpt
 ```
 
-Inside the REPL, type `/help` to see available commands and flags.
+Inside the REPL, type `/help` to see available commands and flags. The version is shown under the ASCII banner at startup.
+
+**Check the installed version:**
+
+```bash
+stride-gpt --version    # prints e.g. "stride-gpt 0.18.1" and exits
+```
 
 **Common flags:**
 
 | Flag | Description |
 |------|-------------|
+| `--version` | Print the installed version (`stride-gpt <version>`) and exit |
 | `-o`, `--output` | Save report to a file |
 | `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
 | `-i`, `--input` | Read the app description from a file (`quick` only) |
