@@ -172,6 +172,12 @@ When adding a new provider or model, the kwarg shape almost always needs a new b
 - LLM calls are always mocked. The canonical pattern: `@patch("stride_gpt.agent.loop.call_llm_with_tools")` and feed `LLMResponse(content=..., tool_calls=...)`. End-to-end agent-loop tests in `test_loop.py:TestAppTypeFlow` mock multiple turns by setting `side_effect=[turn1, turn2, ...]`.
 - For prompt content tests (`test_variants.py`), assert structural properties (a code is present, a column is rendered) — not exact text. Markdown content changes; structural assertions don't.
 
+## Releasing
+
+- **Releases are automated.** Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`: it verifies the tag matches `pyproject.toml`'s `version`, runs the test matrix, publishes the CLI to PyPI (OIDC trusted publishing, no token), pushes the multi-arch UI image to Docker Hub `mrwadams/stridegpt`, and cuts a GitHub Release. Don't build or publish by hand.
+- The tag must match `pyproject.toml` exactly or the `verify` job fails before anything publishes. See `RELEASING.md` for the cut-a-release steps and the one-time PyPI / Docker Hub credential setup.
+- Every push and PR is gated by `.github/workflows/ci.yml` (ruff + pytest on 3.12/3.13/3.14). Keep it green.
+
 ## A few things to NOT do
 
 - **Don't bypass `core/llm.py`.** It exists to make provider quirks one team's problem.
