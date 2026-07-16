@@ -7,7 +7,7 @@
 # Snyk-pinned transitive deps (not directly imported)
 tornado>=6.5.7
 urllib3>=2.7.0
-anyio>=4.14.1
+anyio>=4.14.2
 zipp>=4.1.0
 h11>=0.16.0
 requests>=2.34.2
