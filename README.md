@@ -13,6 +13,7 @@ STRIDE GPT is an AI-powered threat modelling tool that leverages Large Language 
 - [Installation](#installation)
 - [Repository layout](#repository-layout)
 - [Usage](#usage)
+  - [Interactive REPL cheat sheet](#interactive-repl-cheat-sheet)
 - [Sample output](#sample-output)
 - [Security Best Practices](#security-best-practices)
 - [Contributing](#contributing)
@@ -381,7 +382,34 @@ echo "A web API that processes payments..." | stride-gpt quick
 stride-gpt
 ```
 
-Inside the REPL, type `/help` to see available commands and flags. The version is shown under the ASCII banner at startup.
+Inside the REPL, type `/help` to see available commands and flags. The version is shown under the ASCII banner at startup. See the [Interactive REPL cheat sheet](#interactive-repl-cheat-sheet) below for the full command and shortcut reference.
+
+#### Interactive REPL cheat sheet
+
+Launch the REPL with `stride-gpt` (no arguments), then use these commands and shortcuts.
+
+**Commands** — type a slash command at the prompt:
+
+| Command | What it does |
+|---------|--------------|
+| `/analyze [path]` | Analyze a codebase for STRIDE threats (a bare directory path works too) |
+| `/quick` | Quick threat model from a text description |
+| `/reports` | List previous analysis reports (`/reports <n>` views one) |
+| `/config` | View or change settings (model, provider, API keys) |
+| `/help` | Show available commands, flags, and examples |
+| `/quit` | Exit (aliases: `/exit`, `/q`) |
+
+`/analyze`, `/quick`, and `/reports` accept flags: `-o`/`--output <path>`, `-f`/`--format <markdown\|json\|sarif\|html>`, `-y`/`--yes`, and `-i`/`--input <path>` (`/quick`). Type `/help` for the full list.
+
+**Keyboard shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Complete slash commands and file paths |
+| `↑` / `↓` | Scroll through command history |
+| `→` / `End` | Accept the greyed-out history suggestion |
+| `Ctrl+L` | Clear the screen and scrollback |
+| `Ctrl+C` / `Ctrl+D` | Exit the REPL |
 
 **Check the installed version:**
 
