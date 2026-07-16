@@ -11,9 +11,14 @@ from stride_gpt.core.schemas import LLMConfig, LLMResponse, ToolCallResult
 from stride_gpt.models import (
     get_litellm_prefix,
     get_model,
+    get_provider_by_key,
     model_supports_thinking,
     model_uses_completion_tokens,
 )
+
+# Local OpenAI-compatible servers (LM Studio) ignore the key, but the OpenAI SDK
+# refuses to construct a client without one. Matches apps/web's convention.
+LOCAL_PLACEHOLDER_API_KEY = "not-needed"
 
 
 def _default_output_tokens(config: LLMConfig, fallback: int) -> int:
@@ -69,9 +74,14 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
     prefix = get_litellm_prefix(config.provider)
     model = prefix + config.model_name
 
+    provider_info = get_provider_by_key(config.provider)
+    api_key = config.api_key or None
+    if api_key is None and provider_info is not None and not provider_info.needs_api_key:
+        api_key = LOCAL_PLACEHOLDER_API_KEY
+
     kwargs: dict = {
         "model": model,
-        "api_key": config.api_key or None,
+        "api_key": api_key,
         # Retry transient errors (429 rate limits, timeouts, 5xx). LiteLLM delegates
         # to the provider SDK, which uses exponential backoff and respects the
         # Retry-After header. Necessary because the agent loop bursts many calls

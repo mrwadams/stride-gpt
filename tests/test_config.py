@@ -108,6 +108,33 @@ class TestGetApiKey:
         assert get_api_key(cfg, tier="architect") == ""
 
 
+class TestGetApiKeyLocalProvider:
+    """LM Studio doesn't authenticate, so it must resolve to no key at all —
+    never a cloud key picked up from the environment (issue #159)."""
+
+    @staticmethod
+    def _lm_studio_config():
+        return {
+            "worker_provider": "LM Studio",
+            "worker_provider_key": "LM Studio Server",
+            "worker_model": "google/gemma-4-e4b",
+            "worker_api_base": "http://localhost:1234",
+        }
+
+    def test_returns_empty_when_no_keys_set(self, monkeypatch):
+        for var in ("ANTHROPIC_API_KEY", "STRIDE_GPT_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
+        assert get_api_key(self._lm_studio_config(), tier="worker") == ""
+
+    def test_does_not_leak_cloud_key_to_local_endpoint(self, monkeypatch):
+        # api_base can point at any host, so the worker fallback chain must not
+        # hand a real cloud key to it.
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-real-openai")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-real-anthropic")
+        monkeypatch.setenv("STRIDE_GPT_API_KEY", "sk-real-generic")
+        assert get_api_key(self._lm_studio_config(), tier="worker") == ""
+
+
 class TestGetApiKeyWorkerFallback:
     """The worker tier's last-resort scan of common env vars, used when the
     provider's own env var is unset (legacy behaviour)."""
