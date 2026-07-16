@@ -74,3 +74,40 @@ class TestDeepSeekKwargs:
         )
         kwargs = _build_litellm_kwargs(cfg)
         assert "max_tokens" not in kwargs
+
+
+class TestLMStudioKwargs:
+    def test_placeholder_api_key_when_none_configured(self):
+        """LM Studio routes through the `openai/` prefix, and the OpenAI SDK
+        refuses to build a client without an api_key — even for localhost. A
+        missing key must become a placeholder rather than None, or every call
+        dies with "The api_key client option must be set" (issue #159)."""
+        cfg = LLMConfig(
+            provider="LM Studio Server",
+            model_name="google/gemma-4-e4b",
+            api_key="",
+            api_base="http://localhost:1234",
+        )
+        kwargs = _build_litellm_kwargs(cfg)
+        assert kwargs["api_key"] == "not-needed"
+        assert kwargs["model"] == "openai/google/gemma-4-e4b"
+        assert kwargs["api_base"] == "http://localhost:1234/v1"
+
+    def test_real_key_preserved_when_server_requires_auth(self):
+        """LM Studio Server can be put behind auth, so an explicit key wins."""
+        cfg = LLMConfig(
+            provider="LM Studio Server",
+            model_name="google/gemma-4-e4b",
+            api_key="sk-user-supplied",
+            api_base="http://localhost:1234",
+        )
+        kwargs = _build_litellm_kwargs(cfg)
+        assert kwargs["api_key"] == "sk-user-supplied"
+
+    def test_cloud_provider_without_key_still_passes_none(self):
+        """The placeholder is scoped to non-authenticating providers — a cloud
+        provider with no key must not be handed a bogus one, which would turn a
+        clear auth error into a confusing 401 from the provider."""
+        cfg = LLMConfig(provider="OpenAI API", model_name="gpt-5.5", api_key="")
+        kwargs = _build_litellm_kwargs(cfg)
+        assert kwargs["api_key"] is None

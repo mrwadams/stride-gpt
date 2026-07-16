@@ -543,6 +543,12 @@ def get_api_key(config: dict[str, Any], *, tier: str = "worker") -> str:
         if key:
             return key
 
+    # Providers that don't authenticate (LM Studio) must never pick up a cloud
+    # key from the fallbacks below — api_base can point anywhere, so that would
+    # send a real key to an arbitrary host.
+    if provider_info and not provider_info.needs_api_key:
+        return ""
+
     # Architect with no env-var key falls back to worker's key only when
     # both tiers share a provider.
     if tier == "architect":
