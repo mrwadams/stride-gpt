@@ -353,7 +353,7 @@ Each follows the same pattern: import the context, inject it into the prompt, an
 
 ```bash
 # Install dependencies (if not already done)
-pip install -r apps/web/requirements.txt
+uv sync
 
 # Run locally
 streamlit run apps/web/main.py

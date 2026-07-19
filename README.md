@@ -300,14 +300,17 @@ This installs the `stride-gpt` command. The CLI and the Streamlit web UI are now
     cd stride-gpt
     ```
 
-2. Install whichever app you need:
+2. Install with [uv](https://docs.astral.sh/uv/) (recommended — `uv.lock` is the single source of truth for dependencies):
 
    ```bash
-   # CLI
-   pip install -e .
+   # CLI plus the Streamlit web UI deps
+   uv sync
+   ```
 
-   # Streamlit web UI
-   pip install -r apps/web/requirements.txt
+   Or install just the CLI with pip:
+
+   ```bash
+   pip install -e .
    ```
 
 3. (Optional) Set up environment variables:
@@ -338,7 +341,7 @@ stride-gpt/
 ├── apps/
 │   └── web/       # Streamlit web UI
 ├── tests/         # pytest suite
-└── pyproject.toml # single project file; web UI deps live in apps/web/requirements.txt
+└── pyproject.toml # single project file; web UI deps live in the `web` dependency-group
 ```
 
 The `apps/` directory is the slot for additional deployable frontends — for example, a future Node/TypeScript CLI would live alongside `apps/web/`. The Python CLI itself stays in `stride_gpt/cli.py` because it's tightly coupled to the shared library.

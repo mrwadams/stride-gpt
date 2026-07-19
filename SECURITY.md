@@ -77,7 +77,7 @@ When deploying STRIDE GPT:
 
 1. **Dependency Management**
    - Regularly update dependencies to patch security vulnerabilities
-   - Review `requirements.txt` for outdated or vulnerable packages
+   - Review `pyproject.toml` and `uv.lock` for outdated or vulnerable packages
    - Automated scanning with `pip-audit` and `safety` runs on every commit (see Automated Security Scanning section)
 
 2. **Input Validation**

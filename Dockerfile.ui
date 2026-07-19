@@ -23,8 +23,14 @@ ENV PATH="$PATH:/home/appuser/.local/bin:/home/appuser/.local/lib:/home/appuser/
 ENV VIRTUAL_ENV=/home/appuser/venv
 
 RUN python -m venv ${VIRTUAL_ENV}
-RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir --upgrade pip && \
-    ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r apps/web/requirements.txt && \
+# Install runtime deps from uv.lock (the single source of truth). The web app
+# runs against the copied source tree, so we install dependencies only
+# (--no-emit-project) and skip the dev group. Export to a pinned requirements
+# file, then pip install it into the venv the entrypoint runs from.
+RUN ${VIRTUAL_ENV}/bin/pip install --no-cache-dir --upgrade pip uv && \
+    ${VIRTUAL_ENV}/bin/uv export --frozen --no-dev --no-emit-project --no-hashes \
+        -o /tmp/requirements.lock && \
+    ${VIRTUAL_ENV}/bin/pip install --no-cache-dir -r /tmp/requirements.lock && \
     ${VIRTUAL_ENV}/bin/pip check
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
