@@ -42,11 +42,11 @@ dev = [
 ]
 # Streamlit web-app deps (apps/web). Kept out of [project.dependencies] so the
 # published CLI wheel stays lean; a dependency-group is local/deploy-only and is
-# never shipped in the wheel. Streamlit Community Cloud installs these because it
-# resolves via uv.lock (uv.lock outranks requirements.txt in SCC's precedence)
-# and default-groups (below) makes `uv sync` install them. Mirrors the runtime
-# entries in apps/web/requirements.txt (deps already in [project.dependencies] —
-# httpx, litellm, pydantic, python-dotenv, defusedxml — are not repeated).
+# never shipped in the wheel. Streamlit Community Cloud, the Docker UI image
+# (Dockerfile.ui), and the security-scan workflow all install these from
+# uv.lock, which is the single source of truth for every dependency. Deps
+# already in [project.dependencies] (httpx, litellm, pydantic, python-dotenv,
+# defusedxml) are not repeated here.
 web = [
     "streamlit>=1.58.0",
     "openai",
@@ -61,12 +61,13 @@ web = [
 # `uv sync` (used by SCC, CI, and release) installs these groups by default, so
 # the web app has its deps in every environment without extra flags.
 default-groups = ["dev", "web"]
-# Security floors for transitive deps not directly imported (mirrors the Snyk
-# pins in requirements.txt). Applied at lock time and baked into uv.lock.
+# Security floors for transitive deps not directly imported. Applied at lock
+# time and baked into uv.lock, which is the single source of truth for these
+# pins (the old requirements.txt duplication has been retired).
 # (No tornado floor: Streamlit >=1.59 runs on Starlette/Uvicorn, not Tornado.)
 constraint-dependencies = [
     "urllib3>=2.7.0",
-    "anyio>=4.14.1",
+    "anyio>=4.14.2",
     "zipp>=4.1.0",
     "h11>=0.16.0",
 ]
