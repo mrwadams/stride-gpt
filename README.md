@@ -75,7 +75,13 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.18 (latest)
+### Version 0.19 (latest)
+
+- **`--version` flag** (#161): `stride-gpt --version` now prints the installed version and exits, and the interactive TUI banner shows the running version so you can confirm what you're on at a glance.
+- **Dependency management consolidated onto uv** (closes #155): `uv.lock` is now the single source of truth for every dependency. The duplicated `requirements.txt` files are retired; the Docker UI image and the security-scan workflow install from `uv.lock` via `uv export`, so what ships and what gets scanned can no longer drift from what's locked. No change for `pip install stride-gpt` users.
+- **Documentation**: Added a sample threat-model markdown output (#151) and an interactive REPL cheat sheet (#163) to the README.
+
+### Version 0.18
 
 - **Embedded draw.io diagram editor** (#132, #138): The Streamlit Threat Model tab now embeds the [diagrams.net](https://www.diagrams.net/) editor so you can sketch an architecture diagram in-app; on save the diagram XML is parsed (components, connections, trust boundaries) and folded into the threat-model prompt. GitHub analysis, image upload, the diagram editor, and an AI-assisted guided builder are unified into one tabbed *"describe your application"* section over a single description canvas, so the optional inputs no longer crowd out the primary description field. The guided builder now calls the selected model to draft a description and suggest missing security-relevant details, replacing the previous static template and coverage checks. For self-hosted or air-gapped deployments the editor host is configurable via `STRIDE_GPT_DRAWIO_URL` (defaults to `embed.diagrams.net`), the iframe `postMessage` origin is scoped to it, and untrusted diagram XML is parsed with `defusedxml`.
 - **DeepSeek provider support** (closes #133): DeepSeek is now a first-class model provider in both the CLI setup wizard and the Streamlit UI, offering `deepseek-v4-pro` and `deepseek-v4-flash`. Calls route through LiteLLM's native `deepseek/` integration (hosted endpoint, no custom base URL needed); set your key via `DEEPSEEK_API_KEY`.
@@ -417,7 +423,7 @@ Launch the REPL with `stride-gpt` (no arguments), then use these commands and sh
 **Check the installed version:**
 
 ```bash
-stride-gpt --version    # prints e.g. "stride-gpt 0.18.1" and exits
+stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
 ```
 
 **Common flags:**
