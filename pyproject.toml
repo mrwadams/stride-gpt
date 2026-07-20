@@ -38,7 +38,7 @@ stride-gpt = "stride_gpt.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.4",
-    "ruff==0.15.21",
+    "ruff==0.15.22",
 ]
 # Streamlit web-app deps (apps/web). Kept out of [project.dependencies] so the
 # published CLI wheel stays lean; a dependency-group is local/deploy-only and is
