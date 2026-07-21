@@ -48,6 +48,22 @@ class ProgressCallback(Protocol):
         """Cross-cutting threat synthesis completed."""
         ...
 
+    def verify_start(self, total: int) -> None:
+        """The verification phase is starting over ``total`` threats."""
+        ...
+
+    def verify_threat_done(self, subsystem: str, outcome: str, confidence: int) -> None:
+        """One threat was verified. ``outcome`` is 'kept' or a drop_reason."""
+        ...
+
+    def verify_summary(self, surviving: int, refuted: int, errored: int) -> None:
+        """The verification phase finished."""
+        ...
+
+    def verify_aborted(self, reason: str) -> None:
+        """The verification phase tripped its guardrail and was abandoned."""
+        ...
+
     def token_budget(self, model: str, limit: int, source: str) -> None:
         """Report the context token budget for the model.
 
@@ -116,6 +132,34 @@ class RichProgress:
     def synthesis_done(self, count: int) -> None:
         self.console.print(f"  [green]Found {count} cross-cutting threats[/green]")
 
+    def verify_start(self, total: int) -> None:
+        self.console.print(
+            f"  [dim]Verifying {total} threats (refutation pass)...[/dim]"
+        )
+
+    def verify_threat_done(self, subsystem: str, outcome: str, confidence: int) -> None:
+        if outcome == "kept":
+            self.console.print(
+                f"    [green]kept[/green] [dim]({subsystem}, confidence {confidence}/10)[/dim]"
+            )
+        else:
+            self.console.print(
+                f"    [yellow]{outcome.lower()}[/yellow] [dim]({subsystem})[/dim]"
+            )
+
+    def verify_summary(self, surviving: int, refuted: int, errored: int) -> None:
+        self.console.print(
+            f"  [green]Verified: {surviving} kept, {refuted} refuted"
+            + (f", {errored} errored" if errored else "")
+            + "[/green]"
+        )
+
+    def verify_aborted(self, reason: str) -> None:
+        self.console.print(
+            f"  [red]Verification aborted: {reason}. "
+            f"Keeping the unverified report.[/red]"
+        )
+
     def complete(self, summary: str) -> None:
         self.console.print(Panel(summary, title="Summary", style="green"))
 
@@ -163,6 +207,20 @@ class QueueProgress:
 
     def synthesis_done(self, count: int) -> None:
         self._put({"type": "synthesis_done", "count": count})
+
+    def verify_start(self, total: int) -> None:
+        self._put({"type": "verify_start", "total": total})
+
+    def verify_threat_done(self, subsystem: str, outcome: str, confidence: int) -> None:
+        self._put({"type": "verify_threat_done", "subsystem": subsystem,
+                    "outcome": outcome, "confidence": confidence})
+
+    def verify_summary(self, surviving: int, refuted: int, errored: int) -> None:
+        self._put({"type": "verify_summary", "surviving": surviving,
+                    "refuted": refuted, "errored": errored})
+
+    def verify_aborted(self, reason: str) -> None:
+        self._put({"type": "verify_aborted", "reason": reason})
 
     def complete(self, summary: str) -> None:
         self._put({"type": "complete", "summary": summary})
