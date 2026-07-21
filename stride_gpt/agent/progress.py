@@ -52,8 +52,13 @@ class ProgressCallback(Protocol):
         """The verification phase is starting over ``total`` threats."""
         ...
 
-    def verify_threat_done(self, subsystem: str, outcome: str, confidence: int) -> None:
-        """One threat was verified. ``outcome`` is 'kept' or a drop_reason."""
+    def verify_threat_done(
+        self, index: int, total: int, subsystem: str, outcome: str, confidence: int
+    ) -> None:
+        """One threat was verified (``index`` of ``total`` now complete).
+
+        ``outcome`` is 'kept' or a drop_reason.
+        """
         ...
 
     def verify_summary(self, surviving: int, refuted: int, errored: int) -> None:
@@ -137,14 +142,18 @@ class RichProgress:
             f"  [dim]Verifying {total} threats (refutation pass)...[/dim]"
         )
 
-    def verify_threat_done(self, subsystem: str, outcome: str, confidence: int) -> None:
+    def verify_threat_done(
+        self, index: int, total: int, subsystem: str, outcome: str, confidence: int
+    ) -> None:
+        prefix = f"    [dim]({index}/{total})[/dim] "
         if outcome == "kept":
             self.console.print(
-                f"    [green]kept[/green] [dim]({subsystem}, confidence {confidence}/10)[/dim]"
+                f"{prefix}[green]kept[/green] "
+                f"[dim]({subsystem}, confidence {confidence}/10)[/dim]"
             )
         else:
             self.console.print(
-                f"    [yellow]{outcome.lower()}[/yellow] [dim]({subsystem})[/dim]"
+                f"{prefix}[yellow]{outcome.lower()}[/yellow] [dim]({subsystem})[/dim]"
             )
 
     def verify_summary(self, surviving: int, refuted: int, errored: int) -> None:
@@ -211,9 +220,11 @@ class QueueProgress:
     def verify_start(self, total: int) -> None:
         self._put({"type": "verify_start", "total": total})
 
-    def verify_threat_done(self, subsystem: str, outcome: str, confidence: int) -> None:
-        self._put({"type": "verify_threat_done", "subsystem": subsystem,
-                    "outcome": outcome, "confidence": confidence})
+    def verify_threat_done(
+        self, index: int, total: int, subsystem: str, outcome: str, confidence: int
+    ) -> None:
+        self._put({"type": "verify_threat_done", "index": index, "total": total,
+                    "subsystem": subsystem, "outcome": outcome, "confidence": confidence})
 
     def verify_summary(self, surviving: int, refuted: int, errored: int) -> None:
         self._put({"type": "verify_summary", "surviving": surviving,

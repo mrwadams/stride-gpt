@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -298,50 +298,51 @@ def run_verification(
         except Exception as e:  # recorded as VERIFY_ERROR, never fatal to the run
             return None, _redact_error(str(e))
 
-    with ThreadPoolExecutor(max_workers=max(1, cfg.parallel)) as pool:
-        outcomes = list(pool.map(_run, tasks))
-
+    total = len(tasks)
     surviving = 0
     refuted_count = 0
     errored = 0
     successful = 0  # parseable verdicts (PLAUSIBLE or NOT_PLAUSIBLE)
-    survivor_keys: set[tuple[str, int | None, int]] = set()
-    refuted_entries: list[dict[str, Any]] = []
+    completed = 0
+    # (result, drop_reason) per task index, resolved as futures land.
+    processed: dict[int, tuple[VerifierResult, str | None]] = {}
 
-    for task, (result, err) in zip(tasks, outcomes, strict=True):
-        kind, si, ti, threat, subsystem = task
-        if err is not None:
-            errored += 1
-            result = VerifierResult(
-                verdict="UNPARSEABLE",
-                confidence=0,
-                reason=f"verification errored: {err}",
-                verifier_model=_verifier_config(models, cfg).model_name,
-            )
-            drop_reason = "VERIFY_ERROR"
-        else:
-            assert result is not None
-            if result.verdict in ("PLAUSIBLE", "NOT_PLAUSIBLE"):
-                successful += 1
-            drop_reason = _decide(result, cfg)
+    # Report each verdict the moment it lands (completion order) rather than
+    # waiting on a barrier — otherwise the TUI stalls silently until the whole
+    # pass finishes and then dumps every line at once.
+    with ThreadPoolExecutor(max_workers=max(1, cfg.parallel)) as pool:
+        future_to_idx = {pool.submit(_run, task): i for i, task in enumerate(tasks)}
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            _, _, _, _threat, subsystem = tasks[idx]
+            result, err = future.result()
+            if err is not None:
+                errored += 1
+                result = VerifierResult(
+                    verdict="UNPARSEABLE",
+                    confidence=0,
+                    reason=f"verification errored: {err}",
+                    verifier_model=_verifier_config(models, cfg).model_name,
+                )
+                drop_reason = "VERIFY_ERROR"
+            else:
+                assert result is not None
+                if result.verdict in ("PLAUSIBLE", "NOT_PLAUSIBLE"):
+                    successful += 1
+                drop_reason = _decide(result, cfg)
 
-        verifier_dump = result.model_dump()
-        if drop_reason is None:
-            surviving += 1
-            survivor_keys.add((kind, si, ti))
-            threat["verifier"] = verifier_dump
-            progress.verify_threat_done(subsystem, "kept", result.confidence)
-        else:
-            refuted_count += 1
-            refuted_entries.append(
-                {
-                    "subsystem": subsystem,
-                    "threat": {**threat, "verifier": verifier_dump},
-                    "verifier": verifier_dump,
-                    "drop_reason": drop_reason,
-                }
-            )
-            progress.verify_threat_done(subsystem, drop_reason, result.confidence)
+            processed[idx] = (result, drop_reason)
+            completed += 1
+            if drop_reason is None:
+                surviving += 1
+                progress.verify_threat_done(
+                    completed, total, subsystem, "kept", result.confidence
+                )
+            else:
+                refuted_count += 1
+                progress.verify_threat_done(
+                    completed, total, subsystem, drop_reason, result.confidence
+                )
 
     # Guardrail: many failures and nothing successfully verified means the
     # verifier is broken (bad key, wrong endpoint). Refuse to emit an empty
@@ -356,6 +357,26 @@ def run_verification(
             f"verify guardrail: {successful} successful verifications, "
             f"{errored} errored, {refuted_count} refuted (threshold {threshold})"
         )
+
+    # Partition in deterministic task order (futures completed out of order).
+    survivor_keys: set[tuple[str, int | None, int]] = set()
+    refuted_entries: list[dict[str, Any]] = []
+    for idx, task in enumerate(tasks):
+        kind, si, ti, threat, subsystem = task
+        result, drop_reason = processed[idx]
+        verifier_dump = result.model_dump()
+        if drop_reason is None:
+            survivor_keys.add((kind, si, ti))
+            threat["verifier"] = verifier_dump
+        else:
+            refuted_entries.append(
+                {
+                    "subsystem": subsystem,
+                    "threat": {**threat, "verifier": verifier_dump},
+                    "verifier": verifier_dump,
+                    "drop_reason": drop_reason,
+                }
+            )
 
     # Commit: rebuild threat lists to survivors only; attach refuted list.
     for si, finding in enumerate(report.findings):
