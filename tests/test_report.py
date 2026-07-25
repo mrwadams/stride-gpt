@@ -111,6 +111,14 @@ class TestRenderSarif:
         # 2 subsystem threats + 1 cross-cutting
         assert len(results) == 3
 
+    def test_sarif_driver_version_is_configurable(self, monkeypatch, sample_report: AnalysisReport):
+        monkeypatch.setattr(
+            "stride_gpt.agent.report._get_stride_gpt_version",
+            lambda: "9.9.9",
+        )
+        sarif = render_sarif(sample_report)
+        assert sarif["runs"][0]["tool"]["driver"]["version"] == "9.9.9"
+
     def test_sarif_locations(self, sample_report: AnalysisReport):
         sarif = render_sarif(sample_report)
         results = sarif["runs"][0]["results"]
@@ -143,6 +151,17 @@ class TestFromJsonRenderers:
         sarif = render_sarif_from_json(data)
         assert sarif["version"] == "2.1.0"
         assert len(sarif["runs"][0]["results"]) == 3
+
+    def test_sarif_from_json_driver_version_is_configurable(
+        self, monkeypatch, sample_report: AnalysisReport
+    ):
+        monkeypatch.setattr(
+            "stride_gpt.agent.report._get_stride_gpt_version",
+            lambda: "7.7.7",
+        )
+        data = render_json(sample_report)
+        sarif = render_sarif_from_json(data)
+        assert sarif["runs"][0]["tool"]["driver"]["version"] == "7.7.7"
 
 
 # ---------------------------------------------------------------------------

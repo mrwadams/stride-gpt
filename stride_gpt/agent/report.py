@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import re
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,15 @@ from stride_gpt.core.report_utils import (
     threat_table_row,
 )
 from stride_gpt.core.schemas import AnalysisReport, ModelPair, ThreatModelOutput
+
+
+def _get_stride_gpt_version() -> str:
+    """Return the installed STRIDE-GPT version, or ``"unknown"`` for source runs."""
+
+    try:
+        return _package_version("stride-gpt")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def render_markdown(report: AnalysisReport) -> str:
@@ -287,7 +298,7 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
                     "driver": {
                         "name": "STRIDE-GPT",
                         "informationUri": "https://github.com/mrwadams/stride-gpt",
-                        "version": "0.16.1",
+                        "version": _get_stride_gpt_version(),
                         "rules": rules,
                     }
                 },
@@ -691,7 +702,7 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 "driver": {
                     "name": "STRIDE-GPT",
                     "informationUri": "https://github.com/mrwadams/stride-gpt",
-                    "version": "0.16.1",
+                    "version": _get_stride_gpt_version(),
                     "rules": rules,
                 }
             },
