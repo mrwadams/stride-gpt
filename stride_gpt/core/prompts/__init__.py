@@ -24,6 +24,7 @@ from stride_gpt.core.prompts.variants import (
     coerce_app_type,
     load_reference,
     quick_base_prompt,
+    verify_system_prompt,
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "dfd_to_prompt_section",
     "load_reference",
     "quick_base_prompt",
+    "verify_system_prompt",
 ]

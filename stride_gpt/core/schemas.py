@@ -90,12 +90,46 @@ class SubsystemFinding(BaseModel):
     files_analyzed: list[str] = []
 
 
+class VerifierResult(BaseModel):
+    """One verifier's adjudication of a single generated threat.
+
+    Attached to a surviving threat under its ``verifier`` key and carried on
+    each ``AnalysisReport.refuted_threats`` entry. ``UNPARSEABLE`` is the safe
+    undetermined verdict for a verifier reply we could not read as JSON — it is
+    never coerced to PLAUSIBLE (which would silently promote an unverified
+    threat) nor to NOT_PLAUSIBLE (which would silently drop a real one).
+    """
+
+    verdict: Literal["PLAUSIBLE", "NOT_PLAUSIBLE", "UNPARSEABLE"]
+    confidence: int = 0  # 0-10; 0 when UNPARSEABLE
+    reason: str = ""
+    evidence: list[str] = []  # "file:line" refs the verifier opened
+    reasoning: str = ""
+    verifier_model: str = ""
+    elapsed_seconds: float = 0.0
+
+
+class VerifyConfig(BaseModel):
+    """Configuration for the adversarial verification phase (opt-in via --verify)."""
+
+    enabled: bool = False
+    min_confidence: int = 7  # PLAUSIBLE below this is dropped (LOW_CONFIDENCE)
+    verifier_model: Literal["worker", "architect"] = "worker"
+    parallel: int = 4  # ThreadPoolExecutor workers for per-threat verification
+
+
 class AnalysisReport(BaseModel):
     """Complete analysis report from an agentic run."""
 
     plan: AnalysisPlan
     findings: list[SubsystemFinding]
     cross_cutting_threats: list[dict[str, Any]] = []
+    # Threats that failed verification when --verify was passed. One entry per
+    # refuted threat (per-subsystem and cross-cutting), each carrying the
+    # original threat, its VerifierResult, and a drop_reason. Survivors stay
+    # inline in ``findings[].threats`` / ``cross_cutting_threats``. Empty when
+    # verification was not run — so a report without --verify is unchanged.
+    refuted_threats: list[dict[str, Any]] = []
     # System-level Data Flow Diagram in Mermaid `flowchart` form. Generated
     # during synthesis from the full set of subsystem findings. None when
     # generation was skipped or failed — DFD is auxiliary, not load-bearing.
