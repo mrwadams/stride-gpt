@@ -437,7 +437,7 @@ def run_setup(console: Console, existing: dict[str, Any] | None = None) -> dict[
 
 def _ask_architect(
     console: Console, existing: dict[str, Any] | None
-) -> dict[str, Any] | None | bool:
+) -> dict[str, Any] | bool | None:
     """Branch on whether the user already has an architect tier saved.
 
     Returns:
