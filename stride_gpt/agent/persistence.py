@@ -113,6 +113,11 @@ class RunManifest(BaseModel):
     # one a call cap truncated.
     run_summary: RunSummary
     mode: Literal["analyze", "quick"]
+    # Verification (Phase 3.5) summary when --verify was passed; None otherwise.
+    # Shape: {enabled, min_confidence, verifier_model, surviving, refuted,
+    # errored, elapsed_seconds} — or {enabled, aborted, reason, ...} if the
+    # guardrail tripped.
+    verify: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +270,7 @@ def write_intermediates(
     plan: AnalysisPlan | None = None,
     findings: list[SubsystemFinding] | None = None,
     cross_cutting: list[dict[str, Any]] | None = None,
+    refuted_threats: list[dict[str, Any]] | None = None,
     data_flow_diagram: str | None = None,
 ) -> list[Path]:
     """Persist JSON sibling artefacts next to ``output``.
@@ -299,6 +305,7 @@ def write_intermediates(
         findings_payload = {
             "findings": [f.model_dump() for f in redacted_findings],
             "cross_cutting_threats": list(cross_cutting or []),
+            "refuted_threats": list(refuted_threats or []),
             "data_flow_diagram": data_flow_diagram,
         }
         findings_path = stem.with_suffix(".findings.json")
@@ -345,6 +352,7 @@ def build_analyze_manifest(
     llm_calls: int,
     tool_calls: int,
     subsystems_analyzed: int,
+    verify: dict[str, Any] | None = None,
 ) -> RunManifest:
     """Assemble the manifest for a /analyze run.
 
@@ -379,6 +387,7 @@ def build_analyze_manifest(
         references_loaded=sorted(references_loaded),
         run_summary=run_summary,
         mode="analyze",
+        verify=verify,
     )
 
 

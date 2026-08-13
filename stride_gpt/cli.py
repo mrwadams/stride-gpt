@@ -107,6 +107,12 @@ class AppTypeOverride(StrEnum):
     agentic = "agentic"
 
 
+class VerifierTier(StrEnum):
+    """Which model tier runs the --verify refutation pass."""
+    worker = "worker"
+    architect = "architect"
+
+
 # ---------------------------------------------------------------------------
 # Interactive session
 # ---------------------------------------------------------------------------
@@ -266,6 +272,7 @@ def _persist_analyze_intermediates(
         subsystems_analyzed=report.metadata.get(
             "subsystems_analyzed", len(report.findings)
         ),
+        verify=report.metadata.get("verify"),
     )
     written = write_intermediates(
         output,
@@ -273,6 +280,7 @@ def _persist_analyze_intermediates(
         plan=plan,
         findings=report.findings,
         cross_cutting=report.cross_cutting_threats,
+        refuted_threats=report.refuted_threats,
         data_flow_diagram=report.data_flow_diagram,
     )
     for path in written:
@@ -334,6 +342,10 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     # Check for -o / --output flag
     output_path = None
     output_format = OutputFormat.markdown
+    verify_enabled = False
+    min_confidence = 7
+    verifier_model = "worker"
+    verify_parallel = 4
     i = 1
     while i < len(parts):
         if parts[i] in ("-o", "--output") and i + 1 < len(parts):
@@ -346,12 +358,44 @@ def _handle_analyze(config: dict, args_str: str) -> None:
                 console.print(f"[red]Invalid format: {parts[i + 1]}. Use markdown, json, sarif, or html.[/red]")
                 return
             i += 2
+        elif parts[i] == "--verify":
+            verify_enabled = True
+            i += 1
+        elif parts[i] == "--min-confidence" and i + 1 < len(parts):
+            try:
+                min_confidence = int(parts[i + 1])
+            except ValueError:
+                console.print(f"[red]Invalid --min-confidence: {parts[i + 1]}. Use an integer 0-10.[/red]")
+                return
+            i += 2
+        elif parts[i] == "--verifier-model" and i + 1 < len(parts):
+            if parts[i + 1] not in ("worker", "architect"):
+                console.print(f"[red]Invalid --verifier-model: {parts[i + 1]}. Use worker or architect.[/red]")
+                return
+            verifier_model = parts[i + 1]
+            i += 2
+        elif parts[i] == "--verify-parallel" and i + 1 < len(parts):
+            try:
+                verify_parallel = int(parts[i + 1])
+            except ValueError:
+                console.print(f"[red]Invalid --verify-parallel: {parts[i + 1]}. Use an integer.[/red]")
+                return
+            i += 2
         elif parts[i] in ("-y", "--yes"):
             i += 1  # auto_approve handled below
         else:
             i += 1
 
     auto_approve = "-y" in args_str or "--yes" in args_str
+
+    from stride_gpt.core.schemas import VerifyConfig
+
+    verify_cfg = VerifyConfig(
+        enabled=verify_enabled,
+        min_confidence=min_confidence,
+        verifier_model=verifier_model,  # type: ignore[arg-type]
+        parallel=verify_parallel,
+    )
     models = config_to_model_pair(config)
     if models is None:
         console.print("[red]No model configured. Run /config to set one up.[/red]")
@@ -384,6 +428,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         models=models,
         target_path=target_path,
         plan=plan,
+        verify_cfg=verify_cfg,
         progress=progress,
     )
     finished_at = datetime.now(UTC)
@@ -733,8 +778,20 @@ def analyze(
     max_tool_calls: Annotated[int, typer.Option(help="Max tool executions (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
+    verify: Annotated[bool, typer.Option("--verify", help="Run a refutation pass over every generated threat: each is verified against the code, and threats that fail are moved to a Refuted section. Roughly doubles LLM spend.")] = False,
+    min_confidence: Annotated[int, typer.Option("--min-confidence", help="With --verify: keep a threat only if the verifier confirms it at this confidence or above (0-10).")] = 7,
+    verifier_model: Annotated[VerifierTier, typer.Option("--verifier-model", help="With --verify: which tier runs the verifier. Worker is cheaper, architect is stronger.")] = VerifierTier.worker,
+    verify_parallel: Annotated[int, typer.Option("--verify-parallel", help="With --verify: number of threats to verify concurrently.")] = 4,
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""
+    from stride_gpt.core.schemas import VerifyConfig
+
+    verify_cfg = VerifyConfig(
+        enabled=verify,
+        min_confidence=min_confidence,
+        verifier_model=verifier_model.value,
+        parallel=verify_parallel,
+    )
     from stride_gpt.agent.html_report import render_html
     from stride_gpt.agent.loop import create_analysis_plan, run_analysis
     from stride_gpt.agent.planner import format_plan_for_display
@@ -802,6 +859,7 @@ def analyze(
         plan=plan,
         max_llm_calls=max_llm_calls,
         max_tool_calls=max_tool_calls,
+        verify_cfg=verify_cfg,
         progress=progress,
     )
     finished_at = datetime.now(UTC)
