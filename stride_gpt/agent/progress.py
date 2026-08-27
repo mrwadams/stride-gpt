@@ -18,35 +18,27 @@ class ProgressCallback(Protocol):
 
     def phase_start(self, phase: str, description: str) -> None:
         """A new analysis phase is starting (Planning, Analyzing, Synthesizing)."""
-        ...
 
     def status(self, message: str) -> None:
         """Transient status update (e.g. 'Thinking about Auth...')."""
-        ...
 
     def subsystem_start(self, index: int, total: int, name: str, description: str) -> None:
         """Starting analysis of a subsystem."""
-        ...
 
     def subsystem_done(self, name: str, threat_count: int) -> None:
         """Finished analyzing a subsystem."""
-        ...
 
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         """A tool was called during exploration."""
-        ...
 
     def error(self, name: str, reason: str) -> None:
         """An error occurred analyzing a subsystem."""
-        ...
 
     def limit_reached(self, kind: str, current: int, maximum: int) -> None:
         """A hard limit (LLM calls or tool calls) was reached."""
-        ...
 
     def synthesis_done(self, count: int) -> None:
         """Cross-cutting threat synthesis completed."""
-        ...
 
     def token_budget(self, model: str, limit: int, source: str) -> None:
         """Report the context token budget for the model.
@@ -54,15 +46,12 @@ class ProgressCallback(Protocol):
         Args:
             source: One of "queried", "inferred", "explicit".
         """
-        ...
 
     def no_tool_use_warning(self, subsystem: str) -> None:
         """Warn that a subsystem was analyzed without any tool calls."""
-        ...
 
     def complete(self, summary: str) -> None:
         """Analysis finished. Summary is a human-readable status line."""
-        ...
 
 
 class RichProgress:

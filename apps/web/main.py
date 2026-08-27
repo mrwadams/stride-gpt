@@ -1044,7 +1044,9 @@ with st.sidebar:
 
         # Anthropic-specific: Extended Thinking checkbox
         if model_provider == "Anthropic API":
-            use_thinking = st.checkbox(
+            # Not assigned: `key` writes to st.session_state, which is where
+            # the value is read back from further down.
+            st.checkbox(
                 "Enable Extended Thinking",
                 value=st.session_state.get("use_thinking", False),
                 key="use_thinking",
@@ -1734,9 +1736,9 @@ vulnerabilities and prioritising mitigation efforts.
 
                     with col2:
                         # Add a button to allow the user to open the Mermaid Live editor
-                        mermaid_live_button = st.link_button(
-                            "Open Mermaid Live", "https://mermaid.live"
-                        )
+                        # Not assigned: a link button has no return value
+                        # worth reading, it just renders.
+                        st.link_button("Open Mermaid Live", "https://mermaid.live")
 
                     with col3:
                         # Blank placeholder

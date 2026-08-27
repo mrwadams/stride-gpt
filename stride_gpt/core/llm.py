@@ -7,6 +7,7 @@ import re
 
 import litellm
 
+from stride_gpt.core.mermaid_utils import extract_mermaid_code
 from stride_gpt.core.schemas import LLMConfig, LLMResponse, ToolCallResult
 from stride_gpt.models import (
     get_litellm_prefix,
@@ -349,8 +350,6 @@ def process_groq_response(
         except _json.JSONDecodeError:
             processed_output = final_output
     elif "graph " in final_output:
-        from stride_gpt.core.attack_tree import extract_mermaid_code
-
         processed_output = extract_mermaid_code(final_output)
     else:
         processed_output = final_output
