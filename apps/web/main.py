@@ -997,7 +997,10 @@ with st.sidebar:
                     lm_studio_endpoint, st.session_state.get("lm_studio_api_key", "")
                 )
 
-        selected_model = st.selectbox(
+        # Not assigned: the widget's `key` writes to st.session_state, and the
+        # value is read back from there further down. The old local was dead --
+        # reassigned from session state before anything read it.
+        st.selectbox(
             "Select the model you would like to use:",
             (
                 available_models
@@ -1030,7 +1033,8 @@ with st.sidebar:
         _model_list = get_models_for_provider(model_provider)
         _model_ids = [m.model_id for m in _model_list]
         _model_help = " | ".join(f"{m.model_id}: {m.help_text}" for m in _model_list if m.help_text)
-        selected_model = st.selectbox(
+        # Not assigned, for the same reason as the LM Studio selectbox above.
+        st.selectbox(
             "Select the model you would like to use:",
             _model_ids,
             key="selected_model",

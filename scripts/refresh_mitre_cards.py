@@ -119,7 +119,11 @@ def _fetch(url: str) -> bytes:
     """GET a URL and return the body. Raises a clear error on failure."""
     req = urllib.request.Request(url, headers={"User-Agent": "stride-gpt-refresh/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        # B310 suppressed below: both callers gate on
+        # str(source).startswith("http"), so file:/ and custom schemes never
+        # reach here. The URL is a maintainer CLI flag defaulting to a pinned
+        # MITRE endpoint, not runtime input.
+        with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310
             return resp.read()
     except urllib.error.HTTPError as exc:
         raise SystemExit(f"HTTP {exc.code} fetching {url}") from exc
