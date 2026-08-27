@@ -70,6 +70,16 @@ constraint-dependencies = [
     "anyio>=4.14.2",
     "zipp>=4.1.0",
     "h11>=0.16.0",
+    # gitpython via streamlit: long run of git-option-injection advisories
+    # through 3.1.57 (arbitrary file overwrite, env-var exfiltration,
+    # git-config injection).
+    "gitpython>=3.1.60",
+    # aiohttp via litellm: out-of-bounds heap read in the C response parser
+    # (<=3.14.2), request smuggling and unnegotiated compressed frames (<=3.14.1).
+    "aiohttp>=3.14.3",
+    # cryptography via pyjwt: Bleichenbacher oracle in PKCS#7 EnvelopedData
+    # decryption (<50.0.0).
+    "cryptography>=50.0.1",
 ]
 
 [build-system]
@@ -81,6 +91,16 @@ include = ["stride_gpt*"]
 
 [tool.setuptools.package-data]
 "stride_gpt.core.prompts.threat_model" = ["*.md"]
+
+[tool.bandit]
+# Replaces the old .bandit INI file, whose entries never applied: it used
+# `exclude_dirs` (a TOML/YAML key, not an INI one) with leading-slash paths
+# that matched nothing, so every run scanned tests/ anyway. The security
+# workflow installs bandit[toml], which is what reads this section.
+#
+# tests/ is excluded because pytest asserts trip B101 on every line, which is
+# where nearly every Low finding came from.
+exclude_dirs = ["tests", "dist", ".venv", "venv", ".git"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
