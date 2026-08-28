@@ -163,5 +163,8 @@ def _query_lm_studio_context(api_base: str, model_name: str) -> int | None:
             if loaded_ctx > 0:
                 return loaded_ctx
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        # Best-effort probe of the optional LM Studio server. If it is down or
+        # the response shape is unfamiliar, the context length is simply
+        # unknown, which is the None below, and callers fall back to a default.
         pass
     return None

@@ -61,6 +61,9 @@ def fetch_local_models(provider_name: str, api_base: str) -> list[str]:
             resp.raise_for_status()
             return [m["id"] for m in resp.json().get("data", [])]
     except (httpx.HTTPError, KeyError, TypeError):
+        # Probing LM Studio is best-effort: the server is optional and may be
+        # down, unreachable, or serving a payload we do not recognise. Any of
+        # those means "no models to offer", which is the empty list below.
         pass
     return []
 
@@ -132,6 +135,9 @@ def check_lm_studio_context(
                 )
             return False
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        # Same best-effort probe as above. A failure here means we could not
+        # read the loaded context length, not that it is too small, so the
+        # check declines to block and returns True below.
         pass
     return True  # Can't check — proceed optimistically
 
