@@ -61,6 +61,32 @@ Be specific about which files to examine. Prioritize subsystems that handle:
 5. Infrastructure and deployment"""
 
 
+def _diverse_key_files(files: list[str], limit: int) -> list[str]:
+    """Cap ``files`` at ``limit`` while representing every directory.
+
+    A flat alphabetical slice privileges early-sorting directories and can
+    drop a whole subsystem's files past the cutoff (issue #175: on OWASP
+    crAPI, ``services/web`` and ``services/workshop`` sorted last and
+    received zero file-level signal). Round-robin across each file's
+    containing directory instead, so every directory contributes before any
+    directory repeats.
+    """
+    if len(files) <= limit:
+        return files
+    queues: dict[str, list[str]] = {}
+    for f in files:
+        queues.setdefault(str(Path(f).parent), []).append(f)
+    ordered = [queues[d] for d in sorted(queues)]
+    sample: list[str] = []
+    while len(sample) < limit and any(ordered):
+        for queue in ordered:
+            if queue:
+                sample.append(queue.pop(0))
+                if len(sample) >= limit:
+                    break
+    return sorted(sample)
+
+
 def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
     """Scan a codebase and generate an analysis plan via LLM."""
     # Gather codebase structure
@@ -72,6 +98,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
 
     # Deduplicate and sort
     key_files = sorted(set(key_files))
+    key_files_shown = _diverse_key_files(key_files, 200)
 
     discovery_prompt = f"""Analyze this codebase structure and identify subsystems for STRIDE threat modeling.
 
@@ -79,7 +106,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
 {dir_listing}
 
 ## Key Files Found ({len(key_files)} files)
-{chr(10).join(key_files[:200])}"""
+{chr(10).join(key_files_shown)}"""
 
     json_config = config.model_copy(update={"response_format": AnalysisPlan.model_json_schema()})
     messages = [
