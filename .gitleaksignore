@@ -2,3 +2,17 @@
 99402ef2c8c1e01209cb1bbface09b510e259265:main.py:generic-api-key:615
 6f1548891a5af3905da08781af22402ef34aff8e:main.py:generic-api-key:611
 6f1548891a5af3905da08781af22402ef34aff8e:main.py:generic-api-key:612
+# The historic main.py held a "<Provider> API:<model-id>" -> token-limit map.
+# generic-api-key reads the model id as the secret for a key ending in "API".
+# Scheduled and workflow_dispatch runs scan all history and hit these; push and
+# pull_request runs scan only the event's commits and do not. The map now lives
+# in stride_gpt/models.py in a shape the rule does not match, so this list is
+# closed: no new commit can add to it.
+08033eab872d716e1e7476d00d523bd0bb38543b:main.py:generic-api-key:611
+08033eab872d716e1e7476d00d523bd0bb38543b:main.py:generic-api-key:612
+08033eab872d716e1e7476d00d523bd0bb38543b:main.py:generic-api-key:614
+08033eab872d716e1e7476d00d523bd0bb38543b:main.py:generic-api-key:615
+1d7d3e6b603de0842adc529d067dd424e7105205:main.py:generic-api-key:509
+4493879609cda513397128e47cc62b7b842cd7c8:main.py:generic-api-key:519
+5c994179ad4ac5e7513fd70a6399e6ff0a00d387:main.py:generic-api-key:506
+5c994179ad4ac5e7513fd70a6399e6ff0a00d387:main.py:generic-api-key:508
