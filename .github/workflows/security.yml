@@ -184,11 +184,29 @@ jobs:
 
     steps:
       - name: Check security scan results
+        env:
+          PYTHON_SECURITY: ${{ needs.python-security.result }}
+          SECRET_SCANNING: ${{ needs.secret-scanning.result }}
+          CODEQL_ANALYSIS: ${{ needs.codeql-analysis.result }}
         run: |
-          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Python Security: ${{ needs.python-security.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Secret Scanning: ${{ needs.secret-scanning.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "✅ CodeQL Analysis: ${{ needs.codeql-analysis.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "View detailed results in the workflow logs and Security tab." >> $GITHUB_STEP_SUMMARY
+          # The icon has to follow the result. Hardcoding ✅ made a failed scan
+          # read as "✅ Secret Scanning: failure", which is how weekly Gitleaks
+          # failures went unnoticed.
+          icon() {
+            case "$1" in
+              success)   echo "✅" ;;
+              failure)   echo "❌" ;;
+              cancelled) echo "⚠️" ;;
+              skipped)   echo "⏭️" ;;
+              *)         echo "❔" ;;
+            esac
+          }
+          {
+            echo "## Security Scan Summary"
+            echo ""
+            echo "$(icon "$PYTHON_SECURITY") Python Security: $PYTHON_SECURITY"
+            echo "$(icon "$SECRET_SCANNING") Secret Scanning: $SECRET_SCANNING"
+            echo "$(icon "$CODEQL_ANALYSIS") CodeQL Analysis: $CODEQL_ANALYSIS"
+            echo ""
+            echo "View detailed results in the workflow logs and Security tab."
+          } >> "$GITHUB_STEP_SUMMARY"
