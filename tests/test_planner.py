@@ -133,6 +133,20 @@ class TestDiverseKeyFiles:
         assert len(sample) == 200
         assert set(late).issubset(sample)
 
+    def test_round_robins_when_directory_count_exceeds_the_limit(self):
+        # PR #178 review: 250 nested leaf directories under one subsystem
+        # must not starve a sibling subsystem of every file, the same
+        # failure as #175 moved from file granularity to directory
+        # granularity.
+        web = [f"services/web/src/mod{i:03d}/index.js" for i in range(250)]
+        workshop = [f"services/workshop/f{i:03d}.py" for i in range(56)]
+        sample = _diverse_key_files(web + workshop, 200)
+        web_count = sum(1 for f in sample if f.startswith("services/web/"))
+        workshop_count = sum(1 for f in sample if f.startswith("services/workshop/"))
+        assert len(sample) == 200
+        assert web_count == 144
+        assert workshop_count == 56
+
 
 # ---------------------------------------------------------------------------
 # create_plan key-file coverage (issue #175)
