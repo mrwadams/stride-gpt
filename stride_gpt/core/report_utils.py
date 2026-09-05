@@ -58,12 +58,17 @@ def threat_table_header(
     show_mitre: bool,
     *,
     cross_cutting: bool = False,
+    show_verified: bool = False,
 ) -> tuple[str, str]:
     """Return the ``(header_line, separator_line)`` pair for a markdown table.
 
     The base columns are always ``Threat Type | Scenario | Potential Impact``;
     optional columns are appended in fixed order. ``cross_cutting=True`` adds
     the ``Affected Subsystems`` column used by the synthesis pass.
+    ``show_verified=True`` appends a trailing ``Verified`` column carrying the
+    verifier confidence for survivors of the ``--verify`` pass; it defaults off
+    so callers that never verify (including the legacy single-shot renderer)
+    are unaffected.
     """
     cols = ["Threat Type", "Scenario", "Potential Impact"]
     if show_llm:
@@ -76,6 +81,8 @@ def threat_table_header(
         cols.append("MITRE ATT&CK")
     if cross_cutting:
         cols.append("Affected Subsystems")
+    if show_verified:
+        cols.append("Verified")
     header = "| " + " | ".join(cols) + " |"
     separator = "|" + "|".join("-" * (len(c) + 2) for c in cols) + "|"
     return header, separator
@@ -100,12 +107,15 @@ def threat_table_row(
     show_mitre: bool,
     *,
     cross_cutting: bool = False,
+    show_verified: bool = False,
 ) -> str:
     """Render a single threat as a markdown table row.
 
     Every cell is escaped via :func:`_escape_md_cell` — pipes and newlines in
     LLM output must not be allowed to break the table or inject markdown.
     ``null`` / missing optional fields render as empty cells (not ``"None"``).
+    When ``show_verified`` is set, a trailing cell shows the verifier confidence
+    (e.g. ``9/10``) for a threat that carries a ``verifier`` record.
     """
     cells = [
         _escape_md_cell(threat.get("Threat Type", "Unknown")),
@@ -123,7 +133,32 @@ def threat_table_row(
     if cross_cutting:
         affected = threat.get("Affected Subsystems", [])
         cells.append(_escape_md_cell(", ".join(str(a) for a in affected)))
+    if show_verified:
+        cells.append(_escape_md_cell(format_verified_cell(threat.get("verifier"))))
     return "| " + " | ".join(cells) + " |"
+
+
+def format_verified_cell(verifier: Any) -> str:
+    """Render a threat's ``verifier`` record as a compact confidence cell.
+
+    Returns ``"N/10"`` for a PLAUSIBLE survivor, or an empty string when the
+    threat was never verified or the record is malformed.
+    """
+    if not isinstance(verifier, dict):
+        return ""
+    if verifier.get("verdict") != "PLAUSIBLE":
+        return ""
+    conf = verifier.get("confidence")
+    return f"{conf}/10" if isinstance(conf, int) else ""
+
+
+def has_verified_threats(all_threats: Iterable[dict[str, Any]]) -> bool:
+    """Return whether any threat carries a PLAUSIBLE verifier record."""
+    return any(
+        isinstance(t.get("verifier"), dict)
+        and t["verifier"].get("verdict") == "PLAUSIBLE"
+        for t in all_threats
+    )
 
 
 def is_mitre_technique_id(value: str) -> bool:

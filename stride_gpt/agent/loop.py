@@ -21,6 +21,7 @@ from stride_gpt.core.schemas import (
     LLMConfig,
     ModelPair,
     SubsystemFinding,
+    VerifyConfig,
 )
 
 # The agent's system prompt is the packaged `base.md` reference. It points
@@ -70,6 +71,7 @@ def run_analysis(
     max_llm_calls: int = 0,
     max_tool_calls: int = 0,
     auto_approve: bool = False,
+    verify_cfg: VerifyConfig | None = None,
     progress: ProgressCallback | None = None,
     console: Console | None = None,
 ) -> AnalysisReport:
@@ -209,6 +211,39 @@ def run_analysis(
         llm_calls += 1
         progress.synthesis_done(len(cross_cutting))
 
+    # --- Phase 3.5: Verification (opt-in via --verify) ---
+    # Refutation pass over every generated threat. Survivors stay inline;
+    # refuted threats move to report.refuted_threats. Runs after synthesis so
+    # cross-cutting threats face the same bar, and before the DFD so downstream
+    # context reflects survivors. Its LLM spend is tracked in the verify stats
+    # block, not folded into the phase-1-4 llm_calls budget.
+    refuted_threats: list[dict[str, Any]] = []
+    verify_stats: dict[str, Any] | None = None
+    has_threats = any(f.threats for f in findings) or bool(cross_cutting)
+    if verify_cfg is not None and verify_cfg.enabled and has_threats:
+        from stride_gpt.agent.verify import VerifyAbortedError, run_verification
+
+        progress.phase_start("Phase 3.5", "Verifying Threats")
+        tmp = AnalysisReport(
+            plan=plan, findings=findings, cross_cutting_threats=cross_cutting
+        )
+        try:
+            tmp, verify_stats = run_verification(
+                models, target_path, tmp, verify_cfg, progress
+            )
+            cross_cutting = tmp.cross_cutting_threats
+            refuted_threats = tmp.refuted_threats
+        except VerifyAbortedError as e:
+            # Guardrail tripped — keep the unverified findings untouched and
+            # record the abort so the report never masquerades as verified.
+            verify_stats = {
+                "enabled": True,
+                "aborted": True,
+                "reason": str(e),
+                "min_confidence": verify_cfg.min_confidence,
+                "verifier_model": verify_cfg.verifier_model,
+            }
+
     # --- Phase 4: System-level DFD ---
     # Optional pass — gives the report a visual map of components and trust
     # boundaries. Wrapped in try/except so a bad DFD never nukes a good
@@ -227,11 +262,14 @@ def run_analysis(
         subsystems_analyzed=len(findings),
     )
     metadata["references_loaded"] = sorted(loaded_refs)
+    if verify_stats is not None:
+        metadata["verify"] = verify_stats
 
     report = AnalysisReport(
         plan=plan,
         findings=findings,
         cross_cutting_threats=cross_cutting,
+        refuted_threats=refuted_threats,
         data_flow_diagram=data_flow_diagram,
         metadata=metadata,
     )
