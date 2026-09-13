@@ -691,3 +691,21 @@ class TestAnalyzeSubsystemToolHandling:
             [_tool_turn(self._read("a")), _tool_turn(self._read("b")), _FINAL], ctx,
         )
         assert "already have this result" in msgs[-1]["content"]
+
+    def test_malformed_arguments_reported_to_model(self, model_pair, sandbox_dir):
+        bad = ToolCallResult(
+            id="bad", function_name="list_directory", arguments={},
+            parse_error="arguments were not valid JSON (Expecting value: line 1 column 1)",
+        )
+        good = ToolCallResult(id="good", function_name="list_directory", arguments={})
+
+        msgs, counts = _run_subsystem(
+            model_pair, sandbox_dir, [_tool_turn(bad), _tool_turn(good), _FINAL],
+        )
+
+        tool_msgs = {m["tool_call_id"]: m["content"] for m in msgs if m["role"] == "tool"}
+        assert tool_msgs["bad"].startswith("Error: arguments were not valid JSON")
+        assert "valid JSON object" in tool_msgs["bad"]
+        # The failed call wasn't cached as list_directory({}), so the retry runs
+        assert "app.py" in tool_msgs["good"]
+        assert counts["tool"] == 2

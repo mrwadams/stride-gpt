@@ -229,6 +229,26 @@ def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
     )
 
 
+def _parse_tool_arguments(raw: object) -> tuple[dict, str | None]:
+    """Parse a tool call's arguments without raising.
+
+    Returns ``(arguments, parse_error)``. Models sometimes send truncated or
+    badly escaped JSON, or an empty string for no-argument tools. Raising here
+    would discard the whole exploration, so the error is handed back for the
+    agent loop to report to the model instead.
+    """
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return {}, None
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except _json.JSONDecodeError as e:
+            return {}, f"arguments were not valid JSON ({e})"
+    if not isinstance(raw, dict):
+        return {}, f"arguments must be a JSON object, not {type(raw).__name__}"
+    return raw, None
+
+
 def _call_litellm_with_tools(
     config: LLMConfig, messages: list[dict], tools: list[dict]
 ) -> LLMResponse:
@@ -243,16 +263,17 @@ def _call_litellm_with_tools(
 
     tool_calls = None
     if message.tool_calls:
-        tool_calls = [
-            ToolCallResult(
-                id=tc.id,
-                function_name=tc.function.name,
-                arguments=_json.loads(tc.function.arguments)
-                if isinstance(tc.function.arguments, str)
-                else tc.function.arguments,
+        tool_calls = []
+        for tc in message.tool_calls:
+            arguments, parse_error = _parse_tool_arguments(tc.function.arguments)
+            tool_calls.append(
+                ToolCallResult(
+                    id=tc.id,
+                    function_name=tc.function.name,
+                    arguments=arguments,
+                    parse_error=parse_error,
+                )
             )
-            for tc in message.tool_calls
-        ]
 
     thinking, _ = _extract_thinking(config, response)
 

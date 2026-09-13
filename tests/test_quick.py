@@ -337,3 +337,22 @@ class TestRetryAsJson:
         out = _retry_as_json(llm_config, [{"role": "user", "content": "hi"}])
         assert out.threat_model == []
         assert out.improvement_suggestions == ["Failed to parse model response as JSON."]
+
+
+class TestMalformedToolArguments:
+    @patch("stride_gpt.agent.quick.call_llm_with_tools")
+    def test_parse_error_returned_as_tool_result(self, mock_tools, model_pair):
+        bad = ToolCallResult(
+            id="bad", function_name="load_reference", arguments={},
+            parse_error="arguments were not valid JSON (Unterminated string)",
+        )
+        turn1 = LLMResponse(content="", model="t", tool_calls=[bad])
+        mock_tools.side_effect = [turn1, _final_response()]
+
+        out = run_quick_analysis(model_pair, "Any description.")
+
+        msgs = mock_tools.call_args_list[1].args[1]
+        tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+        assert tool_msgs[0]["tool_call_id"] == "bad"
+        assert tool_msgs[0]["content"].startswith("Error: arguments were not valid JSON")
+        assert out.tool_calls == 1

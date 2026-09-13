@@ -28,6 +28,9 @@ class ToolCallResult:
     id: str
     function_name: str
     arguments: dict[str, Any]
+    # Set when the model's arguments couldn't be parsed into a JSON object.
+    # ``arguments`` is then ``{}`` and the call must not be executed.
+    parse_error: str | None = None
 
 
 @dataclass

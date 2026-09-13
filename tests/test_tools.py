@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -280,6 +281,22 @@ class TestExecuteTool:
         tc = ToolCallResult(id="4", function_name="read_file", arguments={})
         result = execute_tool(sandbox_dir, tc)
         assert result.startswith("Error executing read_file:")
+
+    def test_parse_error_not_executed(self, sandbox_dir: Path):
+        tc = ToolCallResult(
+            id="4", function_name="load_reference", arguments={},
+            parse_error="arguments were not valid JSON (Expecting value)",
+        )
+        loaded: set[str] = set()
+        handler = MagicMock()
+        with patch.dict("stride_gpt.agent.tools._TOOL_DISPATCH", {"load_reference": handler}):
+            result = execute_tool(sandbox_dir, tc, loaded_refs=loaded)
+        handler.assert_not_called()
+        assert result == (
+            "Error: arguments were not valid JSON (Expecting value). "
+            "Re-issue the call with a valid JSON object."
+        )
+        assert loaded == set()
 
     def test_dispatches_load_reference(self, sandbox_dir: Path):
         # load_reference is fs-independent — it reads packaged markdown, not

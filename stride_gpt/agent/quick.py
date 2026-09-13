@@ -90,14 +90,15 @@ def run_quick_analysis(
             })
             for tc in response.tool_calls:
                 key = tc.function_name + ":" + json.dumps(tc.arguments, sort_keys=True)
-                if key in tool_cache:
+                if not tc.parse_error and key in tool_cache:
                     result = (
                         "You already loaded this reference card. Refer to the "
                         "earlier tool response instead of requesting it again."
                     )
                 else:
                     result = execute_tool(target_path, tc, loaded_refs=loaded_refs)
-                    tool_cache[key] = result
+                    if not tc.parse_error:
+                        tool_cache[key] = result
                 tool_calls += 1
                 tools_used[tc.function_name] = tools_used.get(tc.function_name, 0) + 1
                 messages.append({
