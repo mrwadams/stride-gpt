@@ -195,8 +195,19 @@ def grep_content(
             if full.suffix in (".pyc", ".pyo", ".so", ".dll", ".exe", ".bin", ".zip", ".tar", ".gz",
                                ".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".ttf"):
                 continue
+            # os.walk doesn't descend into symlinked directories, but it does
+            # list symlinked files — and read_text follows them. Apply the same
+            # sandbox check as read_file so a repo can't plant a link to e.g.
+            # ~/.aws/credentials and have its contents sent to the LLM. The
+            # is_file check also skips FIFOs and devices, which would block.
             try:
-                text = full.read_text(errors="replace")
+                target = full.resolve()
+            except (OSError, RuntimeError):
+                continue
+            if not target.is_relative_to(root_resolved) or not target.is_file():
+                continue
+            try:
+                text = target.read_text(errors="replace")
             except (OSError, UnicodeDecodeError):
                 continue
             for i, line in enumerate(text.splitlines(), 1):
