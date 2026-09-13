@@ -469,7 +469,11 @@ jobs:
     permissions:
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          # stride-gpt doesn't need git credentials; don't leave the job
+          # token where the checked-out code (and the agent) can reach it.
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v3
       - run: uv tool install stride-gpt
       - name: Generate threat model
