@@ -7,7 +7,17 @@ route a Groq/DeepSeek response to JSON, Mermaid, or raw text.
 
 from __future__ import annotations
 
-from stride_gpt.core.llm import extract_deepseek_reasoning, process_groq_response
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+
+from stride_gpt.core.llm import (
+    _call_litellm_with_tools,
+    _parse_tool_arguments,
+    extract_deepseek_reasoning,
+    process_groq_response,
+)
 
 
 class TestExtractDeepseekReasoning:
@@ -64,3 +74,57 @@ class TestProcessGroqResponse:
         )
         assert reasoning is None
         assert output == "just prose, no graph"
+
+
+class TestToolArgumentParsing:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ('{"path": "app.py"}', {"path": "app.py"}),
+            ({"path": "app.py"}, {"path": "app.py"}),
+            (None, {}),
+            ("", {}),
+            ("  \n", {}),
+        ],
+    )
+    def test_accepts(self, raw, expected):
+        assert _parse_tool_arguments(raw) == (expected, None)
+
+    @pytest.mark.parametrize(
+        ("raw", "message"),
+        [
+            ('{"pattern": "a"b"}', "arguments were not valid JSON (Expecting ',' delimiter"),
+            ('{"path": "app.', "arguments were not valid JSON (Unterminated string"),
+            ('["app.py"]', "arguments must be a JSON object, not list"),
+            ("42", "arguments must be a JSON object, not int"),
+        ],
+    )
+    def test_rejects_without_raising(self, raw, message):
+        arguments, error = _parse_tool_arguments(raw)
+        assert arguments == {}
+        assert error.startswith(message)
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_bad_call_does_not_fail_the_response(self, mock_completion, llm_config):
+        def tool_call(tc_id, name, arguments):
+            return SimpleNamespace(
+                id=tc_id, function=SimpleNamespace(name=name, arguments=arguments)
+            )
+
+        message = SimpleNamespace(
+            content="",
+            tool_calls=[
+                tool_call("a", "grep_content", '{"pattern": "x'),
+                tool_call("b", "read_file", '{"path": "app.py"}'),
+            ],
+        )
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+        response = _call_litellm_with_tools(llm_config, [], [])
+
+        bad, good = response.tool_calls
+        assert (bad.id, bad.arguments) == ("a", {})
+        assert bad.parse_error.startswith("arguments were not valid JSON")
+        assert (good.arguments, good.parse_error) == ({"path": "app.py"}, None)

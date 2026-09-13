@@ -23,7 +23,10 @@ DEFAULT_LIMITS: dict[str, int] = {
 }
 
 COMPRESSION_THRESHOLD = 0.80  # Compress when at 80% of limit
-KEEP_RECENT = 6  # Number of recent messages to keep uncompressed
+# Share of the context window for recent turns kept verbatim. The newest turn
+# is always kept, even if it alone is over budget.
+KEEP_RECENT_FRACTION = 0.25
+SUMMARY_HEADER = "[Previous exploration summary]"
 
 
 class TokenBudgetSource(Enum):
@@ -60,46 +63,84 @@ class ContextManager:
         return tokens > int(self.context_window * COMPRESSION_THRESHOLD)
 
     def compress(self, config: LLMConfig, messages: list[dict]) -> list[dict]:
-        """Compress older messages by summarizing tool results.
+        """Compress older turns into a summary.
 
-        Keeps the system prompt, the analysis plan context, and recent messages
-        intact. Summarizes everything in between into a condensed findings block.
+        Keeps the leading system message(s), the task (the first user
+        message), and the most recent whole turns within
+        ``KEEP_RECENT_FRACTION`` of the context window. Everything in between
+        is summarised and appended to the task message, so user and assistant
+        messages still alternate.
+
+        A turn is a message plus the ``tool`` results that follow it. Turns
+        are never split: providers reject a tool result whose assistant
+        ``tool_calls`` message is missing.
+
+        Returns ``messages`` itself (the same object) when there is nothing
+        to compress or the summary couldn't be produced.
 
         `config` is the LLM used to *perform* the summarization (an architect-
         tier reasoning task). The context window the ContextManager tracks is
         the worker's — that's the model whose conversation we're compressing.
         """
-        if len(messages) <= KEEP_RECENT + 2:
-            return messages  # Nothing worth compressing
+        head_len = 0
+        while head_len < len(messages) and messages[head_len]["role"] == "system":
+            head_len += 1
+        head = messages[:head_len]
+        rest = messages[head_len:]
 
-        # Split: system message(s) at the start, recent messages, middle to compress
-        system_msgs = []
-        rest = []
-        for msg in messages:
-            if msg["role"] == "system" and not rest:
-                system_msgs.append(msg)
-            else:
-                rest.append(msg)
+        task: dict | None = None
+        previous_summary = None
+        if rest and rest[0]["role"] == "user" and isinstance(rest[0].get("content"), str):
+            task, rest = rest[0], rest[1:]
+            task_text, _, previous_summary = task["content"].partition(
+                f"\n\n{SUMMARY_HEADER}\n"
+            )
 
-        if len(rest) <= KEEP_RECENT:
+        turns = _group_turns(rest)
+        budget = int(self.context_window * KEEP_RECENT_FRACTION)
+        keep_from = len(turns)
+        kept_tokens = 0
+        while keep_from > 0:
+            cost = self.count_tokens(turns[keep_from - 1])
+            if keep_from < len(turns) and kept_tokens + cost > budget:
+                break
+            kept_tokens += cost
+            keep_from -= 1
+
+        if keep_from == 0:
+            return messages  # Nothing older than the kept turns
+
+        to_compress = [msg for turn in turns[:keep_from] for msg in turn]
+        to_keep = [msg for turn in turns[keep_from:] for msg in turn]
+
+        try:
+            summary = self._summarize(config, to_compress, previous_summary or None)
+        except Exception:
+            # Carrying on uncompressed beats failing the whole subsystem;
+            # the next turn will try again.
+            return messages
+        if not summary.strip():
             return messages
 
-        to_compress = rest[:-KEEP_RECENT]
-        to_keep = rest[-KEEP_RECENT:]
+        if task is not None:
+            summary_msg = {**task, "content": f"{task_text}\n\n{SUMMARY_HEADER}\n{summary}"}
+        else:
+            summary_msg = {"role": "user", "content": f"{SUMMARY_HEADER}\n{summary}"}
 
-        # Build summary of the compressed section
-        compressed_text = self._summarize(config, to_compress)
-        summary_msg = {
-            "role": "user",
-            "content": f"[Previous exploration summary]\n{compressed_text}",
-        }
+        return [*head, summary_msg, *to_keep]
 
-        return [*system_msgs, summary_msg, *to_keep]
-
-    def _summarize(self, config: LLMConfig, messages: list[dict]) -> str:
+    def _summarize(
+        self,
+        config: LLMConfig,
+        messages: list[dict],
+        previous_summary: str | None = None,
+    ) -> str:
         """Summarize a list of messages into key findings."""
-        # Build a text representation of the messages
+        # Build a text representation of the messages. An earlier summary is
+        # included in full so a second compression doesn't lose its findings.
         parts: list[str] = []
+        if previous_summary:
+            parts.append(f"{SUMMARY_HEADER}\n{previous_summary}")
         for msg in messages:
             role = msg.get("role", "unknown")
             content = str(msg.get("content", ""))[:2000]  # Truncate long entries
@@ -136,6 +177,17 @@ class ContextManager:
             return registered.max_tokens, TokenBudgetSource.QUERIED
 
         return _infer_limit_from_name(config.model_name), TokenBudgetSource.INFERRED
+
+
+def _group_turns(messages: list[dict]) -> list[list[dict]]:
+    """Group messages into turns: a message plus the tool results after it."""
+    turns: list[list[dict]] = []
+    for msg in messages:
+        if msg["role"] == "tool" and turns:
+            turns[-1].append(msg)
+        else:
+            turns.append([msg])
+    return turns
 
 
 def _infer_limit_from_name(model: str) -> int:

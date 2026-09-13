@@ -394,6 +394,11 @@ def execute_tool(
     which cards the agent actually loaded. Failed loads (the loader returns
     a string starting with ``"Error:"``) are not counted.
     """
+    if tool_call.parse_error:
+        return (
+            f"Error: {tool_call.parse_error}. "
+            "Re-issue the call with a valid JSON object."
+        )
     handler = _TOOL_DISPATCH.get(tool_call.function_name)
     if handler is None:
         return f"Error: unknown tool '{tool_call.function_name}'"

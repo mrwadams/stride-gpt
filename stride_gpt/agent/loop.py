@@ -336,7 +336,9 @@ Start by reading the key files. Use grep to find security-relevant patterns like
                 if max_tool_calls and tool_calls >= max_tool_calls:
                     break
                 cache_key = tc.function_name + ":" + json.dumps(tc.arguments, sort_keys=True)
-                cached = tool_cache.get(cache_key)
+                # A call with unparseable arguments isn't the same call as one
+                # with no arguments, so keep it out of the cache both ways.
+                cached = None if tc.parse_error else tool_cache.get(cache_key)
                 if cached is not None:
                     result = (
                         "You already have this result from a previous call. "
@@ -345,7 +347,8 @@ Start by reading the key files. Use grep to find security-relevant patterns like
                     progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=True)
                 else:
                     result = execute_tool(target_path, tc, loaded_refs=loaded_refs)
-                    tool_cache[cache_key] = result
+                    if not tc.parse_error:
+                        tool_cache[cache_key] = result
                     progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=False)
                 tool_calls += 1
                 messages.append({
@@ -357,7 +360,12 @@ Start by reading the key files. Use grep to find security-relevant patterns like
 
             # Check context and compress if needed
             if ctx.needs_compression(messages):
-                messages = ctx.compress(models.for_architect(), messages)
+                compressed = ctx.compress(models.for_architect(), messages)
+                if compressed is not messages:
+                    # The cache points the model at earlier tool responses,
+                    # which the summary has just replaced.
+                    tool_cache.clear()
+                    messages = compressed
                 llm_calls += 1  # Compression uses an LLM call
         else:
             # No tool calls — the model is done analyzing
