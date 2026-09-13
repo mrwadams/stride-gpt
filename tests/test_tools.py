@@ -171,6 +171,32 @@ class TestGrepContent:
         # Valid JSON result (a match list), not an Error string.
         assert isinstance(json.loads(result), list)
 
+    def test_symlink_escape_blocked(self, sandbox_dir: Path, tmp_path_factory):
+        """A symlinked file pointing outside the root must not be read. read_file
+        already refuses it; grep_content must not become a bypass."""
+        outside = tmp_path_factory.mktemp("outside") / "credentials"
+        outside.write_text("TOP-SECRET-KEY\n")
+        (sandbox_dir / "leak.txt").symlink_to(outside)
+        (sandbox_dir / "src" / "leak.txt").symlink_to(outside)
+
+        with pytest.raises(ValueError, match="traversal"):
+            read_file(sandbox_dir, "leak.txt")
+        for path in (".", "src", "leak.txt", "src/leak.txt"):
+            try:
+                result = grep_content(sandbox_dir, "TOP-SECRET", path=path)
+            except ValueError:
+                continue  # rejected up front by _resolve_safe_path
+            assert "TOP-SECRET" not in result
+            assert json.loads(result) == []
+
+    def test_symlink_within_root_still_searched(self, sandbox_dir: Path):
+        """Links that stay inside the root are harmless and keep working,
+        matching read_file's behaviour."""
+        (sandbox_dir / "app_link.py").symlink_to(sandbox_dir / "app.py")
+        result = json.loads(grep_content(sandbox_dir, "Flask"))
+        files = {r["file"] for r in result}
+        assert {"app.py", "app_link.py"} <= files
+
 
 # ---------------------------------------------------------------------------
 # execute_tool
