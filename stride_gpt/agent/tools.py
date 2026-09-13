@@ -32,9 +32,14 @@ MAX_GREP_LINE_LEN = 1000
 # the textbook ReDoS shape without blocking ordinary patterns like ``(foo)+``.
 _NESTED_QUANTIFIER_RE = re.compile(r"\([^)]*[+*?{][^)]*\)\s*[+*]")
 
+# Version-control metadata can hold credentials (actions/checkout v4/v5 writes
+# the job token into .git/config; some clones embed a token in the remote URL)
+# and says nothing about the system's design, so the agent may not touch it.
+VCS_METADATA_DIRS = {".git", ".hg", ".svn"}
+
 # Directories to skip during search/grep
-SKIP_DIRS = {
-    ".git", "node_modules", "__pycache__", ".venv", "venv", ".env",
+SKIP_DIRS = VCS_METADATA_DIRS | {
+    "node_modules", "__pycache__", ".venv", "venv", ".env",
     ".tox", ".mypy_cache", ".pytest_cache", "dist", "build", ".next",
     ".terraform", ".gradle", "target",
 }
@@ -44,16 +49,37 @@ SKIP_DIRS = {
 # ---------------------------------------------------------------------------
 
 
+def _sandbox_violation(root_resolved: Path, resolved: Path) -> str | None:
+    """Return why a fully resolved path is off-limits, or None if it's allowed."""
+    # is_relative_to avoids the classic startswith() prefix bug where
+    # `/tmp/project` would falsely match `/tmp/project_secrets/...`.
+    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
+        return "Path traversal denied"
+    # casefold: on case-insensitive filesystems (macOS, Windows) `.GIT` reaches
+    # the same directory as `.git`.
+    parts = resolved.relative_to(root_resolved).parts
+    if any(part.casefold() in VCS_METADATA_DIRS for part in parts):
+        return "Access to version-control metadata denied"
+    return None
+
+
+def _link_target_allowed(root_resolved: Path, path: Path) -> bool:
+    """Whether following ``path`` (possibly a symlink) stays inside the sandbox."""
+    try:
+        target = path.resolve()
+    except (OSError, RuntimeError):  # symlink loop
+        return False
+    return _sandbox_violation(root_resolved, target) is None
+
+
 def _resolve_safe_path(root: Path, user_path: str) -> Path:
     """Resolve a user-provided path relative to root, rejecting traversal."""
     # Treat as relative to root even if it looks absolute
     cleaned = user_path.lstrip("/")
     resolved = (root / cleaned).resolve()
-    root_resolved = root.resolve()
-    # is_relative_to avoids the classic startswith() prefix bug where
-    # `/tmp/project` would falsely match `/tmp/project_secrets/...`.
-    if resolved != root_resolved and not resolved.is_relative_to(root_resolved):
-        raise ValueError(f"Path traversal denied: {user_path}")
+    reason = _sandbox_violation(root.resolve(), resolved)
+    if reason:
+        raise ValueError(f"{reason}: {user_path}")
     return resolved
 
 
@@ -87,13 +113,18 @@ def list_directory(root: Path, path: str = ".") -> str:
     resolved = _resolve_safe_path(root, path)
     if not resolved.is_dir():
         return f"Error: not a directory: {path}"
+    root_resolved = root.resolve()
     entries: list[dict[str, Any]] = []
     try:
         for item in sorted(resolved.iterdir()):
             if _should_skip(item.name):
                 continue
             entry: dict[str, Any] = {"name": item.name}
-            if item.is_dir():
+            if item.is_symlink() and not _link_target_allowed(root_resolved, item):
+                # is_dir() and stat() follow the link, which would reveal
+                # whether a path outside the sandbox exists and its size.
+                entry["type"] = "symlink"
+            elif item.is_dir():
                 entry["type"] = "directory"
             else:
                 entry["type"] = "file"
@@ -198,16 +229,13 @@ def grep_content(
             # os.walk doesn't descend into symlinked directories, but it does
             # list symlinked files — and read_text follows them. Apply the same
             # sandbox check as read_file so a repo can't plant a link to e.g.
-            # ~/.aws/credentials and have its contents sent to the LLM. The
-            # is_file check also skips FIFOs and devices, which would block.
-            try:
-                target = full.resolve()
-            except (OSError, RuntimeError):
-                continue
-            if not target.is_relative_to(root_resolved) or not target.is_file():
+            # ~/.aws/credentials or .git/config and have its contents sent to
+            # the LLM. The is_file check also skips FIFOs and devices, which
+            # would block.
+            if not _link_target_allowed(root_resolved, full) or not full.is_file():
                 continue
             try:
-                text = target.read_text(errors="replace")
+                text = full.read_text(errors="replace")
             except (OSError, UnicodeDecodeError):
                 continue
             for i, line in enumerate(text.splitlines(), 1):

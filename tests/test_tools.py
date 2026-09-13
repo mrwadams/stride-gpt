@@ -45,6 +45,24 @@ class TestReadFile:
         result = read_file(sandbox_dir, "src/auth.py")
         assert "login" in result
 
+    @pytest.mark.parametrize(
+        "path", [".git/HEAD", "src/../.git/HEAD", "./.git", ".GIT/HEAD", ".hg/hgrc"]
+    )
+    def test_vcs_metadata_blocked(self, sandbox_dir: Path, path: str):
+        """.git/config can hold a checkout token, so VCS metadata is refused
+        however the path is spelled (including case, for macOS/Windows)."""
+        with pytest.raises(ValueError, match="version-control metadata"):
+            read_file(sandbox_dir, path)
+
+    def test_symlink_to_vcs_metadata_blocked(self, sandbox_dir: Path):
+        """A committed link to .git stays inside the root, so the traversal
+        check alone doesn't catch it; the resolved target must be checked."""
+        (sandbox_dir / "notes.txt").symlink_to(sandbox_dir / ".git" / "HEAD")
+        (sandbox_dir / "meta").symlink_to(sandbox_dir / ".git")
+        for path in ("notes.txt", "meta/HEAD"):
+            with pytest.raises(ValueError, match="version-control metadata"):
+                read_file(sandbox_dir, path)
+
 
 # ---------------------------------------------------------------------------
 # list_directory
@@ -72,6 +90,28 @@ class TestListDirectory:
     def test_nonexistent_directory(self, sandbox_dir: Path):
         result = list_directory(sandbox_dir, "nonexistent")
         assert result.startswith("Error:")
+
+    def test_vcs_metadata_blocked(self, sandbox_dir: Path):
+        with pytest.raises(ValueError, match="version-control metadata"):
+            list_directory(sandbox_dir, ".git")
+
+    def test_symlink_outside_root_not_followed(self, sandbox_dir: Path, tmp_path_factory):
+        """Following the link would leak whether an outside file exists and
+        its size, so such links are listed without either."""
+        outside = tmp_path_factory.mktemp("outside")
+        (outside / "credentials").write_text("x" * 1234)
+        (sandbox_dir / "leak.txt").symlink_to(outside / "credentials")
+        (sandbox_dir / "leakdir").symlink_to(outside)
+        (sandbox_dir / "missing").symlink_to(outside / "nope")
+        (sandbox_dir / "head").symlink_to(sandbox_dir / ".git" / "HEAD")
+        (sandbox_dir / "app_link.py").symlink_to(sandbox_dir / "app.py")
+
+        entries = {e["name"]: e for e in json.loads(list_directory(sandbox_dir))}
+        for name in ("leak.txt", "leakdir", "missing", "head"):
+            assert entries[name] == {"name": name, "type": "symlink"}
+        # Links that stay inside the root are reported as what they point to.
+        assert entries["app_link.py"]["type"] == "file"
+        assert entries["app_link.py"]["size"] == (sandbox_dir / "app.py").stat().st_size
 
     def test_includes_types_and_sizes(self, sandbox_dir: Path):
         result = json.loads(list_directory(sandbox_dir))
@@ -188,6 +228,19 @@ class TestGrepContent:
                 continue  # rejected up front by _resolve_safe_path
             assert "TOP-SECRET" not in result
             assert json.loads(result) == []
+
+    def test_vcs_metadata_not_searched(self, sandbox_dir: Path):
+        """Neither pointing grep at .git nor a committed link to it may surface
+        its contents (e.g. a token in .git/config)."""
+        (sandbox_dir / ".git" / "config").write_text("extraheader = AUTHORIZATION: basic TOKEN\n")
+        (sandbox_dir / "notes.txt").symlink_to(sandbox_dir / ".git" / "config")
+        (sandbox_dir / "meta").symlink_to(sandbox_dir / ".git")
+
+        result = grep_content(sandbox_dir, "AUTHORIZATION")
+        assert json.loads(result) == []
+        for path in (".git", ".git/config", "notes.txt", "meta"):
+            with pytest.raises(ValueError, match="version-control metadata"):
+                grep_content(sandbox_dir, "AUTHORIZATION", path=path)
 
     def test_symlink_within_root_still_searched(self, sandbox_dir: Path):
         """Links that stay inside the root are harmless and keep working,
