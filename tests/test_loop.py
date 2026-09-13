@@ -612,3 +612,82 @@ class TestTierRouting:
         assert m2["worker_model"] == model_pair.worker.model_name
         assert m2["architect_model"] is None
         assert m2["architect_provider"] is None
+
+
+# ---------------------------------------------------------------------------
+# _analyze_subsystem — tool cache and malformed tool calls
+# ---------------------------------------------------------------------------
+
+
+def _run_subsystem(model_pair, target, responses, ctx=None):
+    """Drive _analyze_subsystem with scripted worker responses.
+
+    Returns the messages sent on the final call_llm_with_tools call.
+    """
+    from stride_gpt.agent.loop import _analyze_subsystem
+
+    if ctx is None:
+        ctx = MagicMock()
+        ctx.needs_compression.return_value = False
+    with patch("stride_gpt.agent.loop.call_llm_with_tools") as mock_tools:
+        mock_tools.side_effect = responses
+        counts: dict[str, int] = {}
+        _analyze_subsystem(
+            models=model_pair, target_path=target, subsystem_name="App",
+            subsystem_description="Main app", key_files=[], focus_areas=[],
+            ctx=ctx, max_llm_calls=0, max_tool_calls=0, progress=MagicMock(),
+            call_counts=counts,
+        )
+    return mock_tools.call_args_list[-1].args[1], counts
+
+
+def _tool_turn(*calls: ToolCallResult) -> LLMResponse:
+    return LLMResponse(content="", model="t", tool_calls=list(calls))
+
+
+_FINAL = LLMResponse(
+    content='{"threats": [], "improvement_suggestions": [], "files_analyzed": []}',
+    model="t",
+)
+
+
+class TestAnalyzeSubsystemToolHandling:
+    def _read(self, tc_id: str) -> ToolCallResult:
+        return ToolCallResult(id=tc_id, function_name="read_file", arguments={"path": "app.py"})
+
+    def test_repeat_call_served_from_cache(self, model_pair, sandbox_dir):
+        msgs, _ = _run_subsystem(
+            model_pair, sandbox_dir,
+            [_tool_turn(self._read("a")), _tool_turn(self._read("b")), _FINAL],
+        )
+        tool_msgs = [m for m in msgs if m["role"] == "tool"]
+        assert "Flask" in tool_msgs[0]["content"]
+        assert "already have this result" in tool_msgs[1]["content"]
+
+    def test_cache_cleared_after_compression(self, model_pair, sandbox_dir):
+        """Once compression has summarised the earlier result away, a repeat
+        call must return the file again, not point at a message that's gone."""
+        ctx = MagicMock()
+        ctx.needs_compression.side_effect = [True, False]
+        ctx.compress.side_effect = lambda _cfg, msgs: [
+            msgs[0], {"role": "user", "content": "task + summary"},
+        ]
+
+        msgs, _ = _run_subsystem(
+            model_pair, sandbox_dir,
+            [_tool_turn(self._read("a")), _tool_turn(self._read("b")), _FINAL], ctx,
+        )
+        tool_msgs = [m for m in msgs if m["role"] == "tool"]
+        assert [m["tool_call_id"] for m in tool_msgs] == ["b"]
+        assert "Flask" in tool_msgs[0]["content"]
+
+    def test_cache_kept_when_compression_is_a_noop(self, model_pair, sandbox_dir):
+        ctx = MagicMock()
+        ctx.needs_compression.side_effect = [True, False]
+        ctx.compress.side_effect = lambda _cfg, msgs: msgs
+
+        msgs, _ = _run_subsystem(
+            model_pair, sandbox_dir,
+            [_tool_turn(self._read("a")), _tool_turn(self._read("b")), _FINAL], ctx,
+        )
+        assert "already have this result" in msgs[-1]["content"]

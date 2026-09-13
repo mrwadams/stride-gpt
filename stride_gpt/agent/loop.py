@@ -357,7 +357,12 @@ Start by reading the key files. Use grep to find security-relevant patterns like
 
             # Check context and compress if needed
             if ctx.needs_compression(messages):
-                messages = ctx.compress(models.for_architect(), messages)
+                compressed = ctx.compress(models.for_architect(), messages)
+                if compressed is not messages:
+                    # The cache points the model at earlier tool responses,
+                    # which the summary has just replaced.
+                    tool_cache.clear()
+                    messages = compressed
                 llm_calls += 1  # Compression uses an LLM call
         else:
             # No tool calls — the model is done analyzing
