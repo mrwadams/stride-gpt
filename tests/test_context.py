@@ -225,6 +225,35 @@ class TestCompress:
         assert ctx_small.compress(llm_config, msgs) is msgs
 
     @patch("stride_gpt.agent.context.call_llm")
+    def test_summary_prompt_requests_fixed_sections(
+        self, mock_call_llm, ctx_small, llm_config
+    ):
+        mock_call_llm.return_value = _summary("s")
+        ctx_small.compress(llm_config, _agent_history(turns=6, calls_per_turn=1))
+
+        prompt = mock_call_llm.call_args.args[1][0]["content"]
+        headings = [
+            "## Threats identified so far",
+            "## Files examined and conclusions",
+            "## Pending work",
+            "## Current focus",
+        ]
+        positions = [prompt.index(h) for h in headings]
+        assert positions == sorted(positions)
+        assert '"none"' in prompt
+
+    @patch("stride_gpt.agent.context.call_llm")
+    def test_summary_input_includes_tool_calls(self, mock_call_llm, ctx_small, llm_config):
+        mock_call_llm.return_value = _summary("s")
+        msgs = _agent_history(turns=6, calls_per_turn=2)
+        msgs[2]["tool_calls"][0]["function"]["arguments"] = '{"path": "auth.py"}'
+
+        ctx_small.compress(llm_config, msgs)
+
+        conversation = mock_call_llm.call_args.args[1][1]["content"]
+        assert '[assistant] Called: read_file({"path": "auth.py"}), read_file({})' in conversation
+
+    @patch("stride_gpt.agent.context.call_llm")
     def test_preserves_system_messages(self, mock_call_llm, ctx_small, llm_config):
         mock_call_llm.return_value = LLMResponse(
             content="compressed", thinking=None, reasoning=None, model="test"

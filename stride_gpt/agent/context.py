@@ -28,6 +28,26 @@ COMPRESSION_THRESHOLD = 0.80  # Compress when at 80% of limit
 KEEP_RECENT_FRACTION = 0.25
 SUMMARY_HEADER = "[Previous exploration summary]"
 
+SUMMARY_PROMPT = f"""You are compressing the history of a security-focused codebase exploration. The agent will continue from your summary alone, so it must record what has been concluded and what is left to do.
+
+Write exactly these four sections, with these headings, in this order. Never omit a section; if one has nothing to report, write "none" under it.
+
+## Threats identified so far
+Each threat found, with the files and code involved.
+
+## Files examined and conclusions
+What each tool call established, including negative results (e.g. "no raw SQL in `db/`").
+
+## Pending work
+Files or questions the agent still meant to look at.
+
+## Current focus
+What the agent was doing when this summary was written.
+
+If the input begins with a {SUMMARY_HEADER}, merge it into your sections: carry its threats and conclusions forward, and drop pending items that have since been done.
+
+Be brief, but keep file paths, function names and other specifics."""
+
 
 class TokenBudgetSource(Enum):
     """How the token budget was determined."""
@@ -135,7 +155,7 @@ class ContextManager:
         messages: list[dict],
         previous_summary: str | None = None,
     ) -> str:
-        """Summarize a list of messages into key findings."""
+        """Summarize a list of messages into the sections of ``SUMMARY_PROMPT``."""
         # Build a text representation of the messages. An earlier summary is
         # included in full so a second compression doesn't lose its findings.
         parts: list[str] = []
@@ -143,16 +163,20 @@ class ContextManager:
             parts.append(f"{SUMMARY_HEADER}\n{previous_summary}")
         for msg in messages:
             role = msg.get("role", "unknown")
-            content = str(msg.get("content", ""))[:2000]  # Truncate long entries
+            content = str(msg.get("content") or "")[:2000]  # Truncate long entries
+            # Tool calls carry no content, but show which files were examined
+            if msg.get("tool_calls"):
+                calls = ", ".join(
+                    f"{tc.get('function', {}).get('name', '?')}({tc.get('function', {}).get('arguments', '')})"
+                    for tc in msg["tool_calls"]
+                )
+                content = f"{content}\nCalled: {calls}" if content.strip() else f"Called: {calls}"
             parts.append(f"[{role}] {content}")
 
         conversation = "\n---\n".join(parts)
 
         summary_messages = [
-            {
-                "role": "system",
-                "content": "Summarize the following agent exploration into a concise list of key findings. Focus on: files examined, security-relevant patterns found, architectural observations, and any threats identified. Be brief but preserve important details.",
-            },
+            {"role": "system", "content": SUMMARY_PROMPT},
             {"role": "user", "content": conversation},
         ]
 
