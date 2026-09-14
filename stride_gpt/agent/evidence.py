@@ -45,6 +45,15 @@ _GUTTER_RE = re.compile(r"^ *(\d+)\t")
 _FENCE_OPEN_RE = re.compile(r"^\s*```[\w.+-]*\s*$")
 _FENCE_CLOSE_RE = re.compile(r"^\s*```\s*$")
 
+# Whole-line comments in the languages this tool reads. A model quoting a
+# function body routinely drops them, which is still a faithful quote of the
+# code, so matching steps over them the way it steps over blank lines.
+_COMMENT_RE = re.compile(r"^\s*(#|//|/\*|\*/|\*|<!--|--|;)")
+
+# How many elided comment lines to step over between two matched code lines.
+# Past this the model isn't quoting a passage, it's stitching two of them.
+MAX_COMMENT_SKIP = 20
+
 
 @dataclass(frozen=True)
 class EvidenceCheck:
@@ -224,8 +233,8 @@ def _normalise_line(line: str) -> str:
 
 
 @lru_cache(maxsize=64)
-def _compacted(path_str: str, mtime_ns: int, size: int) -> tuple[tuple[str, int], ...]:
-    """Normalised non-blank lines of a file, each with its 1-based line number.
+def _compacted(path_str: str, mtime_ns: int, size: int) -> tuple[tuple[str, int, bool], ...]:
+    """Normalised non-blank lines of a file: text, 1-based number, is-comment.
 
     Keyed on mtime and size so an edited file drops out of the cache. Only the
     compacted form is held, never the raw text.
@@ -239,7 +248,7 @@ def _compacted(path_str: str, mtime_ns: int, size: int) -> tuple[tuple[str, int]
     for n, line in enumerate(content.splitlines(), 1):
         norm = _normalise_line(line)
         if norm:
-            out.append((norm, n))
+            out.append((norm, n, bool(_COMMENT_RE.match(line))))
     return tuple(out)
 
 
@@ -276,7 +285,7 @@ def _strip_gutter(lines: list[str]) -> list[str]:
 
 
 def _find(
-    haystack: tuple[tuple[str, int], ...], needle: list[str]
+    haystack: tuple[tuple[str, int, bool], ...], needle: list[str]
 ) -> tuple[int, int, int] | None:
     """Return ``(start_line, end_line, occurrences)`` for the first match.
 
@@ -290,25 +299,51 @@ def _find(
 
     if len(needle) == 1:
         target = needle[0]
-        exact = [n for text, n in haystack if text == target]
+        exact = [n for text, n, _ in haystack if text == target]
         if exact:
             return exact[0], exact[0], len(exact)
         # A fragment quoted out of a longer line, e.g. `eval(user_input)`
         # lifted from `    result = eval(user_input)  # TODO`.
-        partial = [n for text, n in haystack if target in text]
+        partial = [n for text, n, _ in haystack if target in text]
         if partial:
             return partial[0], partial[0], len(partial)
         return None
 
     # Multi-line: equality only. Substring matching across several lines buys
     # ragged quotes at the price of cheap false positives.
-    span = len(needle)
     hits: list[tuple[int, int]] = []
-    for i in range(len(haystack) - span + 1):
+    for i in range(len(haystack)):
         if haystack[i][0] != needle[0]:
             continue
-        if all(haystack[i + j][0] == needle[j] for j in range(1, span)):
-            hits.append((haystack[i][1], haystack[i + span - 1][1]))
+        end = _match_run(haystack, i, needle)
+        if end is not None:
+            hits.append((haystack[i][1], end))
     if not hits:
         return None
     return hits[0][0], hits[0][1], len(hits)
+
+
+def _match_run(
+    haystack: tuple[tuple[str, int, bool], ...], start: int, needle: list[str]
+) -> int | None:
+    """Match ``needle[1:]`` from ``start + 1``, returning the last line matched.
+
+    Comment-only lines the snippet doesn't reproduce are stepped over: a model
+    that quotes a function body and drops its comments has still quoted the
+    code, and refusing that would mark most real citations unverified.
+    """
+    j, k, skipped = start + 1, 1, 0
+    while k < len(needle) and j < len(haystack):
+        text, _, is_comment = haystack[j]
+        if text == needle[k]:
+            k += 1
+            j += 1
+            skipped = 0
+        elif is_comment and skipped < MAX_COMMENT_SKIP:
+            j += 1
+            skipped += 1
+        else:
+            return None
+    if k < len(needle):
+        return None
+    return haystack[j - 1][1]

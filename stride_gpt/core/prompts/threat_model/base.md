@@ -19,7 +19,7 @@ Every threat that comes from code you read must carry `evidence`: one to three i
 
 - Copy the code text only. Do **not** include the line-number and tab prefix that `read_file` adds, and never write line numbers of your own — the tool finds the snippet and records its line range for you.
 - Keep snippets short: the few lines where the weakness actually lives.
-- Indentation and whitespace differences are tolerated. Retyped, paraphrased or reconstructed code is not, and will be recorded as unverified.
+- Indentation, whitespace and dropped comment lines are tolerated. Retyped, paraphrased or reconstructed code is not, and will be recorded as unverified.
 - For a threat about something *missing* — no authentication on any route, no rate limiting anywhere — pass an empty `evidence` array, or cite the code where the control should have been.
 
 The tool result tells you which snippets were verified. An unverified snippet does not lose the threat: it is kept and flagged, so do not re-report a threat you have already reported.

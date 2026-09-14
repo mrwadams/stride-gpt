@@ -13,6 +13,7 @@ import json
 import pytest
 
 from stride_gpt.agent.evidence import (
+    MAX_COMMENT_SKIP,
     MAX_SNIPPET_CHARS,
     EvidenceCheck,
     normalise_path,
@@ -108,6 +109,71 @@ class TestMatches:
         assert (check.verified, check.start_line, check.occurrences) == (True, 1, 2)
         assert check.to_dict()["occurrences"] == 2
 
+
+class TestElidedComments:
+    """Models quote a function body and drop its comments.
+
+    That is still a faithful quote of the code, and refusing it marked most
+    real citations from a commented codebase unverified.
+    """
+
+    @pytest.fixture
+    def commented(self, sandbox_dir):
+        (sandbox_dir / "commented.py").write_text(
+            "def charge(amount):\n"
+            "    # Trust the client-supplied amount.\n"
+            "    # TODO: revalidate against the order.\n"
+            "    return bill(amount)\n"
+        )
+        return sandbox_dir
+
+    def test_dropped_comments_still_match(self, commented):
+        check = verify_one(
+            commented, "commented.py", "def charge(amount):\n    return bill(amount)"
+        )
+        assert check.verified
+        # The range spans the comments, which is the region worth showing.
+        assert (check.start_line, check.end_line) == (1, 4)
+
+    def test_quoted_comments_still_match(self, commented):
+        check = verify_one(
+            commented,
+            "commented.py",
+            "def charge(amount):\n    # Trust the client-supplied amount.\n"
+            "    # TODO: revalidate against the order.\n    return bill(amount)",
+        )
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 4)
+
+    @pytest.mark.parametrize(
+        "marker", ["#", "//", "/*", "*", "*/", "<!--", "--", ";"]
+    )
+    def test_comment_markers(self, sandbox_dir, marker):
+        (sandbox_dir / "c.txt").write_text(f"first line\n{marker} a comment\nsecond line\n")
+        check = verify_one(sandbox_dir, "c.txt", "first line\nsecond line")
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 3)
+
+    def test_a_dropped_code_line_is_still_refused(self, sandbox_dir):
+        """Only comments are skippable. Eliding real code is not quoting it."""
+        (sandbox_dir / "gap.py").write_text("a = 1\nb = 2\nc = 3\n")
+        assert not verify_one(sandbox_dir, "gap.py", "a = 1\nc = 3").verified
+
+    def test_too_many_elided_comments_is_refused(self, sandbox_dir):
+        """Past the cap the model is stitching two passages together, not
+        quoting one."""
+        body = "\n".join(f"# comment {i}" for i in range(MAX_COMMENT_SKIP + 1))
+        (sandbox_dir / "wall.py").write_text(f"start = 1\n{body}\nend = 2\n")
+        assert not verify_one(sandbox_dir, "wall.py", "start = 1\nend = 2").verified
+
+    def test_just_within_the_cap_matches(self, sandbox_dir):
+        body = "\n".join(f"# comment {i}" for i in range(MAX_COMMENT_SKIP))
+        (sandbox_dir / "ok.py").write_text(f"start = 1\n{body}\nend = 2\n")
+        assert verify_one(sandbox_dir, "ok.py", "start = 1\nend = 2").verified
+
+    def test_a_trailing_comment_is_not_part_of_the_range(self, commented):
+        """The range ends at the last matched code line, not at a comment
+        that happened to follow it."""
+        check = verify_one(commented, "commented.py", "def charge(amount):")
+        assert (check.start_line, check.end_line) == (1, 1)
 
 class TestRefuses:
     def test_snippet_not_in_file(self, sandbox_dir):
