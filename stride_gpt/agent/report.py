@@ -12,6 +12,7 @@ from typing import Any
 
 from stride_gpt.core.report_utils import (
     detect_extra_columns,
+    evidence_items,
     normalize_mitre_techniques,
     threat_table_header,
     threat_table_row,
@@ -156,6 +157,9 @@ def render_json(report: AnalysisReport) -> dict[str, Any]:
 # length so a 50 KB LLM hallucination can't bloat an upload.
 _SARIF_MESSAGE_MAX = 5000
 
+# Evidence is capped at 5 items per threat, but saved reports predate that.
+_SARIF_MAX_LOCATIONS = 10
+
 
 def _sarif_text(value: Any) -> str:
     """Coerce an LLM value to a length-bounded string for a SARIF message."""
@@ -209,6 +213,81 @@ def _sarif_rule(rule_id: str, safe_threat_type: str) -> dict[str, Any]:
         "helpUri": _STRIDE_HELP_URI,
     }
 
+
+def _sarif_uri(path: Any) -> str:
+    """Normalise a path into a SARIF artifact URI.
+
+    GitHub matches these against repository paths, so a leading ``./`` or
+    ``/`` or a Windows separator stops a location resolving.
+    """
+    text = str(path or "").strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text.lstrip("/")
+
+
+def _sarif_region(item: dict[str, Any]) -> dict[str, int] | None:
+    """The 1-based inclusive line range of one evidence item, if it has a valid one.
+
+    Coerced rather than trusted: GitHub rejects an entire SARIF upload on one
+    schema violation, and saved reports can hold anything an LLM emitted.
+    """
+    start, end = item.get("start_line"), item.get("end_line")
+    if isinstance(start, bool) or isinstance(end, bool):
+        return None
+    if not isinstance(start, int) or not isinstance(end, int):
+        return None
+    if start < 1 or end < start:
+        return None
+    return {"startLine": start, "endLine": end}
+
+
+def _sarif_locations(threat: dict[str, Any], files_analyzed: Any) -> list[dict[str, Any]]:
+    """Locate a threat as precisely as its evidence allows.
+
+    One location per verified evidence item, with the line range the snippet
+    matched. Falls back to the subsystem's first few files only when nothing
+    verified — that fallback gives every threat in a subsystem the same
+    locations, which is what put threats against unrelated files.
+    """
+    locations = [
+        {
+            "physicalLocation": {
+                "artifactLocation": {"uri": uri},
+                "region": region,
+            }
+        }
+        for item in evidence_items(threat)
+        if item.get("verified")
+        and (region := _sarif_region(item))
+        and (uri := _sarif_uri(item.get("path")))
+    ]
+    if locations:
+        return locations[:_SARIF_MAX_LOCATIONS]
+
+    files = files_analyzed if isinstance(files_analyzed, list) else []
+    return [
+        {"physicalLocation": {"artifactLocation": {"uri": uri}}}
+        for f in files[:3]  # Limit to avoid bloat
+        if (uri := _sarif_uri(f))
+    ]
+
+
+def _sarif_evidence_note(threat: dict[str, Any]) -> str:
+    """A verification line for the result message.
+
+    In the message rather than only in ``properties`` because code-scanning
+    UIs show the message and bury the properties.
+    """
+    items = evidence_items(threat)
+    if not items:
+        return ""
+    verified = sum(1 for item in items if item.get("verified"))
+    plural = "" if len(items) == 1 else "s"
+    return (
+        f"\n\nEvidence: {verified} of {len(items)} snippet{plural} verified "
+        "against the code."
+    )
 
 def _sarif_mitre_ids(value: Any) -> list[str]:
     """Extract a plain list of MITRE technique IDs for SARIF properties.
@@ -527,10 +606,19 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 "ruleId": rule_id,
                 "level": "warning",
                 "message": {
-                    "text": f"{scenario_txt}\n\nPotential Impact: {impact_txt}",
+                    "text": (
+                        f"{scenario_txt}\n\nPotential Impact: {impact_txt}"
+                        + _sarif_evidence_note(threat)
+                    ),
                 },
                 "properties": {"subsystem": sub["name"]},
             }
+            evidence = evidence_items(threat)
+            if evidence:
+                result_entry["properties"]["evidence_total"] = len(evidence)
+                result_entry["properties"]["evidence_verified"] = sum(
+                    1 for item in evidence if item.get("verified")
+                )
             if threat.get("OWASP_LLM"):
                 result_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
             if threat.get("OWASP_ASI"):
@@ -540,11 +628,9 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
             mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
             if mitre_ids:
                 result_entry["properties"]["mitre_attack"] = mitre_ids
-            if files:
-                result_entry["locations"] = [
-                    {"physicalLocation": {"artifactLocation": {"uri": f}}}
-                    for f in files[:3]
-                ]
+            locations = _sarif_locations(threat, files)
+            if locations:
+                result_entry["locations"] = locations
             results.append(result_entry)
 
     for threat in data.get("cross_cutting_threats", []):

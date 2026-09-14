@@ -16,26 +16,28 @@ from stride_gpt.core.report_utils import (
 class TestDetectExtraColumns:
     def test_all_absent(self):
         threats = [{"Threat Type": "T", "Scenario": "s", "Potential Impact": "i"}]
-        assert detect_extra_columns(threats) == (False, False, False, False)
+        assert detect_extra_columns(threats) == (False, False, False, False, False)
 
     def test_only_llm(self):
         threats = [{"OWASP_LLM": "LLM01"}]
-        assert detect_extra_columns(threats) == (True, False, False, False)
+        assert detect_extra_columns(threats) == (True, False, False, False, False)
 
-    def test_all_four(self):
+    def test_all_optional_fields(self):
         threats = [{
             "OWASP_LLM": "LLM01",
             "OWASP_ASI": "ASI06",
             "INSIDER_CATEGORY": "Data Exfiltration",
             "MITRE_ATTACK": [{"id": "T1190", "name": "Exploit Public-Facing Application"}],
+            "evidence": [{"path": "a.py", "snippet": "x", "verified": True}],
         }]
-        assert detect_extra_columns(threats) == (True, True, True, True)
+        assert detect_extra_columns(threats) == (True, True, True, True, True)
 
     def test_null_treated_as_absent(self):
         """A None / empty value must not count as "present" — otherwise web
         reports get unwanted columns full of empty cells."""
-        threats = [{"OWASP_LLM": None, "INSIDER_CATEGORY": None, "MITRE_ATTACK": []}]
-        assert detect_extra_columns(threats) == (False, False, False, False)
+        threats = [{"OWASP_LLM": None, "INSIDER_CATEGORY": None, "MITRE_ATTACK": [],
+                    "evidence": []}]
+        assert detect_extra_columns(threats) == (False, False, False, False, False)
 
     def test_aggregates_across_threats(self):
         """Column shown if ANY threat carries the field, even if most don't."""
@@ -44,7 +46,7 @@ class TestDetectExtraColumns:
             {"OWASP_LLM": "LLM01"},
             {"Threat Type": "C", "MITRE_ATTACK": [{"id": "T1078", "name": "Valid Accounts"}]},
         ]
-        assert detect_extra_columns(threats) == (True, False, False, True)
+        assert detect_extra_columns(threats) == (True, False, False, True, False)
 
     def test_mitre_comma_separated_string_shows_column(self):
         """#134: a comma-separated MITRE string must surface the column, and

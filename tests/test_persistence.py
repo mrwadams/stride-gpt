@@ -481,3 +481,61 @@ def test_build_quick_manifest_run_summary_completed_with_null_subsystems(model_p
     assert manifest.run_summary.subsystems_analyzed is None
     assert manifest.run_summary.llm_calls == 4
     assert manifest.run_summary.tool_calls == 2
+
+
+def test_evidence_paths_are_redacted_without_mutating_the_report(
+    tmp_path, monkeypatch, sample_plan
+):
+    """The -o siblings redact; the auto-saved archive keeps verbatim values.
+
+    model_copy is shallow, so redacting a path nested inside a threat dict
+    in place would corrupt the report still held in memory.
+    """
+    monkeypatch.chdir(tmp_path)
+    cited = tmp_path / "src" / "auth.py"
+    cited.parent.mkdir(parents=True)
+    cited.write_text("# auth")
+    absolute = str(cited.resolve())
+
+    threat = {
+        "Threat Type": "Spoofing",
+        "Scenario": "s",
+        "Potential Impact": "i",
+        "evidence": [
+            {"path": absolute, "snippet": "# auth", "verified": True,
+             "start_line": 1, "end_line": 1}
+        ],
+    }
+    finding = SubsystemFinding(subsystem="Auth", threats=[threat], files_analyzed=[absolute])
+
+    output = tmp_path / "report.md"
+    output.write_text("ignored")
+    write_intermediates(
+        output,
+        manifest=_make_analyze_manifest(tmp_path),
+        plan=sample_plan,
+        findings=[finding],
+        cross_cutting=[],
+        data_flow_diagram=None,
+    )
+
+    on_disk = json.loads((tmp_path / "report.findings.json").read_text())
+    assert on_disk["findings"][0]["threats"][0]["evidence"][0]["path"] == "./src/auth.py"
+    assert threat["evidence"][0]["path"] == absolute
+
+
+def test_threats_without_evidence_pass_through_redaction(tmp_path, monkeypatch, sample_plan):
+    monkeypatch.chdir(tmp_path)
+    threat = {"Threat Type": "Spoofing", "Scenario": "s", "Potential Impact": "i"}
+    output = tmp_path / "report.md"
+    output.write_text("ignored")
+    write_intermediates(
+        output,
+        manifest=_make_analyze_manifest(tmp_path),
+        plan=sample_plan,
+        findings=[SubsystemFinding(subsystem="Auth", threats=[threat])],
+        cross_cutting=[],
+        data_flow_diagram=None,
+    )
+    on_disk = json.loads((tmp_path / "report.findings.json").read_text())
+    assert on_disk["findings"][0]["threats"] == [threat]
