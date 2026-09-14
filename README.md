@@ -480,7 +480,9 @@ docker run -p 8501:8501 --env-file .env mrwadams/stridegpt
 
 ## Sample output
 
-Every `stride-gpt analyze` and `stride-gpt quick` run emits a markdown report by default (with JSON, SARIF, and a self-contained HTML view available via `-f`). The markdown groups threats by subsystem in STRIDE tables, adds a cross-cutting section for threats that span components, and closes with a run summary. Optional columns (OWASP LLM/ASI, Insider Category, MITRE ATT&CK) appear only when a run populates them.
+Every `stride-gpt analyze` and `stride-gpt quick` run emits a markdown report by default (with JSON, SARIF, and a self-contained HTML view available via `-f`). The markdown groups threats by subsystem in STRIDE tables, adds a cross-cutting section for threats that span components, and closes with a run summary. Optional columns (OWASP LLM/ASI, Insider Category, MITRE ATT&CK, Evidence) appear only when a run populates them.
+
+Threats from `analyze` cite the code they came from. The agent quotes a snippet, the snippet is matched against the file on disk, and the matched line range is recorded — so the Evidence column shows `app/auth/jwt.py:14-19`, the HTML report shows the quoted code, and each SARIF result points at those exact lines rather than at the subsystem's file list. A snippet that can't be found is marked unverified rather than dropped, so you can see what the model claimed and judge it.
 
 Below is the markdown from a run against a fictional payments API, so you can see the shape of the output before running the tool. It is a real render from the report engine, not a mock-up.
 
@@ -515,10 +517,10 @@ flowchart LR
 
 ### Threats
 
-| Threat Type | Scenario | Potential Impact | MITRE ATT&CK |
-|-------------|----------|------------------|--------------|
-| Spoofing | An attacker forges a JWT using a weak or leaked signing secret to impersonate another customer. | Full account takeover and unauthorized access to stored payment methods. | T1550.001 (Application Access Token) |
-| Elevation of Privilege | A standard user calls an admin-only refund endpoint that only checks authentication, not role. | Unauthorized refunds and financial loss. | T1068 (Exploitation for Privilege Escalation) |
+| Threat Type | Scenario | Potential Impact | MITRE ATT&CK | Evidence |
+|-------------|----------|------------------|--------------|----------|
+| Spoofing | An attacker forges a JWT using a weak or leaked signing secret to impersonate another customer. | Full account takeover and unauthorized access to stored payment methods. | T1550.001 (Application Access Token) | app/auth/jwt.py:14-19 |
+| Elevation of Privilege | A standard user calls an admin-only refund endpoint that only checks authentication, not role. | Unauthorized refunds and financial loss. | T1068 (Exploitation for Privilege Escalation) | app/auth/dependencies.py:31-38 |
 
 ### Recommendations
 
@@ -534,10 +536,10 @@ flowchart LR
 
 ### Threats
 
-| Threat Type | Scenario | Potential Impact | MITRE ATT&CK |
-|-------------|----------|------------------|--------------|
-| Information Disclosure | Full card numbers are logged in request debug logs when a payment fails. | PCI-DSS violation and exposure of cardholder data to anyone with log access. | T1552.001 (Credentials In Files) |
-| Tampering | The payment amount is taken from a client-supplied field and not re-validated server-side against the order. | A user pays less than the order total by editing the request body. |  |
+| Threat Type | Scenario | Potential Impact | MITRE ATT&CK | Evidence |
+|-------------|----------|------------------|--------------|----------|
+| Information Disclosure | Full card numbers are logged in request debug logs when a payment fails. | PCI-DSS violation and exposure of cardholder data to anyone with log access. | T1552.001 (Credentials In Files) | app/payments/routes.py:88-91 |
+| Tampering | The payment amount is taken from a client-supplied field and not re-validated server-side against the order. | A user pays less than the order total by editing the request body. |  | app/payments/routes.py:42-44 |
 
 ### Recommendations
 

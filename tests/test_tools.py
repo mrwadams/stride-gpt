@@ -17,6 +17,7 @@ from stride_gpt.agent.tools import (
     REPORTING_TOOLS,
     STRIDE_CATEGORIES,
     SUBSYSTEM_TOOLS,
+    THREAT_ARG_TO_FIELD,
     execute_tool,
     grep_content,
     list_directory,
@@ -521,17 +522,28 @@ class TestReportingTools:
     def test_report_threat_requires_the_core_fields_and_evidence(self):
         params = _reporting("report_threat")["parameters"]
         assert params["required"] == [
-            "Threat Type", "Scenario", "Potential Impact", "evidence",
+            "threat_type", "scenario", "potential_impact", "evidence",
         ]
+
+    def test_argument_names_have_no_spaces(self):
+        """A parameter name with a space breaks real providers: DeepSeek
+        truncates "Threat Type" at the space, so the key arrives as "Threat"
+        and the whole call fails to parse. THREAT_ARG_TO_FIELD maps the
+        snake_case arguments back to the report's own field names."""
+        props = _reporting("report_threat")["parameters"]["properties"]
+        assert all(" " not in name for name in props)
+        assert set(props) - {"evidence"} == set(THREAT_ARG_TO_FIELD)
+        assert THREAT_ARG_TO_FIELD["threat_type"] == "Threat Type"
+        assert THREAT_ARG_TO_FIELD["potential_impact"] == "Potential Impact"
 
     def test_fixed_value_fields_are_enumerated(self):
         """Free-text STRIDE categories degrade the SARIF rule IDs and the
         HTML badge colours, both of which key off the exact strings."""
         props = _reporting("report_threat")["parameters"]["properties"]
-        assert props["Threat Type"]["enum"] == STRIDE_CATEGORIES
-        assert props["OWASP_LLM"]["enum"][0] == "LLM01"
-        assert props["OWASP_ASI"]["enum"][-1] == "ASI10"
-        assert "Data Exfiltration" in props["INSIDER_CATEGORY"]["enum"]
+        assert props["threat_type"]["enum"] == STRIDE_CATEGORIES
+        assert props["owasp_llm"]["enum"][0] == "LLM01"
+        assert props["owasp_asi"]["enum"][-1] == "ASI10"
+        assert "Data Exfiltration" in props["insider_category"]["enum"]
         assert props["autonomy_level"]["enum"] == ["L1", "L2", "L3", "L4"]
 
     def test_evidence_items_need_a_path_and_a_snippet(self):

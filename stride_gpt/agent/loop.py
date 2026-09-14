@@ -17,6 +17,7 @@ from stride_gpt.agent.tools import (
     REPORTING_TOOL_NAMES,
     REPORTING_TOOLS,
     SUBSYSTEM_TOOLS,
+    THREAT_ARG_TO_FIELD,
     execute_tool,
 )
 from stride_gpt.core.json_extract import extract_json_object
@@ -314,15 +315,26 @@ NUDGE_PROMPT = (
     "Threats written as prose or JSON are not recorded."
 )
 
-# Optional threat fields the reference cards add. Copied across only when the
-# model actually set them, so a threat dict stays the shape it was before.
-_OPTIONAL_THREAT_FIELDS = (
-    "OWASP_LLM",
-    "OWASP_ASI",
-    "INSIDER_CATEGORY",
-    "autonomy_level",
-    "MITRE_ATTACK",
-)
+# Arguments that fill the three always-present threat fields; everything else
+# in THREAT_ARG_TO_FIELD is optional and copied across only when the model set
+# it, so a threat dict keeps the shape it had before evidence existed.
+_REQUIRED_THREAT_ARGS = ("threat_type", "scenario", "potential_impact")
+
+
+def _threat_arg(args: dict[str, Any], name: str) -> Any:
+    """Read one report_threat argument, forgiving the shapes models produce.
+
+    The tool takes snake_case names, but a model with the report's own field
+    names in context — from a reference card, or a previous release's prompt —
+    will sometimes send those instead. Accepting both costs a dict lookup and
+    saves a threat that is otherwise fully formed.
+    """
+    if name in args:
+        return args[name]
+    field = THREAT_ARG_TO_FIELD[name]
+    if field in args:
+        return args[field]
+    return args.get(name.replace("_", " ").title())
 
 
 class _SubsystemRun:
@@ -419,10 +431,10 @@ class _SubsystemRun:
 
     def _handle_report(self, tc: ToolCallResult) -> str:
         args = tc.arguments
-        scenario = str(args.get("Scenario") or "").strip()
+        scenario = str(_threat_arg(args, "scenario") or "").strip()
         if not scenario:
             return (
-                "Error: report_threat requires a non-empty 'Scenario'. "
+                "Error: report_threat requires a non-empty 'scenario'. "
                 "Nothing was recorded."
             )
         if len(self.threats) >= MAX_THREATS_PER_SUBSYSTEM:
@@ -431,7 +443,7 @@ class _SubsystemRun:
                 "has been reached. Call finish now."
             )
 
-        threat_type = str(args.get("Threat Type") or "Unknown")
+        threat_type = str(_threat_arg(args, "threat_type") or "Unknown")
         # Compression summarises away the model's own report_threat turns, so
         # it can re-report a threat it already filed. Signature dedupe is
         # cheaper and more reliable than trying to preserve those turns.
@@ -446,12 +458,14 @@ class _SubsystemRun:
         threat: dict[str, Any] = {
             "Threat Type": threat_type,
             "Scenario": scenario,
-            "Potential Impact": str(args.get("Potential Impact") or ""),
+            "Potential Impact": str(_threat_arg(args, "potential_impact") or ""),
         }
-        for key in _OPTIONAL_THREAT_FIELDS:
-            value = args.get(key)
+        for arg, field in THREAT_ARG_TO_FIELD.items():
+            if arg in _REQUIRED_THREAT_ARGS:
+                continue
+            value = _threat_arg(args, arg)
             if value not in (None, "", []):
-                threat[key] = value
+                threat[field] = value
 
         checks = verify_evidence(self.target_path, args.get("evidence"))
         # Omitted rather than empty, so a threat with no evidence is the same

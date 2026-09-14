@@ -487,16 +487,21 @@ REPORTING_TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "Threat Type": {
+                    # snake_case, not the report's "Threat Type" / "Potential
+                    # Impact" keys: providers mangle parameter names containing
+                    # spaces. DeepSeek truncates them at the space, so
+                    # "Threat Type" arrives as a key called "Threat" and the
+                    # whole call fails to parse. The loop maps these back.
+                    "threat_type": {
                         "type": "string",
                         "enum": STRIDE_CATEGORIES,
                         "description": "The STRIDE category this threat falls under.",
                     },
-                    "Scenario": {
+                    "scenario": {
                         "type": "string",
                         "description": "The specific attack scenario, grounded in this code.",
                     },
-                    "Potential Impact": {
+                    "potential_impact": {
                         "type": "string",
                         "description": "What damage could result.",
                     },
@@ -531,7 +536,7 @@ REPORTING_TOOLS: list[dict[str, Any]] = [
                             "required": ["path", "snippet"],
                         },
                     },
-                    "OWASP_LLM": {
+                    "owasp_llm": {
                         "type": "string",
                         "enum": OWASP_LLM_CODES,
                         "description": (
@@ -539,7 +544,7 @@ REPORTING_TOOLS: list[dict[str, Any]] = [
                             "genai reference card is loaded and applies; otherwise omit."
                         ),
                     },
-                    "OWASP_ASI": {
+                    "owasp_asi": {
                         "type": "string",
                         "enum": OWASP_ASI_CODES,
                         "description": (
@@ -547,7 +552,7 @@ REPORTING_TOOLS: list[dict[str, Any]] = [
                             "the agentic card is loaded and applies; otherwise omit."
                         ),
                     },
-                    "INSIDER_CATEGORY": {
+                    "insider_category": {
                         "type": "string",
                         "enum": INSIDER_CATEGORIES,
                         "description": (
@@ -563,7 +568,7 @@ REPORTING_TOOLS: list[dict[str, Any]] = [
                             "(human approves every action) to L4 (continuous autonomy)."
                         ),
                     },
-                    "MITRE_ATTACK": {
+                    "mitre_attack": {
                         "type": "array",
                         "description": (
                             "MITRE ATT&CK Enterprise or ATLAS techniques. Set only when "
@@ -585,7 +590,7 @@ REPORTING_TOOLS: list[dict[str, Any]] = [
                         },
                     },
                 },
-                "required": ["Threat Type", "Scenario", "Potential Impact", "evidence"],
+                "required": ["threat_type", "scenario", "potential_impact", "evidence"],
             },
         },
     },
@@ -617,6 +622,21 @@ REPORTING_TOOLS: list[dict[str, Any]] = [
 ]
 
 REPORTING_TOOL_NAMES = frozenset(t["function"]["name"] for t in REPORTING_TOOLS)
+
+# report_threat argument -> the key it becomes in the threat dict. The report
+# keys are fixed by every downstream consumer (DREAD, mitigations, the HTML
+# report, saved JSON); the argument names are snake_case because providers
+# mangle parameter names with spaces or, in some cases, change their case.
+THREAT_ARG_TO_FIELD = {
+    "threat_type": "Threat Type",
+    "scenario": "Scenario",
+    "potential_impact": "Potential Impact",
+    "owasp_llm": "OWASP_LLM",
+    "owasp_asi": "OWASP_ASI",
+    "insider_category": "INSIDER_CATEGORY",
+    "autonomy_level": "autonomy_level",
+    "mitre_attack": "MITRE_ATTACK",
+}
 
 # What the subsystem loop offers: explore the code, then report what you found.
 SUBSYSTEM_TOOLS: list[dict[str, Any]] = [*AGENT_TOOLS, *REPORTING_TOOLS]

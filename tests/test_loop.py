@@ -473,9 +473,9 @@ def _report(
         id=tc_id,
         function_name="report_threat",
         arguments={
-            "Threat Type": threat_type,
-            "Scenario": scenario,
-            "Potential Impact": impact,
+            "threat_type": threat_type,
+            "scenario": scenario,
+            "potential_impact": impact,
             "evidence": evidence if evidence is not None else [],
             **extra,
         },
@@ -599,8 +599,45 @@ class TestSubsystemRunToolHandling:
         assert "Do not re-report" in result
         assert len(run.threats) == 1
 
+    def test_report_fields_also_accepted_under_their_report_names(self, run):
+        """A model that has "Threat Type" in context from a reference card
+        sometimes sends that instead of the snake_case argument. The threat
+        is otherwise fully formed, so take it."""
+        run.handle(
+            ToolCallResult(
+                id="r", function_name="report_threat",
+                arguments={
+                    "Threat Type": "Tampering",
+                    "Scenario": "Amount not revalidated",
+                    "Potential Impact": "Underpayment",
+                    "OWASP_LLM": "LLM01",
+                    "evidence": [],
+                },
+            )
+        )
+        assert run.threats == [{
+            "Threat Type": "Tampering",
+            "Scenario": "Amount not revalidated",
+            "Potential Impact": "Underpayment",
+            "OWASP_LLM": "LLM01",
+        }]
+
+    def test_optional_fields_land_under_their_report_names(self, run):
+        run.handle(
+            _report(
+                "r", owasp_asi="ASI05", insider_category="Data Exfiltration",
+                autonomy_level="L3",
+                mitre_attack=[{"id": "T1190", "name": "Exploit Public-Facing Application"}],
+            )
+        )
+        threat = run.threats[0]
+        assert threat["OWASP_ASI"] == "ASI05"
+        assert threat["INSIDER_CATEGORY"] == "Data Exfiltration"
+        assert threat["autonomy_level"] == "L3"
+        assert threat["MITRE_ATTACK"][0]["id"] == "T1190"
+
     def test_missing_scenario_is_refused(self, run):
-        assert "non-empty 'Scenario'" in run.handle(_report("r", scenario="  "))
+        assert "non-empty 'scenario'" in run.handle(_report("r", scenario="  "))
         assert run.threats == []
 
     def test_duplicate_is_refused(self, run):
@@ -659,7 +696,7 @@ class TestToolReportedThreats:
                     threat_type="Information Disclosure",
                     scenario="Credentials compared in the clear",
                     impact="Account takeover",
-                    OWASP_LLM="LLM02",
+                    owasp_llm="LLM02",
                     evidence=[{"path": "src/auth.py", "snippet": _AUTH_SNIPPET}],
                 ),
                 _finish("f", "Hash the password"),
