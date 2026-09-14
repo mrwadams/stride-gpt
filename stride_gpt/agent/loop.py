@@ -380,10 +380,10 @@ Start by reading the key files. Use grep to find security-relevant patterns like
     # Hit limits — summarize findings and ask model to produce final analysis
     clean_msgs = _prepare_for_plain_llm(models.for_architect(), messages)
     llm_calls += 1  # summarization call
-    clean_msgs.append({
-        "role": "user",
-        "content": "You've reached the tool call limit. Please provide your STRIDE threat analysis now based on what you've gathered so far. Respond with the JSON format specified.",
-    })
+    clean_msgs = _append_user(
+        clean_msgs,
+        "You've reached the tool call limit. Please provide your STRIDE threat analysis now based on what you've gathered so far. Respond with the JSON format specified.",
+    )
     json_config = models.worker.model_copy(update={"response_format": "json"})
     response = call_llm(json_config, clean_msgs)
     call_counts["llm"] = llm_calls + 1
@@ -429,10 +429,10 @@ def _retry_as_json(
     """
     clean_msgs = _prepare_for_plain_llm(models.for_architect(), messages)
     call_counts["llm"] = call_counts.get("llm", 0) + 1  # summarization call
-    clean_msgs.append({
-        "role": "user",
-        "content": "Please respond with ONLY a valid JSON object in the format specified in your instructions. No other text.",
-    })
+    clean_msgs = _append_user(
+        clean_msgs,
+        "Please respond with ONLY a valid JSON object in the format specified in your instructions. No other text.",
+    )
     json_config = models.worker.model_copy(update={"response_format": "json"})
     response = call_llm(json_config, clean_msgs)
     call_counts["llm"] = call_counts.get("llm", 0) + 1
@@ -646,13 +646,15 @@ def _prepare_for_plain_llm(config: LLMConfig, messages: list[dict]) -> list[dict
         # Summarization failed — fall back to lossy stripping
         return _strip_tool_artifacts(messages)
 
+    # The findings go into the task message rather than a second user
+    # message: strict chat templates require user and assistant to alternate.
+    findings = f"[Findings from codebase exploration]\n{summary}"
     result = list(system_msgs)
     if user_prompt_msg:
-        result.append(user_prompt_msg)
-    result.append({
-        "role": "user",
-        "content": f"[Findings from codebase exploration]\n{summary}",
-    })
+        task = user_prompt_msg["content"]
+        result.append({**user_prompt_msg, "content": f"{task}\n\n{findings}"})
+    else:
+        result.append({"role": "user", "content": findings})
 
     # Preserve any substantive assistant analysis text
     assistant_parts = []
@@ -668,16 +670,39 @@ def _prepare_for_plain_llm(config: LLMConfig, messages: list[dict]) -> list[dict
 
 
 def _strip_tool_artifacts(messages: list[dict]) -> list[dict]:
-    """Remove tool-call metadata from messages so they're valid for plain LLM calls."""
+    """Remove tool-call metadata from messages so they're valid for plain LLM calls.
+
+    Assistant messages left empty are dropped, and neighbours with the same
+    role are merged, so user and assistant messages still alternate.
+    """
     cleaned: list[dict] = []
     for msg in messages:
         if msg.get("role") == "tool":
             continue
         if "tool_calls" in msg:
-            cleaned.append({"role": msg["role"], "content": msg.get("content", "")})
+            if not (msg.get("content") or "").strip():
+                continue
+            msg = {"role": msg["role"], "content": msg["content"]}
+        prev = cleaned[-1] if cleaned else None
+        if (
+            prev is not None
+            and msg.get("role") in ("user", "assistant")
+            and prev.get("role") == msg.get("role")
+            and isinstance(prev.get("content"), str)
+            and isinstance(msg.get("content"), str)
+        ):
+            cleaned[-1] = {**prev, "content": f"{prev['content']}\n\n{msg['content']}"}
         else:
             cleaned.append(msg)
     return cleaned
+
+
+def _append_user(messages: list[dict], text: str) -> list[dict]:
+    """Add a user instruction, joining it to a trailing user message if there is one."""
+    last = messages[-1] if messages else None
+    if last is not None and last.get("role") == "user" and isinstance(last.get("content"), str):
+        return [*messages[:-1], {**last, "content": f"{last['content']}\n\n{text}"}]
+    return [*messages, {"role": "user", "content": text}]
 
 
 def _brief_args(args: dict) -> str:
