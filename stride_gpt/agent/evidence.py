@@ -164,11 +164,15 @@ def verify_one(root: Path, path: str, snippet: str) -> EvidenceCheck:
     except OSError as e:
         return _unverified(clean_path, snippet, f"could not read {clean_path}: {e}")
 
-    needle = _compact_snippet(snippet)
-    if not needle:
+    needles = _candidate_needles(snippet)
+    if not needles:
         return _unverified(clean_path, snippet, "snippet is empty")
 
-    match = _find(haystack, needle)
+    match = None
+    for needle in needles:
+        match = _find(haystack, needle)
+        if match is not None:
+            break
     if match is None:
         return _unverified(
             clean_path,
@@ -252,25 +256,41 @@ def _compacted(path_str: str, mtime_ns: int, size: int) -> tuple[tuple[str, int,
     return tuple(out)
 
 
-def _compact_snippet(snippet: str) -> list[str]:
-    """Strip markdown fences and read_file's gutter, then normalise."""
+def _candidate_needles(snippet: str) -> list[list[str]]:
+    """The normalised forms of a snippet worth trying, best guess first.
+
+    Usually one. A snippet carrying ``read_file``'s gutter gets a second,
+    more permissive reading: a model that copies the numbered output but
+    writes an intervening blank line bare leaves a gap in the numbers, which
+    the strict check reads as "these aren't line numbers at all".
+    """
     lines = snippet.splitlines()
     if lines and _FENCE_OPEN_RE.match(lines[0]):
         lines = lines[1:]
         if lines and _FENCE_CLOSE_RE.match(lines[-1]):
             lines = lines[:-1]
-    lines = _strip_gutter(lines)
-    return [norm for line in lines if (norm := _normalise_line(line))]
+
+    candidates: list[list[str]] = []
+    for lenient in (False, True):
+        needle = [
+            norm
+            for line in _strip_gutter(lines, lenient=lenient)
+            if (norm := _normalise_line(line))
+        ]
+        if needle and needle not in candidates:
+            candidates.append(needle)
+    return candidates
 
 
-def _strip_gutter(lines: list[str]) -> list[str]:
-    """Remove ``read_file``'s ``"  42\\t"`` prefix, but only when it's certain.
+def _strip_gutter(lines: list[str], *, lenient: bool = False) -> list[str]:
+    """Remove the line-number prefix ``read_file`` writes, when it's certain.
 
-    Every non-blank line must carry the prefix and, for multi-line snippets,
-    the numbers must be strictly consecutive. Both guards are needed so a
-    Makefile or a TSV whose lines start with digits isn't mangled. When in
-    doubt leave the snippet alone: an unverified snippet is recoverable, a
-    silently mis-located one is not.
+    Every non-blank line must carry the prefix, and the numbers must be
+    strictly consecutive — or merely increasing, once ``lenient``. The guards
+    exist so a Makefile or a TSV whose lines start with digits isn't mangled.
+    The lenient reading is only tried after the strict one has failed to
+    match, so a wrong strip costs a false negative rather than a confidently
+    wrong line range.
     """
     body = [line for line in lines if line.strip()]
     if not body:
@@ -279,7 +299,12 @@ def _strip_gutter(lines: list[str]) -> list[str]:
     if not all(matches):
         return lines
     numbers = [int(m.group(1)) for m in matches if m is not None]
-    if len(numbers) > 1 and any(b - a != 1 for a, b in pairwise(numbers)):
+    step_ok = (
+        all(b > a for a, b in pairwise(numbers))
+        if lenient
+        else all(b - a == 1 for a, b in pairwise(numbers))
+    )
+    if len(numbers) > 1 and not step_ok:
         return lines
     return [_GUTTER_RE.sub("", line, count=1) if line.strip() else line for line in lines]
 

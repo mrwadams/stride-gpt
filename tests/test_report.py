@@ -1125,3 +1125,52 @@ class TestEvidenceInMarkdownAndHtml:
 
     def test_html_has_no_evidence_row_without_evidence(self, sample_report):
         assert "Evidence" not in render_html(sample_report)
+
+
+_AMBIGUOUS = {
+    "path": "src/auth.py", "snippet": "x", "verified": True,
+    "start_line": 2, "end_line": 2, "occurrences": 3,
+}
+
+
+class TestAmbiguousEvidence:
+    """A snippet appearing twice is located at the first match.
+
+    The matcher records that; without surfacing it, code scanning pins the
+    threat to line 2 when the weakness is the copy on line 5, and presents
+    that as verified.
+    """
+
+
+    def test_markdown_cell_says_how_many_matches(self, sample_report):
+        sample_report.findings[0].threats[0]["evidence"] = [_AMBIGUOUS]
+        assert "src/auth.py:2 (3 matches)" in render_markdown(sample_report)
+
+    def test_single_match_says_nothing(self, sample_report):
+        sample_report.findings[0].threats[0]["evidence"] = [
+            {**_AMBIGUOUS, "occurrences": 1}
+        ]
+        md = render_markdown(sample_report)
+        assert "src/auth.py:2" in md
+        assert "matches" not in md
+
+    def test_html_carries_a_matches_pill(self, sample_report):
+        sample_report.findings[0].threats[0]["evidence"] = [_AMBIGUOUS]
+        assert "3 matches" in render_html(sample_report)
+
+    def test_sarif_flags_it_in_properties_and_message(self):
+        data = _evidence_report(_AMBIGUOUS)
+        result = render_sarif_from_json(data)["runs"][0]["results"][0]
+        assert result["properties"]["evidence_ambiguous"] is True
+        assert "first match" in result["message"]["text"]
+
+    def test_sarif_stays_quiet_when_every_match_is_unique(self):
+        data = _evidence_report({**_AMBIGUOUS, "occurrences": 1})
+        result = render_sarif_from_json(data)["runs"][0]["results"][0]
+        assert "evidence_ambiguous" not in result["properties"]
+        assert "first match" not in result["message"]["text"]
+
+    def test_an_unverified_item_is_never_called_ambiguous(self):
+        data = _evidence_report({**_AMBIGUOUS, "verified": False})
+        result = render_sarif_from_json(data)["runs"][0]["results"][0]
+        assert "evidence_ambiguous" not in result["properties"]

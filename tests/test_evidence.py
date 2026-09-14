@@ -91,6 +91,20 @@ class TestMatches:
         check = verify_one(sandbox_dir, "data.tsv", "1\talpha\n7\tbeta")
         assert check.verified
 
+    def test_gutter_with_a_bare_blank_line(self, sandbox_dir):
+        """A model copying read_file output writes the blank line bare, so the
+        numbers jump. The strict check reads that as "not line numbers"; a
+        lenient retry catches it once the strict reading has failed."""
+        (sandbox_dir / "gap.py").write_text("a = 0\ndef f():\n\n    return 1\n")
+        check = verify_one(sandbox_dir, "gap.py", "2\tdef f():\n\n4\t    return 1")
+        assert (check.verified, check.start_line, check.end_line) == (True, 2, 4)
+
+    def test_lenient_retry_does_not_override_a_strict_match(self, sandbox_dir):
+        """Data that merely looks like a gutter still matches as data."""
+        (sandbox_dir / "tsv2.tsv").write_text("1\talpha\n7\tbeta\n")
+        check = verify_one(sandbox_dir, "tsv2.tsv", "1\talpha\n7\tbeta")
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 2)
+
     def test_markdown_fence_is_stripped(self, sandbox_dir):
         check = verify_one(sandbox_dir, AUTH, f"```python\n{AUTH_BODY}\n```")
         assert check.verified

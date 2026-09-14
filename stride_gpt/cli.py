@@ -729,8 +729,8 @@ def analyze(
     no_architect: Annotated[bool, typer.Option("--no-architect", help="Bypass any saved architect tier for this run; worker handles every call.")] = False,
     output: Annotated[Path | None, typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
-    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls across both tiers (0 = unlimited).")] = 0,
-    max_tool_calls: Annotated[int, typer.Option(help="Max tool executions (0 = unlimited).")] = 0,
+    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls across both tiers; a subsystem that hits it gets one final round to report what it found (0 = unlimited).")] = 0,
+    max_tool_calls: Annotated[int, typer.Option(help="Max code-exploration calls; reporting a threat doesn't spend it (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
 ) -> None:

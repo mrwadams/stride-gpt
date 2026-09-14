@@ -16,6 +16,7 @@ from typing import Any
 
 from stride_gpt.core.report_utils import (
     evidence_items,
+    evidence_location,
     mitre_url,
     normalize_mitre_techniques,
 )
@@ -415,13 +416,17 @@ def _render_evidence(threat: dict[str, Any]) -> str:
     """
     rows: list[str] = []
     for item in evidence_items(threat):
-        location = html.escape(_evidence_location(item))
+        location = html.escape(evidence_location(item))
         snippet = html.escape(str(item.get("snippet") or ""))
-        flag = (
-            ""
-            if item.get("verified")
-            else f' <span class="{_PILL_BASE}">unverified</span>'
-        )
+        occurrences = item.get("occurrences")
+        if not item.get("verified"):
+            flag = f' <span class="{_PILL_BASE}">unverified</span>'
+        elif isinstance(occurrences, int) and occurrences > 1:
+            # The range is the first match; say so rather than imply it is
+            # the only one.
+            flag = f' <span class="{_PILL_BASE}">{occurrences} matches</span>'
+        else:
+            flag = ""
         rows.append(
             f"""                <li>
                   <div class="font-mono text-xs text-slate-600">{location}{flag}</div>
@@ -432,19 +437,6 @@ font-mono text-slate-800"><code>{snippet}</code></pre>
     return f"""<ul class="space-y-2">
 {chr(10).join(rows)}
               </ul>"""
-
-
-def _evidence_location(item: dict[str, Any]) -> str:
-    """``src/auth.py:12-18`` when verified, the bare path when not."""
-    path = str(item.get("path") or "?")
-    if not item.get("verified"):
-        return path
-    start, end = item.get("start_line"), item.get("end_line")
-    if isinstance(start, int) and isinstance(end, int) and start != end:
-        return f"{path}:{start}-{end}"
-    if isinstance(start, int):
-        return f"{path}:{start}"
-    return path
 
 
 def _dl_row(label: str, value_html: str) -> str:

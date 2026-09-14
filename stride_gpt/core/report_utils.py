@@ -34,7 +34,7 @@ def detect_extra_columns(
 ) -> ExtraColumns:
     """Decide which optional columns to surface in the rendered tables.
 
-    Returns an :class:`ExtraColumns` 4-tuple. A column is shown only if at
+    Returns an :class:`ExtraColumns` tuple. A column is shown only if at
     least one threat carries a non-empty value for it. Compute this once at
     the report level so every table renders with the same shape — partial
     columns per subsystem would look broken.
@@ -154,22 +154,36 @@ def format_evidence_cell(threat: dict[str, Any]) -> str:
     """Render a threat's evidence as ``src/auth.py:12-18; config.yaml (unverified)``.
 
     A line range is the verification signal — a snippet we couldn't find in
-    the file has no range to show, so it says so instead.
+    the file has no range to show, so it says so instead. A snippet that
+    appears more than once says so too: the range is the first match, which
+    may not be the one the threat is about.
     """
     parts: list[str] = []
     for item in evidence_items(threat):
-        path = str(item.get("path") or "?")
         if not item.get("verified"):
-            parts.append(f"{path} (unverified)")
+            parts.append(f"{evidence_location(item)} (unverified)")
             continue
-        start, end = item.get("start_line"), item.get("end_line")
-        if isinstance(start, int) and isinstance(end, int) and start != end:
-            parts.append(f"{path}:{start}-{end}")
-        elif isinstance(start, int):
-            parts.append(f"{path}:{start}")
-        else:
-            parts.append(path)
+        occurrences = item.get("occurrences")
+        suffix = (
+            f" ({occurrences} matches)"
+            if isinstance(occurrences, int) and occurrences > 1
+            else ""
+        )
+        parts.append(f"{evidence_location(item)}{suffix}")
     return "; ".join(parts)
+
+
+def evidence_location(item: dict[str, Any]) -> str:
+    """``src/auth.py:12-18`` for a verified item, the bare path otherwise."""
+    path = str(item.get("path") or "?")
+    if not item.get("verified"):
+        return path
+    start, end = item.get("start_line"), item.get("end_line")
+    if isinstance(start, int) and isinstance(end, int) and start != end:
+        return f"{path}:{start}-{end}"
+    if isinstance(start, int):
+        return f"{path}:{start}"
+    return path
 
 
 def is_mitre_technique_id(value: str) -> bool:

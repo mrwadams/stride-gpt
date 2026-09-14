@@ -11,6 +11,7 @@ import pytest
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.loop import (
     MAX_THREATS_PER_SUBSYSTEM,
+    SubsystemAbortedError,
     _append_user,
     _synthesize,
     run_analysis,
@@ -26,6 +27,7 @@ from tests.fakes import (
     SUBSYSTEM_TOOL_NAMES,
     ScriptedLLM,
     call_tools,
+    fail,
     reply,
 )
 
@@ -179,10 +181,11 @@ class TestRunAnalysis:
             ],
         )
 
-        # Each subsystem "spends" 3 LLM calls and 2 tool calls.
+        # Each subsystem "spends" 3 LLM calls and 2 exploration calls.
         def fake_analyze(**kwargs):
             kwargs["call_counts"]["llm"] = 3
             kwargs["call_counts"]["tool"] = 2
+            kwargs["call_counts"]["explore"] = 2
             return SubsystemFinding(subsystem=kwargs["subsystem_name"], threats=[])
 
         mock_analyze.side_effect = fake_analyze
@@ -208,6 +211,46 @@ class TestRunAnalysis:
         assert first_kwargs["max_tool_calls"] == 8
         assert second_kwargs["max_llm_calls"] == 7
         assert second_kwargs["max_tool_calls"] == 6
+
+    @patch("stride_gpt.agent.loop._synthesize", return_value=[])
+    @patch("stride_gpt.agent.loop._analyze_subsystem")
+    def test_reporting_calls_do_not_spend_the_exploration_budget(
+        self, mock_analyze, _mock_synth, model_pair, tmp_path
+    ):
+        """The tool cap bounds reading the code, not reporting what was found.
+
+        Otherwise a subsystem that finds more threats leaves less exploration
+        for the next one, and a run can stop before later subsystems are
+        analysed at all.
+        """
+        plan = AnalysisPlan(
+            target_path=str(tmp_path), overall_description="app",
+            subsystems=[
+                Subsystem(name=n, description="d", key_files=[], focus_areas=[])
+                for n in ("A", "B")
+            ],
+        )
+
+        # 2 exploration calls plus 9 reporting calls: 11 tool calls in total.
+        def fake_analyze(**kwargs):
+            kwargs["call_counts"]["llm"] = 1
+            kwargs["call_counts"]["tool"] = 11
+            kwargs["call_counts"]["explore"] = 2
+            return SubsystemFinding(subsystem=kwargs["subsystem_name"], threats=[])
+
+        mock_analyze.side_effect = fake_analyze
+
+        with ScriptedLLM([_DFD]):
+            report = run_analysis(
+                model_pair, tmp_path, plan=plan,
+                max_llm_calls=0, max_tool_calls=12, progress=MagicMock(),
+            )
+
+        assert mock_analyze.call_count == 2
+        # 12 - 2 explored, not 12 - 11 reported.
+        assert mock_analyze.call_args_list[1].kwargs["max_tool_calls"] == 10
+        # The run still reports every call the model made.
+        assert report.metadata["tool_calls"] == 22
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     @patch("stride_gpt.agent.loop._analyze_subsystem")
@@ -790,6 +833,51 @@ class TestToolReportedThreats:
 
         assert [t["Scenario"] for t in finding.threats] == ["Found early"]
 
+
+
+class TestSubsystemFailure:
+    def test_threats_already_reported_survive_a_crash(self, model_pair, sandbox_dir):
+        """A rate limit on turn 3 must not discard what turns 1-2 filed.
+
+        Threats used to exist only in the final answer, so a mid-analysis
+        failure had nothing to lose. They accumulate turn by turn now.
+        """
+        steps = [
+            _tool_turn(_read("a"), _report("r", scenario="Found before the crash")),
+            fail(RuntimeError("rate limited"), tools=SUBSYSTEM_TOOL_NAMES),
+        ]
+
+        with pytest.raises(SubsystemAbortedError) as excinfo:
+            _run_subsystem(model_pair, sandbox_dir, steps)
+
+        finding = excinfo.value.finding
+        assert [t["Scenario"] for t in finding.threats] == ["Found before the crash"]
+        assert finding.files_analyzed == ["app.py"]
+        assert str(excinfo.value.cause) == "rate limited"
+
+    def test_run_analysis_keeps_them_and_still_reports_the_error(
+        self, model_pair, sandbox_dir
+    ):
+        plan = AnalysisPlan(
+            target_path=str(sandbox_dir), overall_description="app",
+            subsystems=[Subsystem(name="App", description="d", key_files=[], focus_areas=[])],
+        )
+        steps = [
+            _tool_turn(_report("r", scenario="Found before the crash")),
+            fail(RuntimeError("boom"), tools=SUBSYSTEM_TOOL_NAMES),
+            _DFD,
+        ]
+
+        progress = MagicMock()
+        with ScriptedLLM(steps):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+
+        (finding,) = report.findings
+        assert [t["Scenario"] for t in finding.threats] == ["Found before the crash"]
+        assert any("stopped early" in s for s in finding.improvement_suggestions)
+        progress.error.assert_called_once()
+        # The failed subsystem's spend is still charged to the run.
+        assert report.metadata["tool_calls"] == 1
 
 
 class TestGraceRound:

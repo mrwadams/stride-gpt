@@ -284,10 +284,32 @@ def _sarif_evidence_note(threat: dict[str, Any]) -> str:
         return ""
     verified = sum(1 for item in items if item.get("verified"))
     plural = "" if len(items) == 1 else "s"
-    return (
+    note = (
         f"\n\nEvidence: {verified} of {len(items)} snippet{plural} verified "
         "against the code."
     )
+    if _has_ambiguous_evidence(items):
+        note += (
+            " Some snippets appear more than once in their file; the location "
+            "shown is the first match."
+        )
+    return note
+
+
+def _has_ambiguous_evidence(items: list[dict[str, Any]]) -> bool:
+    """Whether any verified snippet matched in more than one place.
+
+    The matcher records every match but reports the first, so a threat can be
+    pinned to line 2 when the weakness is the copy on line 5. Say so rather
+    than present the first match as the only one.
+    """
+    return any(
+        item.get("verified")
+        and isinstance(item.get("occurrences"), int)
+        and item["occurrences"] > 1
+        for item in items
+    )
+
 
 def _sarif_mitre_ids(value: Any) -> list[str]:
     """Extract a plain list of MITRE technique IDs for SARIF properties.
@@ -619,6 +641,8 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 result_entry["properties"]["evidence_verified"] = sum(
                     1 for item in evidence if item.get("verified")
                 )
+                if _has_ambiguous_evidence(evidence):
+                    result_entry["properties"]["evidence_ambiguous"] = True
             if threat.get("OWASP_LLM"):
                 result_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
             if threat.get("OWASP_ASI"):

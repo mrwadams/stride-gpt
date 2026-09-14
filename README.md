@@ -439,8 +439,8 @@ stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
 | `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-5.4`). Uses saved config if omitted. |
 | `--no-architect` | Skip the architect tier for this run; the worker handles every call. |
 | `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |
-| `--max-llm-calls` | Cap total LLM calls across both tiers (`analyze` only; `0` = unlimited). |
-| `--max-tool-calls` | Cap total tool executions (`analyze` only; `0` = unlimited). |
+| `--max-llm-calls` | Cap total LLM calls across both tiers (`analyze` only; `0` = unlimited). A subsystem that reaches the cap gets one final round to report what it found, so a run can exceed it by one call per such subsystem. |
+| `--max-tool-calls` | Cap code exploration (`analyze` only; `0` = unlimited). Reporting a threat doesn't spend it, so a subsystem that finds more threats doesn't leave less exploration for the next one. |
 
 Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-tokens` (and the `--architect-*` equivalents). Run `stride-gpt analyze --help` or `stride-gpt quick --help` for the complete list.
 

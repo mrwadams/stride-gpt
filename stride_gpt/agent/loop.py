@@ -92,8 +92,14 @@ def run_analysis(
             cross-cutting synthesis, and context summarization.
         target_path: Path to the codebase root.
         plan: Pre-approved analysis plan. If None, creates one (Phase 1).
-        max_llm_calls: Hard limit on total LLM calls (0 = unlimited).
-        max_tool_calls: Hard limit on total tool executions (0 = unlimited).
+        max_llm_calls: Cap on total LLM calls (0 = unlimited). A subsystem
+            that reaches it gets one final round on top, to report what it
+            found — see ``_grace_round`` — so a run can exceed this by one
+            call per subsystem that ran out.
+        max_tool_calls: Cap on code exploration (0 = unlimited). Reporting a
+            threat doesn't spend it: the cap bounds reading the code, and a
+            model mid-report must not be cut off. ``metadata["tool_calls"]``
+            still counts every call the model made.
         auto_approve: Skip interactive plan approval (only used when plan is None).
         progress: Progress callback for UI updates. Falls back to Rich console.
         console: Deprecated — use progress instead. Kept for backward compat.
@@ -106,7 +112,12 @@ def run_analysis(
 
     ctx = ContextManager(config=models.worker)
     llm_calls = 0
+    # Two counters: ``tool_calls`` is what the run reports (every call the
+    # model made), ``explore_calls`` is what the tool budget bounds. Letting
+    # reporting spend the budget would mean a subsystem that finds more
+    # threats leaves less exploration for the next one.
     tool_calls = 0
+    explore_calls = 0
     # Names the agent loads via the ``load_reference`` tool. Surfaced on
     # ``report.metadata["references_loaded"]`` so the run manifest can record
     # which cards actually shaped the output.
@@ -161,8 +172,8 @@ def run_analysis(
         if max_llm_calls and llm_calls >= max_llm_calls - 1:
             progress.limit_reached("LLM call", llm_calls, max_llm_calls)
             break
-        if max_tool_calls and tool_calls >= max_tool_calls:
-            progress.limit_reached("tool call", tool_calls, max_tool_calls)
+        if max_tool_calls and explore_calls >= max_tool_calls:
+            progress.limit_reached("tool call", explore_calls, max_tool_calls)
             break
 
         progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
@@ -170,7 +181,7 @@ def run_analysis(
         # Pass remaining budget so a single subsystem can't starve later
         # subsystems (or the synthesis pass). 0 still means unlimited.
         remaining_llm = max_llm_calls - llm_calls if max_llm_calls else 0
-        remaining_tool = max_tool_calls - tool_calls if max_tool_calls else 0
+        remaining_tool = max_tool_calls - explore_calls if max_tool_calls else 0
 
         try:
             sub_counts: dict[str, int] = {"llm": 0, "tool": 0, "explore": 0}
@@ -190,6 +201,7 @@ def run_analysis(
             )
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
+            explore_calls += sub_counts["explore"]
             findings.append(finding)
             # Keyed on exploration, not total tool calls: a subsystem that
             # only reported threats still never looked at the code.
@@ -197,7 +209,12 @@ def run_analysis(
                 progress.no_tool_use_warning(subsystem.name)
             progress.subsystem_done(subsystem.name, len(finding.threats))
         except Exception as e:
-            err_str = str(e)
+            partial = e.finding if isinstance(e, SubsystemAbortedError) else None
+            # The counts were recorded before the exception escaped.
+            llm_calls += sub_counts["llm"]
+            tool_calls += sub_counts["tool"]
+            explore_calls += sub_counts["explore"]
+            err_str = str(e.cause) if isinstance(e, SubsystemAbortedError) else str(e)
             if "n_keep" in err_str and "n_ctx" in err_str:
                 reason = "Context window exceeded — model ran out of space for this subsystem."
             elif "crashed" in err_str.lower():
@@ -205,11 +222,16 @@ def run_analysis(
             else:
                 reason = f"Unexpected error: {err_str}"
             progress.error(subsystem.name, reason)
+            note = f"Analysis stopped early — {reason}"
             findings.append(
                 SubsystemFinding(
                     subsystem=subsystem.name,
-                    threats=[],
-                    improvement_suggestions=[f"Analysis skipped — {reason}"],
+                    threats=partial.threats if partial else [],
+                    improvement_suggestions=[
+                        *(partial.improvement_suggestions if partial else []),
+                        note,
+                    ],
+                    files_analyzed=partial.files_analyzed if partial else [],
                 )
             )
 
@@ -335,6 +357,21 @@ def _threat_arg(args: dict[str, Any], name: str) -> Any:
     if field in args:
         return args[field]
     return args.get(name.replace("_", " ").title())
+
+
+class SubsystemAbortedError(Exception):
+    """A subsystem raised partway through, carrying what it had already found.
+
+    Threats used to exist only in the model's final answer, so a mid-analysis
+    failure had nothing to lose. They now accumulate turn by turn, and a rate
+    limit or a context overflow on turn 8 would otherwise discard six threats
+    the model had already filed — with their verified evidence.
+    """
+
+    def __init__(self, cause: BaseException, finding: SubsystemFinding) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.finding = finding
 
 
 class _SubsystemRun:
@@ -665,6 +702,8 @@ Start by reading the key files. Use grep to find security-relevant patterns like
         if not run.finished and run.llm_calls:
             _grace_round(models, messages, run, progress)
         return run.finding()
+    except Exception as e:
+        raise SubsystemAbortedError(e, run.finding()) from e
     finally:
         # One place, because the paths out of here multiplied: finish, a text
         # answer, a nudged text answer, and two grace-round outcomes.
