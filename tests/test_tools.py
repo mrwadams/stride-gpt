@@ -13,6 +13,10 @@ from stride_gpt.agent.tools import (
     AGENT_TOOLS,
     MAX_FILE_SIZE,
     MAX_GREP_PATTERN_LEN,
+    REPORTING_TOOL_NAMES,
+    REPORTING_TOOLS,
+    STRIDE_CATEGORIES,
+    SUBSYSTEM_TOOLS,
     execute_tool,
     grep_content,
     list_directory,
@@ -473,6 +477,10 @@ class TestExecuteTool:
 # ---------------------------------------------------------------------------
 
 
+def _reporting(name: str) -> dict:
+    return next(t["function"] for t in REPORTING_TOOLS if t["function"]["name"] == name)
+
+
 class TestToolDefinitions:
     def test_tool_names_match_dispatch(self):
         from stride_gpt.agent.tools import _TOOL_DISPATCH
@@ -488,3 +496,57 @@ class TestToolDefinitions:
         for name in ("start_line", "end_line"):
             assert params["properties"][name]["type"] == "integer"
             assert params["properties"][name]["minimum"] == 1
+
+
+class TestReportingTools:
+    """report_threat / finish: offered in the subsystem loop, handled there."""
+
+    def test_not_in_dispatch(self):
+        """They record loop state, so execute_tool must never own them.
+
+        Without this, the next reader sees a 'missing' dispatch entry and
+        adds one that can't work.
+        """
+        from stride_gpt.agent.tools import _TOOL_DISPATCH
+
+        assert REPORTING_TOOL_NAMES.isdisjoint(_TOOL_DISPATCH)
+
+    def test_subsystem_tools_is_exploration_plus_reporting(self):
+        names = [t["function"]["name"] for t in SUBSYSTEM_TOOLS]
+        assert names == [t["function"]["name"] for t in AGENT_TOOLS] + [
+            "report_threat",
+            "finish",
+        ]
+
+    def test_report_threat_requires_the_core_fields_and_evidence(self):
+        params = _reporting("report_threat")["parameters"]
+        assert params["required"] == [
+            "Threat Type", "Scenario", "Potential Impact", "evidence",
+        ]
+
+    def test_fixed_value_fields_are_enumerated(self):
+        """Free-text STRIDE categories degrade the SARIF rule IDs and the
+        HTML badge colours, both of which key off the exact strings."""
+        props = _reporting("report_threat")["parameters"]["properties"]
+        assert props["Threat Type"]["enum"] == STRIDE_CATEGORIES
+        assert props["OWASP_LLM"]["enum"][0] == "LLM01"
+        assert props["OWASP_ASI"]["enum"][-1] == "ASI10"
+        assert "Data Exfiltration" in props["INSIDER_CATEGORY"]["enum"]
+        assert props["autonomy_level"]["enum"] == ["L1", "L2", "L3", "L4"]
+
+    def test_evidence_items_need_a_path_and_a_snippet(self):
+        evidence = _reporting("report_threat")["parameters"]["properties"]["evidence"]
+        assert evidence["type"] == "array"
+        assert evidence["items"]["required"] == ["path", "snippet"]
+        assert evidence["maxItems"] == 5
+
+    def test_evidence_description_forbids_line_numbers(self):
+        """The matcher strips read_file's gutter, but the model shouldn't
+        rely on that — a snippet is code, not a transcript."""
+        evidence = _reporting("report_threat")["parameters"]["properties"]["evidence"]
+        assert "WITHOUT the leading line number" in evidence["description"]
+
+    def test_finish_carries_improvement_suggestions(self):
+        params = _reporting("finish")["parameters"]
+        assert params["required"] == ["improvement_suggestions"]
+        assert params["properties"]["improvement_suggestions"]["items"]["type"] == "string"
