@@ -169,7 +169,8 @@ When adding a new provider or model, the kwarg shape almost always needs a new b
 
 - pytest, runs in ~1.5s. `pytest -q` from the repo root.
 - Fixtures live in `tests/conftest.py`. `llm_config` gives a fake `LLMConfig`; `sandbox_dir` builds a small fake project tree; `sample_plan` / `sample_finding` / `sample_report` provide canned `AnalysisReport` data.
-- LLM calls are always mocked. The canonical pattern: `@patch("stride_gpt.agent.loop.call_llm_with_tools")` and feed `LLMResponse(content=..., tool_calls=...)`. End-to-end agent-loop tests in `test_loop.py:TestAppTypeFlow` mock multiple turns by setting `side_effect=[turn1, turn2, ...]`.
+- LLM calls never reach a provider. For anything that sends LLM traffic (the agent loop, `/quick`, planner, synthesis), use `ScriptedLLM` from `tests/fakes.py`. Script a list of steps with `call_tools(...)`, `reply(...)` and `fail(...)`, then run the code inside `with ScriptedLLM(steps) as fake:`. The fake patches `call_llm` / `call_llm_with_tools` in every agent-path module and records each request in `fake.requests`, with messages copied at call time. It fails the test if a request breaks the chat protocol (orphaned or missing tool results, consecutive user or assistant messages, system messages after the start, tool artifacts in a plain call) or offers the wrong tools, or if the script runs out or has steps left over. It checks this even when the code under test swallows the exception. See `test_loop.py:TestAgentLoopProtocol`.
+- Keep `MagicMock` for tests that aren't about LLM traffic: progress callbacks, or patching an internal helper such as `_analyze_subsystem` to test budget arithmetic.
 - For prompt content tests (`test_variants.py`), assert structural properties (a code is present, a column is rendered) — not exact text. Markdown content changes; structural assertions don't.
 
 ## Releasing
