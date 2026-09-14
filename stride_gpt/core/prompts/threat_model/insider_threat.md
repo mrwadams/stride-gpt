@@ -39,7 +39,7 @@ If the deployment archetype is unclear from the code, assume L2/L3 for any syste
 
 ## The five threat categories
 
-Each category is mapped to an insider archetype and to STRIDE. When you raise a threat that fits one of these categories, set `INSIDER_CATEGORY` to the category name on the threat object.
+Each category is mapped to an insider archetype and to STRIDE. When you raise a threat that fits one of these categories, pass `INSIDER_CATEGORY` with the category name; omit the argument when none applies.
 
 1. **Credential Compromise** — Archetype: insider stealing credentials for lateral movement. AI manifestation: agent harvests API tokens, SSH keys, service-account credentials from environment, config files, and process memory. STRIDE: Spoofing, Elevation of Privilege.
 

@@ -37,11 +37,27 @@ class TestBaseSystemPrompt:
         assert "start_line" in text
         assert "truncated: true" in text
 
-    def test_includes_output_schema(self):
+    def test_directs_threats_through_the_reporting_tools(self):
+        """Threats written as prose are not recorded, so the prompt has to
+        name the tools and say evidence is how a threat gets located."""
         text = base_system_prompt()
-        assert "threats" in text
-        assert "Threat Type" in text
+        assert "report_threat" in text
+        assert "finish" in text
+        assert "evidence" in text
         assert "improvement_suggestions" in text
+
+    def test_forbids_line_numbers_in_snippets(self):
+        """read_file's gutter is stripped defensively, but a snippet the model
+        retyped around line numbers is likelier to miss."""
+        text = base_system_prompt()
+        assert "never write line numbers of your own" in text
+
+    def test_keeps_the_json_fallback_for_weak_tool_calling(self):
+        """Local models that can't call tools still need a route, for now."""
+        text = base_system_prompt()
+        assert "deprecated" in text.lower()
+        assert '"threats"' in text
+        assert "Threat Type" in text
 
 
 class TestLoadReference:
