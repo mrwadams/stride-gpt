@@ -72,8 +72,13 @@ def _link_target_allowed(root_resolved: Path, path: Path) -> bool:
     return _sandbox_violation(root_resolved, target) is None
 
 
-def _resolve_safe_path(root: Path, user_path: str) -> Path:
-    """Resolve a user-provided path relative to root, rejecting traversal."""
+def resolve_safe_path(root: Path, user_path: str) -> Path:
+    """Resolve a user-provided path relative to root, rejecting traversal.
+
+    Public because evidence verification (:mod:`stride_gpt.agent.evidence`)
+    reads files the model cites and must apply exactly the same sandbox rules
+    ``read_file`` does.
+    """
     # Treat as relative to root even if it looks absolute
     cleaned = user_path.lstrip("/")
     resolved = (root / cleaned).resolve()
@@ -81,6 +86,10 @@ def _resolve_safe_path(root: Path, user_path: str) -> Path:
     if reason:
         raise ValueError(f"{reason}: {user_path}")
     return resolved
+
+
+# Existing call sites in this module use the private name.
+_resolve_safe_path = resolve_safe_path
 
 
 def _should_skip(name: str) -> bool:
