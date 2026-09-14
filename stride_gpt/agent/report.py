@@ -61,7 +61,7 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.extend(f"- **{sub.name}**: {sub.description}" for sub in report.plan.subsystems)
     lines.append("")
 
-    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(
+    cols = detect_extra_columns(
         [t for f in report.findings for t in f.threats] + list(report.cross_cutting_threats)
     )
 
@@ -79,14 +79,11 @@ def render_markdown(report: AnalysisReport) -> str:
         if finding.threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = threat_table_header(
-                show_llm, show_asi, show_insider, show_mitre
-            )
+            header, separator = threat_table_header(*cols)
             lines.append(header)
             lines.append(separator)
             lines.extend(
-                threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
-                for threat in finding.threats
+                threat_table_row(threat, *cols) for threat in finding.threats
             )
             lines.append("")
 
@@ -100,16 +97,11 @@ def render_markdown(report: AnalysisReport) -> str:
     if report.cross_cutting_threats:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
-        header, separator = threat_table_header(
-            show_llm, show_asi, show_insider, show_mitre, cross_cutting=True
-        )
+        header, separator = threat_table_header(*cols, cross_cutting=True)
         lines.append(header)
         lines.append(separator)
         lines.extend(
-            threat_table_row(
-                threat, show_llm, show_asi, show_insider, show_mitre,
-                cross_cutting=True,
-            )
+            threat_table_row(threat, *cols, cross_cutting=True)
             for threat in report.cross_cutting_threats
         )
         lines.append("")
@@ -192,119 +184,29 @@ def render_sarif(report: AnalysisReport) -> dict[str, Any]:
 
     SARIF (Static Analysis Results Interchange Format) is supported by
     GitHub, GitLab, Azure DevOps, and many IDEs for security findings.
+
+    Delegates to :func:`render_sarif_from_json` so a live run and a re-render
+    of the same run's saved JSON produce identical output. The two used to be
+    separate near-identical implementations and had already drifted (only this
+    one emitted ``helpUri``); keeping one implementation makes that impossible.
+    ``render_json`` preserves every field the SARIF renderer reads.
     """
-    rules: list[dict[str, Any]] = []
-    results: list[dict[str, Any]] = []
-    rule_ids: set[str] = set()
+    return render_sarif_from_json(render_json(report))
 
-    def _make_rule_id(threat_type: str) -> str:
-        return _make_sarif_rule_id(threat_type)
 
-    # Process per-subsystem threats
-    for finding in report.findings:
-        for threat in finding.threats:
-            threat_type = threat.get("Threat Type", "Unknown")
-            rule_id = _make_rule_id(threat_type)
+_STRIDE_HELP_URI = (
+    "https://learn.microsoft.com/en-us/azure/security/develop/"
+    "threat-modeling-tool-threats"
+)
 
-            safe_threat_type = _sarif_text(threat_type)[:200]
-            if rule_id not in rule_ids:
-                rule_ids.add(rule_id)
-                rules.append({
-                    "id": rule_id,
-                    "name": safe_threat_type,
-                    "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
-                    "helpUri": "https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats",
-                })
 
-            scenario_txt = _sarif_text(threat.get("Scenario", ""))
-            impact_txt = _sarif_text(threat.get("Potential Impact", ""))
-            result_entry: dict[str, Any] = {
-                "ruleId": rule_id,
-                "level": "warning",
-                "message": {
-                    "text": f"{scenario_txt}\n\nPotential Impact: {impact_txt}",
-                },
-                "properties": {
-                    "subsystem": finding.subsystem,
-                },
-            }
-            if threat.get("OWASP_LLM"):
-                result_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
-            if threat.get("OWASP_ASI"):
-                result_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
-            if threat.get("INSIDER_CATEGORY"):
-                result_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
-            mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
-            if mitre_ids:
-                result_entry["properties"]["mitre_attack"] = mitre_ids
-
-            # Add location if we know which files were analyzed
-            if finding.files_analyzed:
-                result_entry["locations"] = [
-                    {
-                        "physicalLocation": {
-                            "artifactLocation": {"uri": f},
-                        }
-                    }
-                    for f in finding.files_analyzed[:3]  # Limit to avoid bloat
-                ]
-
-            results.append(result_entry)
-
-    # Process cross-cutting threats
-    for threat in report.cross_cutting_threats:
-        threat_type = threat.get("Threat Type", "Unknown")
-        rule_id = _make_rule_id(threat_type)
-
-        safe_threat_type = _sarif_text(threat_type)[:200]
-        if rule_id not in rule_ids:
-            rule_ids.add(rule_id)
-            rules.append({
-                "id": rule_id,
-                "name": safe_threat_type,
-                "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
-            })
-
-        scenario_txt = _sarif_text(threat.get("Scenario", ""))
-        impact_txt = _sarif_text(threat.get("Potential Impact", ""))
-        cross_entry: dict[str, Any] = {
-            "ruleId": rule_id,
-            "level": "warning",
-            "message": {
-                "text": f"[Cross-cutting] {scenario_txt}\n\nPotential Impact: {impact_txt}",
-            },
-            "properties": {
-                "subsystem": "cross-cutting",
-                "affected_subsystems": threat.get("Affected Subsystems", []),
-            },
-        }
-        if threat.get("OWASP_LLM"):
-            cross_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
-        if threat.get("OWASP_ASI"):
-            cross_entry["properties"]["owasp_asi"] = threat["OWASP_ASI"]
-        if threat.get("INSIDER_CATEGORY"):
-            cross_entry["properties"]["insider_category"] = threat["INSIDER_CATEGORY"]
-        mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
-        if mitre_ids:
-            cross_entry["properties"]["mitre_attack"] = mitre_ids
-        results.append(cross_entry)
-
+def _sarif_rule(rule_id: str, safe_threat_type: str) -> dict[str, Any]:
+    """Build the SARIF rule object for one STRIDE category."""
     return {
-        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
-        "version": "2.1.0",
-        "runs": [
-            {
-                "tool": {
-                    "driver": {
-                        "name": "STRIDE-GPT",
-                        "informationUri": "https://github.com/mrwadams/stride-gpt",
-                        "version": _get_stride_gpt_version(),
-                        "rules": rules,
-                    }
-                },
-                "results": results,
-            }
-        ],
+        "id": rule_id,
+        "name": safe_threat_type,
+        "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
+        "helpUri": _STRIDE_HELP_URI,
     }
 
 
@@ -535,7 +437,7 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     for sub in data.get("subsystems", []):
         all_threats.extend(sub.get("threats", []))
     all_threats.extend(cross_cutting)
-    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(all_threats)
+    cols = detect_extra_columns(all_threats)
 
     for sub in data.get("subsystems", []):
         lines.append(f"## {sub['name']}")
@@ -552,15 +454,10 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         if threats:
             lines.append("### Threats")
             lines.append("")
-            header, separator = threat_table_header(
-                show_llm, show_asi, show_insider, show_mitre
-            )
+            header, separator = threat_table_header(*cols)
             lines.append(header)
             lines.append(separator)
-            lines.extend(
-                threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
-                for threat in threats
-            )
+            lines.extend(threat_table_row(threat, *cols) for threat in threats)
             lines.append("")
 
         suggestions = sub.get("improvement_suggestions", [])
@@ -573,16 +470,11 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     if cross_cutting:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
-        header, separator = threat_table_header(
-            show_llm, show_asi, show_insider, show_mitre, cross_cutting=True
-        )
+        header, separator = threat_table_header(*cols, cross_cutting=True)
         lines.append(header)
         lines.append(separator)
         lines.extend(
-            threat_table_row(
-                threat, show_llm, show_asi, show_insider, show_mitre,
-                cross_cutting=True,
-            )
+            threat_table_row(threat, *cols, cross_cutting=True)
             for threat in cross_cutting
         )
         lines.append("")
@@ -627,11 +519,7 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
 
             if rule_id not in rule_ids:
                 rule_ids.add(rule_id)
-                rules.append({
-                    "id": rule_id,
-                    "name": safe_threat_type,
-                    "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
-                })
+                rules.append(_sarif_rule(rule_id, safe_threat_type))
 
             scenario_txt = _sarif_text(threat.get("Scenario", ""))
             impact_txt = _sarif_text(threat.get("Potential Impact", ""))
@@ -665,11 +553,7 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
         safe_threat_type = _sarif_text(threat_type)[:200]
         if rule_id not in rule_ids:
             rule_ids.add(rule_id)
-            rules.append({
-                "id": rule_id,
-                "name": safe_threat_type,
-                "shortDescription": {"text": f"STRIDE: {safe_threat_type}"},
-            })
+            rules.append(_sarif_rule(rule_id, safe_threat_type))
         scenario_txt = _sarif_text(threat.get("Scenario", ""))
         impact_txt = _sarif_text(threat.get("Potential Impact", ""))
         cross_entry: dict[str, Any] = {

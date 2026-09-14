@@ -16,9 +16,9 @@ from typing import Any, NamedTuple
 class ExtraColumns(NamedTuple):
     """Which optional columns to render across a report.
 
-    Tuple-positional for legacy unpacking (``show_llm, show_asi, show_insider,
-    show_mitre = detect_extra_columns(...)``); attribute-named for clarity at
-    keyword call sites.
+    Splat it into the header and row helpers (``threat_table_header(*cols)``)
+    rather than unpacking it by name — the tuple grows as reference cards add
+    fields, and a positional unpack breaks every call site when it does.
     """
 
     show_llm: bool

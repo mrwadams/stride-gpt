@@ -152,6 +152,16 @@ class TestFromJsonRenderers:
         assert sarif["version"] == "2.1.0"
         assert len(sarif["runs"][0]["results"]) == 3
 
+    def test_sarif_live_and_saved_render_identically(self, sample_report: AnalysisReport):
+        """render_sarif delegates, so the two paths can never drift again.
+
+        They were separate near-identical implementations and had already
+        diverged on ``helpUri``.
+        """
+        assert render_sarif(sample_report) == render_sarif_from_json(
+            render_json(sample_report)
+        )
+
     def test_sarif_from_json_driver_version_is_configurable(
         self, monkeypatch, sample_report: AnalysisReport
     ):
