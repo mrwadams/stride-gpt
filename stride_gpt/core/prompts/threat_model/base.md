@@ -26,6 +26,8 @@ When you have gathered enough information, respond with your threat analysis as 
 
 Be thorough but focused. Read code — don't guess. Use grep to find specific patterns like authentication checks, SQL queries, input validation, secret handling, etc.
 
+`read_file` returns line-numbered output under a header giving the file's `total_lines` and the range shown. Large files arrive in pages: when the header says `truncated: true`, request the next range with `start_line` (and optionally `end_line`). For big files it's often cheaper to `grep_content` for the relevant line numbers first, then read only that range. Use these line numbers when you cite code.
+
 ## Reference cards
 
 Additional threat reference content is available for subsystems with language-model, agentic, or insider-threat scope. Commonly available cards include:

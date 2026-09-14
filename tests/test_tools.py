@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ import pytest
 
 from stride_gpt.agent.tools import (
     AGENT_TOOLS,
+    MAX_FILE_SIZE,
     MAX_GREP_PATTERN_LEN,
     execute_tool,
     grep_content,
@@ -34,9 +36,115 @@ class TestReadFile:
         assert result.startswith("Error:")
 
     def test_truncates_large_file(self, sandbox_dir: Path):
+        """big.txt is a single 100 KB line: it's cut to the cap rather than
+        returned as nothing, and the header says so."""
         result = read_file(sandbox_dir, "big.txt")
-        assert "Truncated" in result
-        assert len(result) < 100_000 + 200  # file content + message
+        header, hint = result.splitlines()[:2]
+        assert header == "path: big.txt | total_lines: 1 | showing: 1-1 | truncated: true"
+        assert hint == f"[Line 1 was cut at {MAX_FILE_SIZE:,} bytes.]"
+        assert "[line 1 cut at" in result
+        assert len(result.encode()) < MAX_FILE_SIZE + 300
+
+    def test_header_and_line_numbers(self, sandbox_dir: Path):
+        (sandbox_dir / "ten.py").write_text("".join(f"line {i}\n" for i in range(1, 11)))
+        result = read_file(sandbox_dir, "ten.py")
+        header, blank, *body = result.split("\n")
+        assert header == "path: ten.py | total_lines: 10 | showing: 1-10 | truncated: false"
+        assert blank == ""
+        assert body[0] == " 1\tline 1"
+        assert body[-1] == "10\tline 10"
+        assert len(body) == 10
+
+    def test_line_range(self, sandbox_dir: Path):
+        (sandbox_dir / "ten.py").write_text("".join(f"line {i}\n" for i in range(1, 11)))
+        result = read_file(sandbox_dir, "ten.py", start_line=3, end_line=5)
+        header, _, *body = result.split("\n")
+        assert header == "path: ten.py | total_lines: 10 | showing: 3-5 | truncated: false"
+        assert body == ["3\tline 3", "4\tline 4", "5\tline 5"]
+
+    def test_end_line_past_eof_is_clamped(self, sandbox_dir: Path):
+        (sandbox_dir / "ten.py").write_text("".join(f"line {i}\n" for i in range(1, 11)))
+        for kwargs in ({"start_line": 8, "end_line": 500}, {"start_line": 8}):
+            result = read_file(sandbox_dir, "ten.py", **kwargs)
+            header, _, *body = result.split("\n")
+            assert header == "path: ten.py | total_lines: 10 | showing: 8-10 | truncated: false"
+            assert body == [" 8\tline 8", " 9\tline 9", "10\tline 10"]
+
+    def test_pages_through_capped_file(self, sandbox_dir: Path, monkeypatch):
+        """Truncation lands on a line boundary, the header's range matches the
+        body exactly, and following the hint reads every line exactly once."""
+        monkeypatch.setattr("stride_gpt.agent.tools.MAX_FILE_SIZE", 200)
+        expected = [f"line {i:03d} " + "y" * 20 for i in range(1, 51)]
+        (sandbox_dir / "long.txt").write_text("\n".join(expected) + "\n")
+
+        seen: list[str] = []
+        start = None
+        for _ in range(50):
+            result = read_file(sandbox_dir, "long.txt", start_line=start)
+            header = result.split("\n", 1)[0]
+            body = result.split("\n\n", 1)[1].split("\n")
+            assert len(result.split("\n\n", 1)[1].encode()) <= 200
+            match = re.fullmatch(
+                r"path: long\.txt \| total_lines: 50 \| showing: (\d+)-(\d+) \| truncated: (true|false)",
+                header,
+            )
+            assert match
+            first, last = int(match[1]), int(match[2])
+            assert [int(b.split("\t")[0]) for b in body] == list(range(first, last + 1))
+            seen.extend(b.split("\t", 1)[1] for b in body)
+            if match[3] == "false":
+                assert last == 50
+                break
+            assert f"Call read_file with start_line={last + 1} to read more." in result
+            start = last + 1
+        assert seen == expected
+
+    def test_oversized_line_in_middle(self, sandbox_dir: Path, monkeypatch):
+        monkeypatch.setattr("stride_gpt.agent.tools.MAX_FILE_SIZE", 50)
+        (sandbox_dir / "min.js").write_text("a\n" + "z" * 500 + "\nb\n")
+        result = read_file(sandbox_dir, "min.js", start_line=2)
+        assert result.startswith(
+            "path: min.js | total_lines: 3 | showing: 2-2 | truncated: true\n"
+            "[Line 2 was cut at 50 bytes. Call read_file with start_line=3 to read more.]\n\n"
+        )
+        assert "[line 2 cut at 50 bytes]" in result
+        # Stops at the long line rather than following it with line 3.
+        assert "\tb" not in result
+
+    def test_empty_file(self, sandbox_dir: Path):
+        (sandbox_dir / "empty.py").write_text("")
+        assert read_file(sandbox_dir, "empty.py") == (
+            "path: empty.py | total_lines: 0 | showing: none | truncated: false"
+        )
+        assert read_file(sandbox_dir, "empty.py", start_line=1).startswith("Error:")
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"start_line": 0},
+            {"start_line": -3},
+            {"end_line": 0},
+            {"start_line": 5, "end_line": 4},
+            {"start_line": 11},
+            {"start_line": "5"},
+            {"end_line": True},
+            {"start_line": 1.5},
+        ],
+    )
+    def test_invalid_range_returns_error(self, sandbox_dir: Path, kwargs):
+        (sandbox_dir / "ten.py").write_text("".join(f"line {i}\n" for i in range(1, 11)))
+        result = read_file(sandbox_dir, "ten.py", **kwargs)
+        assert result.startswith("Error:")
+
+    def test_start_past_eof_error_reports_length(self, sandbox_dir: Path):
+        (sandbox_dir / "ten.py").write_text("".join(f"line {i}\n" for i in range(1, 11)))
+        assert "(10 lines)" in read_file(sandbox_dir, "ten.py", start_line=11)
+
+    def test_sandbox_still_enforced_with_range(self, sandbox_dir: Path):
+        with pytest.raises(ValueError, match="traversal"):
+            read_file(sandbox_dir, "../../etc/passwd", start_line=1, end_line=5)
+        with pytest.raises(ValueError, match="version-control metadata"):
+            read_file(sandbox_dir, ".git/HEAD", start_line=1)
 
     def test_path_traversal_blocked(self, sandbox_dir: Path):
         with pytest.raises(ValueError, match="traversal"):
@@ -263,6 +371,17 @@ class TestExecuteTool:
         result = execute_tool(sandbox_dir, tc)
         assert "Flask" in result
 
+    def test_dispatches_read_file_range(self, sandbox_dir: Path):
+        tc = ToolCallResult(
+            id="1", function_name="read_file",
+            arguments={"path": "app.py", "start_line": 2, "end_line": 2},
+        )
+        result = execute_tool(sandbox_dir, tc)
+        assert result == (
+            "path: app.py | total_lines: 2 | showing: 2-2 | truncated: false\n\n"
+            "2\tapp = Flask(__name__)"
+        )
+
     def test_dispatches_list_directory(self, sandbox_dir: Path):
         tc = ToolCallResult(id="2", function_name="list_directory", arguments={})
         result = execute_tool(sandbox_dir, tc)
@@ -361,3 +480,11 @@ class TestToolDefinitions:
         tool_names = {t["function"]["name"] for t in AGENT_TOOLS}
         dispatch_names = set(_TOOL_DISPATCH.keys())
         assert tool_names == dispatch_names
+
+    def test_read_file_schema_has_optional_line_range(self):
+        read_tool = next(t for t in AGENT_TOOLS if t["function"]["name"] == "read_file")
+        params = read_tool["function"]["parameters"]
+        assert params["required"] == ["path"]
+        for name in ("start_line", "end_line"):
+            assert params["properties"][name]["type"] == "integer"
+            assert params["properties"][name]["minimum"] == 1

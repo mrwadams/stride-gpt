@@ -30,6 +30,13 @@ class TestBaseSystemPrompt:
         assert "list_references" in text
         assert "load_reference" in text
 
+    def test_explains_read_file_paging(self):
+        """Without this the agent never learns it can read past the first page
+        of a large file."""
+        text = base_system_prompt()
+        assert "start_line" in text
+        assert "truncated: true" in text
+
     def test_includes_output_schema(self):
         text = base_system_prompt()
         assert "threats" in text

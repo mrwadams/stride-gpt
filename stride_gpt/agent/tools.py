@@ -92,20 +92,79 @@ def _should_skip(name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def read_file(root: Path, path: str) -> str:
-    """Read a file's content, truncating at MAX_FILE_SIZE."""
+def read_file(
+    root: Path, path: str, start_line: int | None = None, end_line: int | None = None
+) -> str:
+    """Read a file as numbered lines, optionally limited to a 1-based inclusive range.
+
+    The output starts with a header giving the file's total line count, the
+    exact range shown and whether the byte cap cut the range short. When it
+    did, the next line says which ``start_line`` to request to continue, so the
+    model can page through files of any size. The numbered body is capped at
+    ``MAX_FILE_SIZE`` bytes and cut at a line boundary so the header's range is
+    exact; only a single line longer than the cap is itself cut.
+
+    Lines are split the same way as in ``grep_content`` so the two tools agree
+    on line numbers. An invalid range returns an error string.
+    """
     resolved = _resolve_safe_path(root, path)
     if not resolved.is_file():
         return f"Error: not a file: {path}"
-    size = resolved.stat().st_size
+    for name, value in (("start_line", start_line), ("end_line", end_line)):
+        if value is None:
+            continue
+        # bool is an int subclass, but `true` is never a meaningful line number.
+        if isinstance(value, bool) or not isinstance(value, int):
+            return f"Error: {name} must be an integer, got {value!r}"
+        if value < 1:
+            return f"Error: {name} must be 1 or greater, got {value}"
+    if start_line is not None and end_line is not None and end_line < start_line:
+        return f"Error: end_line ({end_line}) is before start_line ({start_line})"
     try:
         content = resolved.read_text(errors="replace")
     except Exception as e:
         return f"Error reading {path}: {e}"
-    if size > MAX_FILE_SIZE:
-        truncated = content[: MAX_FILE_SIZE]
-        return f"{truncated}\n\n[Truncated — file is {size:,} bytes, showing first {MAX_FILE_SIZE:,}]"
-    return content
+
+    lines = content.splitlines()
+    total = len(lines)
+    if start_line is not None and start_line > total:
+        return f"Error: start_line {start_line} is past the end of {path} ({total} lines)"
+    if total == 0:
+        return f"path: {path} | total_lines: 0 | showing: none | truncated: false"
+
+    first = start_line or 1
+    # Asking past EOF (e.g. "the rest of the file") is clamped, not an error.
+    last = min(end_line or total, total)
+    width = len(str(last))
+    body: list[str] = []
+    used = 0
+    shown = first - 1
+    cut_line = False
+    for n in range(first, last + 1):
+        numbered = f"{n:>{width}}\t{lines[n - 1]}"
+        size = len(numbered.encode()) + 1  # + newline
+        if used + size > MAX_FILE_SIZE:
+            if not body:
+                # A single line over the cap (e.g. minified JS) would otherwise
+                # be unreadable, so show as much of it as fits.
+                cut = numbered.encode()[:MAX_FILE_SIZE].decode(errors="ignore")
+                body.append(f"{cut}… [line {n} cut at {MAX_FILE_SIZE:,} bytes]")
+                shown = n
+                cut_line = True
+            break
+        body.append(numbered)
+        used += size
+        shown = n
+
+    truncated = cut_line or shown < last
+    header = f"path: {path} | total_lines: {total} | showing: {first}-{shown} | truncated: {str(truncated).lower()}"
+    # The hint goes at the top: context compression keeps only the start of
+    # long tool results.
+    if truncated:
+        more = f" Call read_file with start_line={shown + 1} to read more." if shown < last else ""
+        reason = f"Line {shown} was cut" if cut_line else "Output capped"
+        header += f"\n[{reason} at {MAX_FILE_SIZE:,} bytes.{more}]"
+    return header + "\n\n" + "\n".join(body)
 
 
 def list_directory(root: Path, path: str = ".") -> str:
@@ -258,14 +317,29 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read the contents of a file. Use this to understand code, configuration, or documentation.",
+            "description": (
+                "Read the contents of a file. Use this to understand code, configuration, or documentation. "
+                "Returns line-numbered output under a header giving the file's total_lines and the range shown. "
+                "Large files are returned in pages: when the header says truncated: true, call again with the "
+                "start_line it suggests. Pass start_line/end_line to read just part of a file."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
                         "description": "File path relative to the project root.",
-                    }
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "First line to read (1-based, inclusive). Defaults to 1.",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Last line to read (1-based, inclusive). Defaults to the end of the file.",
+                    },
                 },
                 "required": ["path"],
             },
@@ -366,7 +440,9 @@ AGENT_TOOLS: list[dict[str, Any]] = [
 # ---------------------------------------------------------------------------
 
 _TOOL_DISPATCH = {
-    "read_file": lambda root, args: read_file(root, args["path"]),
+    "read_file": lambda root, args: read_file(
+        root, args["path"], args.get("start_line"), args.get("end_line")
+    ),
     "list_directory": lambda root, args: list_directory(root, args.get("path", ".")),
     "search_files": lambda root, args: search_files(
         root, args["pattern"], args.get("path", ".")
