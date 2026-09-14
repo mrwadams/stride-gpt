@@ -18,7 +18,7 @@ from typing import Literal
 AppType = Literal["web", "genai", "agentic"]
 
 _PACKAGE = "stride_gpt.core.prompts.threat_model"
-_NON_CARD_FILES = {"base.md", "quick_base.md"}
+_NON_CARD_FILES = {"base.md", "quick_base.md", "verify.md"}
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +175,17 @@ def quick_base_prompt() -> str:
     codebase via filesystem tools.
     """
     return (files(_PACKAGE) / "quick_base.md").read_text(encoding="utf-8")
+
+
+def verify_system_prompt() -> str:
+    """Return the refutation-biased system prompt for the `verify` phase.
+
+    Same packaged-markdown pattern as :func:`base_system_prompt`. The body is a
+    ``str.format`` template with ``{stride}``, ``{subsystem}``, ``{scenario}``,
+    ``{impact}`` and ``{signals}`` placeholders the verify engine fills in per
+    threat (literal braces in the JSON example are doubled).
+    """
+    return (files(_PACKAGE) / "verify.md").read_text(encoding="utf-8")
 
 
 def load_reference(name: str) -> str:

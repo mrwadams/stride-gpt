@@ -44,6 +44,12 @@ _MITRE_PILL_BASE = (
     "inline-flex items-center rounded-full ring-1 ring-inset ring-sky-300 "
     "bg-sky-50 px-2.5 py-0.5 text-xs font-mono text-sky-800 hover:bg-sky-100"
 )
+# Verified survivors carry an emerald pill so a reader can see at a glance which
+# threats survived the refutation pass and at what confidence.
+_VERIFIED_PILL = (
+    "inline-flex items-center rounded-full ring-1 ring-inset ring-emerald-300 "
+    "bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800"
+)
 # Small uppercase captions inside cards — Scenario, Potential impact, etc.
 # Mono ties them to the CLI aesthetic without leaning hard on a "terminal" theme.
 _CAPTION = "text-[11px] font-mono uppercase tracking-wider text-slate-500"
@@ -72,6 +78,7 @@ def render_html(report: AnalysisReport) -> str:
             for f in report.findings
         ],
         "cross_cutting_threats": report.cross_cutting_threats,
+        "refuted_threats": report.refuted_threats,
         "metadata": report.metadata,
     }
     return render_html_from_json(data)
@@ -90,6 +97,7 @@ def render_html_from_json(data: dict[str, Any]) -> str:
     dfd_mermaid = (data.get("data_flow_diagram") or "").strip()
     subsystems = data.get("subsystems") or []
     cross_cutting = data.get("cross_cutting_threats") or []
+    refuted = data.get("refuted_threats") or []
     metadata = data.get("metadata") or {}
 
     total_threats = sum(len(s.get("threats") or []) for s in subsystems)
@@ -115,6 +123,9 @@ def render_html_from_json(data: dict[str, Any]) -> str:
 
     if cross_cutting:
         parts.append(_render_cross_cutting(cross_cutting))
+
+    if refuted:
+        parts.append(_render_refuted(refuted))
 
     parts.append(_render_footer(metadata))
 
@@ -291,6 +302,66 @@ def _render_cross_cutting(threats: list[dict[str, Any]]) -> str:
       </section>"""
 
 
+_REFUTED_DROP_LABELS = {
+    "REFUTED": "Refuted",
+    "LOW_CONFIDENCE": "Below confidence gate",
+    "UNPARSEABLE": "Unverifiable",
+    "VERIFY_ERROR": "Verification error",
+}
+
+
+def _render_refuted(refuted: list[dict[str, Any]]) -> str:
+    """Render the collapsed 'Refuted threats' section (verification audit trail)."""
+    rows: list[str] = []
+    for entry in refuted:
+        threat = entry.get("threat") or {}
+        verifier = entry.get("verifier") or {}
+        label = _REFUTED_DROP_LABELS.get(
+            entry.get("drop_reason", ""), entry.get("drop_reason", "")
+        )
+        subsystem = str(entry.get("subsystem") or "")
+        threat_type = str(threat.get("Threat Type") or "Unknown")
+        scenario = str(threat.get("Scenario") or "")
+        reason = str(verifier.get("reason") or "")
+        rows.append(
+            f"""            <tr class="border-t border-slate-200 align-top">
+              <td class="py-2 pr-4 text-slate-600">{html.escape(subsystem)}</td>
+              <td class="py-2 pr-4 text-slate-800">{html.escape(threat_type)}</td>
+              <td class="py-2 pr-4 text-slate-800">{html.escape(scenario)}</td>
+              <td class="py-2 pr-4 font-medium text-slate-700">{html.escape(label)}</td>
+              <td class="py-2 text-slate-600">{html.escape(reason)}</td>
+            </tr>"""
+        )
+    body = "\n".join(rows)
+    count = len(refuted)
+    noun = "threat" if count == 1 else "threats"
+    return f"""      <section id="refuted" class="space-y-5">
+        <header class="space-y-1">
+          <h2 class="text-xl font-semibold tracking-tight text-slate-900">Refuted threats</h2>
+          <p class="text-sm text-slate-600">The verification pass refuted {count} generated {noun}. Kept for the audit trail; excluded from the tables above and from SARIF output.</p>
+        </header>
+        <details class="rounded-lg border border-slate-200 bg-white p-5">
+          <summary class="cursor-pointer text-sm font-medium text-slate-700">Show refuted threats</summary>
+          <div class="mt-4 overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead>
+                <tr class="{_CAPTION}">
+                  <th class="py-2 pr-4">Subsystem</th>
+                  <th class="py-2 pr-4">Threat type</th>
+                  <th class="py-2 pr-4">Scenario</th>
+                  <th class="py-2 pr-4">Reason</th>
+                  <th class="py-2">Verifier note</th>
+                </tr>
+              </thead>
+              <tbody>
+{body}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>"""
+
+
 def _render_files_analyzed(files: list[str]) -> str:
     items = "\n".join(
         f'            <li class="font-mono text-xs text-slate-700">{html.escape(f)}</li>'
@@ -345,6 +416,13 @@ def _render_threat_card(threat: dict[str, Any], *, cross_cutting: bool) -> str:
             f'<span class="{_PILL_BASE}">Insider: {html.escape(str(insider))}</span>'
         )
     badges.extend(_render_mitre_pills(mitre))
+    verifier = threat.get("verifier")
+    if isinstance(verifier, dict) and verifier.get("verdict") == "PLAUSIBLE":
+        conf = verifier.get("confidence")
+        conf_txt = f"{conf}/10" if isinstance(conf, int) else ""
+        badges.append(
+            f'<span class="{_VERIFIED_PILL}">Verified {html.escape(conf_txt)}</span>'
+        )
 
     rows: list[str] = []
     if scenario:

@@ -12,6 +12,7 @@ from typing import Any
 
 from stride_gpt.core.report_utils import (
     detect_extra_columns,
+    has_verified_threats,
     normalize_mitre_techniques,
     threat_table_header,
     threat_table_row,
@@ -61,9 +62,11 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.extend(f"- **{sub.name}**: {sub.description}" for sub in report.plan.subsystems)
     lines.append("")
 
-    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(
-        [t for f in report.findings for t in f.threats] + list(report.cross_cutting_threats)
+    all_threats = [t for f in report.findings for t in f.threats] + list(
+        report.cross_cutting_threats
     )
+    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(all_threats)
+    show_verified = has_verified_threats(all_threats)
 
     # Per-subsystem findings
     for finding in report.findings:
@@ -80,12 +83,16 @@ def render_markdown(report: AnalysisReport) -> str:
             lines.append("### Threats")
             lines.append("")
             header, separator = threat_table_header(
-                show_llm, show_asi, show_insider, show_mitre
+                show_llm, show_asi, show_insider, show_mitre,
+                show_verified=show_verified,
             )
             lines.append(header)
             lines.append(separator)
             lines.extend(
-                threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
+                threat_table_row(
+                    threat, show_llm, show_asi, show_insider, show_mitre,
+                    show_verified=show_verified,
+                )
                 for threat in finding.threats
             )
             lines.append("")
@@ -101,18 +108,22 @@ def render_markdown(report: AnalysisReport) -> str:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
         header, separator = threat_table_header(
-            show_llm, show_asi, show_insider, show_mitre, cross_cutting=True
+            show_llm, show_asi, show_insider, show_mitre,
+            cross_cutting=True, show_verified=show_verified,
         )
         lines.append(header)
         lines.append(separator)
         lines.extend(
             threat_table_row(
                 threat, show_llm, show_asi, show_insider, show_mitre,
-                cross_cutting=True,
+                cross_cutting=True, show_verified=show_verified,
             )
             for threat in report.cross_cutting_threats
         )
         lines.append("")
+
+    # Refuted threats (collapsed) — only present when --verify ran
+    lines.extend(_refuted_section(report.refuted_threats))
 
     # Summary
     total_threats = sum(len(f.threats) for f in report.findings) + len(report.cross_cutting_threats)
@@ -121,6 +132,8 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.append(f"- **Total threats identified**: {total_threats}")
     lines.append(f"- **Subsystems analyzed**: {len(report.findings)}")
     lines.append(f"- **Cross-cutting threats**: {len(report.cross_cutting_threats)}")
+    if report.refuted_threats:
+        lines.append(f"- **Refuted in verification**: {len(report.refuted_threats)}")
     if report.metadata:
         lines.append(f"- **LLM calls**: {report.metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {report.metadata.get('tool_calls', 'N/A')}")
@@ -136,6 +149,66 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.append("")
 
     return "\n".join(lines)
+
+
+_DROP_REASON_LABELS = {
+    "REFUTED": "Refuted",
+    "LOW_CONFIDENCE": "Below confidence gate",
+    "UNPARSEABLE": "Unverifiable (unparseable verdict)",
+    "VERIFY_ERROR": "Verification error",
+}
+
+
+def _refuted_section(refuted: list[dict[str, Any]]) -> list[str]:
+    """Render the collapsed 'Refuted threats' section, or nothing when empty.
+
+    Uses a ``<details>`` block so refuted threats are recorded (the reader can
+    see what was filtered and why) without cluttering the main body.
+    """
+    if not refuted:
+        return []
+    lines = [
+        "## Refuted Threats",
+        "",
+        (
+            f"The verification pass refuted {len(refuted)} generated "
+            f"{'threat' if len(refuted) == 1 else 'threats'}. They are kept here "
+            "for the audit trail; they are excluded from the tables above and "
+            "from SARIF output."
+        ),
+        "",
+        "<details>",
+        "<summary>Show refuted threats</summary>",
+        "",
+        "| Subsystem | Threat Type | Scenario | Reason | Verifier note |",
+        "|---|---|---|---|---|",
+    ]
+
+    def _cell(value: Any) -> str:
+        text = "" if value is None else str(value)
+        return text.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
+
+    for entry in refuted:
+        threat = entry.get("threat", {}) or {}
+        verifier = entry.get("verifier", {}) or {}
+        label = _DROP_REASON_LABELS.get(
+            entry.get("drop_reason", ""), entry.get("drop_reason", "")
+        )
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _cell(entry.get("subsystem", "")),
+                    _cell(threat.get("Threat Type", "Unknown")),
+                    _cell(threat.get("Scenario", "")),
+                    _cell(label),
+                    _cell(verifier.get("reason", "")),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(["", "</details>", ""])
+    return lines
 
 
 def render_json(report: AnalysisReport) -> dict[str, Any]:
@@ -156,6 +229,7 @@ def render_json(report: AnalysisReport) -> dict[str, Any]:
             for f in report.findings
         ],
         "cross_cutting_threats": report.cross_cutting_threats,
+        "refuted_threats": report.refuted_threats,
         "metadata": report.metadata,
     }
 
@@ -531,11 +605,13 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         lines.append("")
 
     cross_cutting = data.get("cross_cutting_threats", [])
+    refuted = data.get("refuted_threats", [])
     all_threats: list[dict[str, Any]] = []
     for sub in data.get("subsystems", []):
         all_threats.extend(sub.get("threats", []))
     all_threats.extend(cross_cutting)
     show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(all_threats)
+    show_verified = has_verified_threats(all_threats)
 
     for sub in data.get("subsystems", []):
         lines.append(f"## {sub['name']}")
@@ -553,12 +629,16 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
             lines.append("### Threats")
             lines.append("")
             header, separator = threat_table_header(
-                show_llm, show_asi, show_insider, show_mitre
+                show_llm, show_asi, show_insider, show_mitre,
+                show_verified=show_verified,
             )
             lines.append(header)
             lines.append(separator)
             lines.extend(
-                threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
+                threat_table_row(
+                    threat, show_llm, show_asi, show_insider, show_mitre,
+                    show_verified=show_verified,
+                )
                 for threat in threats
             )
             lines.append("")
@@ -574,18 +654,21 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         lines.append("## Cross-Cutting Threats")
         lines.append("")
         header, separator = threat_table_header(
-            show_llm, show_asi, show_insider, show_mitre, cross_cutting=True
+            show_llm, show_asi, show_insider, show_mitre,
+            cross_cutting=True, show_verified=show_verified,
         )
         lines.append(header)
         lines.append(separator)
         lines.extend(
             threat_table_row(
                 threat, show_llm, show_asi, show_insider, show_mitre,
-                cross_cutting=True,
+                cross_cutting=True, show_verified=show_verified,
             )
             for threat in cross_cutting
         )
         lines.append("")
+
+    lines.extend(_refuted_section(refuted))
 
     total = sum(len(s.get("threats", [])) for s in data.get("subsystems", []))
     total += len(cross_cutting)
@@ -595,6 +678,8 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     lines.append(f"- **Total threats identified**: {total}")
     lines.append(f"- **Subsystems analyzed**: {len(data.get('subsystems', []))}")
     lines.append(f"- **Cross-cutting threats**: {len(cross_cutting)}")
+    if refuted:
+        lines.append(f"- **Refuted in verification**: {len(refuted)}")
     if metadata:
         lines.append(f"- **LLM calls**: {metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {metadata.get('tool_calls', 'N/A')}")
