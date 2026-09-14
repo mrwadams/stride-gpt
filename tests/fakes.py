@@ -21,7 +21,7 @@ from typing import Any
 from unittest.mock import patch
 
 from stride_gpt.agent.quick import QUICK_TOOLS
-from stride_gpt.agent.tools import AGENT_TOOLS
+from stride_gpt.agent.tools import AGENT_TOOLS, REPORTING_TOOLS, SUBSYSTEM_TOOLS
 from stride_gpt.core.schemas import LLMConfig, LLMResponse, ToolCallResult
 
 
@@ -31,6 +31,12 @@ def tool_names(tools: list[dict]) -> frozenset[str]:
 
 AGENT_TOOL_NAMES = tool_names(AGENT_TOOLS)
 QUICK_TOOL_NAMES = tool_names(QUICK_TOOLS)
+# The subsystem loop offers exploration plus report_threat / finish; the grace
+# round offers only the latter two. ``check_protocol`` needs no special case
+# for them — they are ordinary tool calls with ordinary results, which is the
+# payoff of handling them in the loop instead of in the tool dispatch table.
+SUBSYSTEM_TOOL_NAMES = tool_names(SUBSYSTEM_TOOLS)
+REPORTING_TOOL_NAMES = tool_names(REPORTING_TOOLS)
 
 # Every module on the agent path that imports the LLM calls by name.
 PATCH_TARGETS = (

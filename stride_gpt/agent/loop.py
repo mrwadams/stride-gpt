@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 
 from stride_gpt.agent.context import ContextManager
+from stride_gpt.agent.evidence import normalise_path, summarise_checks, verify_evidence
 from stride_gpt.agent.planner import create_plan, format_plan_for_display
 from stride_gpt.agent.progress import ProgressCallback, RichProgress
-from stride_gpt.agent.tools import AGENT_TOOLS, execute_tool
+from stride_gpt.agent.tools import (
+    REPORTING_TOOL_NAMES,
+    REPORTING_TOOLS,
+    SUBSYSTEM_TOOLS,
+    execute_tool,
+)
 from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm, call_llm_with_tools
 from stride_gpt.core.prompts import base_system_prompt
@@ -21,7 +28,10 @@ from stride_gpt.core.schemas import (
     LLMConfig,
     ModelPair,
     SubsystemFinding,
+    ToolCallResult,
 )
+
+logger = logging.getLogger(__name__)
 
 # The agent's system prompt is the packaged `base.md` reference. It points
 # the agent at `list_references` for runtime card discovery and
@@ -162,7 +172,7 @@ def run_analysis(
         remaining_tool = max_tool_calls - tool_calls if max_tool_calls else 0
 
         try:
-            sub_counts: dict[str, int] = {"llm": 0, "tool": 0}
+            sub_counts: dict[str, int] = {"llm": 0, "tool": 0, "explore": 0}
             finding = _analyze_subsystem(
                 models=models,
                 target_path=target_path,
@@ -180,7 +190,9 @@ def run_analysis(
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
             findings.append(finding)
-            if sub_counts["tool"] == 0:
+            # Keyed on exploration, not total tool calls: a subsystem that
+            # only reported threats still never looked at the code.
+            if sub_counts.get("explore", 0) == 0:
                 progress.no_tool_use_warning(subsystem.name)
             progress.subsystem_done(subsystem.name, len(finding.threats))
         except Exception as e:
@@ -284,6 +296,263 @@ def _build_metadata(
     return meta
 
 
+# A subsystem reports through tools, so it needs its own ceiling: the tool
+# budget deliberately doesn't gate reporting, and every turn still costs an
+# LLM call, but a model that loops on report_threat shouldn't run unbounded.
+MAX_THREATS_PER_SUBSYSTEM = 40
+
+GRACE_ROUND_PROMPT = (
+    "This is the final round for this subsystem — the call budget is exhausted "
+    "and no more exploration is possible. Report every remaining threat you are "
+    "confident about with report_threat, then call finish with your improvement "
+    "suggestions. Only those two tools are available."
+)
+
+NUDGE_PROMPT = (
+    "You replied with text but did not call finish. Report each threat you found "
+    "with report_threat, then call finish with your improvement suggestions. "
+    "Threats written as prose or JSON are not recorded."
+)
+
+# Optional threat fields the reference cards add. Copied across only when the
+# model actually set them, so a threat dict stays the shape it was before.
+_OPTIONAL_THREAT_FIELDS = (
+    "OWASP_LLM",
+    "OWASP_ASI",
+    "INSIDER_CATEGORY",
+    "autonomy_level",
+    "MITRE_ATTACK",
+)
+
+
+class _SubsystemRun:
+    """State for one subsystem's conversation.
+
+    Threats arrive through ``report_threat`` as the model finds them rather
+    than as one JSON blob at the end, so the run has to accumulate them — and
+    the tool results it hands back are what tell the model what was recorded.
+    """
+
+    def __init__(
+        self,
+        *,
+        target_path: Path,
+        subsystem_name: str,
+        progress: ProgressCallback,
+        max_tool_calls: int,
+        loaded_refs: set[str] | None,
+    ) -> None:
+        self.target_path = target_path
+        self.subsystem_name = subsystem_name
+        self.progress = progress
+        self.max_tool_calls = max_tool_calls
+        self.loaded_refs = loaded_refs
+
+        self.threats: list[dict[str, Any]] = []
+        self.suggestions: list[str] = []
+        self.files_read: list[str] = []
+        self.llm_calls = 0
+        self.tool_calls = 0
+        self.explore_calls = 0
+        self.finished = False
+        self.reporting_only = False
+        self._seen: set[tuple[str, str]] = set()
+        self._cache: dict[str, str] = {}
+
+    def clear_tool_cache(self) -> None:
+        """Forget cached tool results after compression replaced them."""
+        self._cache.clear()
+
+    # -- tool handling ----------------------------------------------------
+
+    def handle(self, tc: ToolCallResult) -> str:
+        """Run one tool call and return the result text.
+
+        Always returns a string: every tool call in a batch must get a
+        matching ``role: "tool"`` message, or the next request is one a strict
+        provider rejects. That matters now that the grace round replays the
+        real conversation instead of a stripped copy of it.
+        """
+        if tc.parse_error:
+            # Still a call the model spent a turn on, so it still costs budget.
+            self.tool_calls += 1
+            if tc.function_name not in REPORTING_TOOL_NAMES:
+                self.explore_calls += 1
+            return (
+                f"Error: {tc.parse_error}. Re-issue the call with a valid JSON object."
+            )
+        if tc.function_name == "finish":
+            return self._handle_finish(tc)
+        if tc.function_name == "report_threat":
+            return self._handle_report(tc)
+        if self.reporting_only:
+            return (
+                f"Error: {tc.function_name} is not available in the final round. "
+                "Use report_threat or finish."
+            )
+        return self._handle_exploration(tc)
+
+    def _handle_finish(self, tc: ToolCallResult) -> str:
+        if self.finished:
+            return "Error: finish has already been called for this subsystem."
+        self.finished = True
+        self.tool_calls += 1
+        raw = tc.arguments.get("improvement_suggestions") or []
+        if isinstance(raw, str):
+            raw = [raw]
+        if isinstance(raw, list):
+            self.suggestions.extend(
+                s.strip() for s in raw if isinstance(s, str) and s.strip()
+            )
+        self.progress.tool_call("finish", f"suggestions={len(self.suggestions)}", cached=False)
+        verified = sum(
+            1
+            for t in self.threats
+            if any(e.get("verified") for e in t.get("evidence", []))
+        )
+        return (
+            f"Subsystem analysis complete: {len(self.threats)} threats recorded "
+            f"({verified} with verified evidence), "
+            f"{len(self.suggestions)} improvement suggestions. "
+            "Stop now — do not call any more tools."
+        )
+
+    def _handle_report(self, tc: ToolCallResult) -> str:
+        args = tc.arguments
+        scenario = str(args.get("Scenario") or "").strip()
+        if not scenario:
+            return (
+                "Error: report_threat requires a non-empty 'Scenario'. "
+                "Nothing was recorded."
+            )
+        if len(self.threats) >= MAX_THREATS_PER_SUBSYSTEM:
+            return (
+                f"Error: the per-subsystem limit of {MAX_THREATS_PER_SUBSYSTEM} threats "
+                "has been reached. Call finish now."
+            )
+
+        threat_type = str(args.get("Threat Type") or "Unknown")
+        # Compression summarises away the model's own report_threat turns, so
+        # it can re-report a threat it already filed. Signature dedupe is
+        # cheaper and more reliable than trying to preserve those turns.
+        signature = (threat_type.lower(), " ".join(scenario.lower().split())[:200])
+        if signature in self._seen:
+            return (
+                "This threat is already recorded; no duplicate was added. "
+                "Report a different threat or call finish."
+            )
+        self._seen.add(signature)
+
+        threat: dict[str, Any] = {
+            "Threat Type": threat_type,
+            "Scenario": scenario,
+            "Potential Impact": str(args.get("Potential Impact") or ""),
+        }
+        for key in _OPTIONAL_THREAT_FIELDS:
+            value = args.get(key)
+            if value not in (None, "", []):
+                threat[key] = value
+
+        checks = verify_evidence(self.target_path, args.get("evidence"))
+        # Omitted rather than empty, so a threat with no evidence is the same
+        # dict shape it was before this existed.
+        if checks:
+            threat["evidence"] = [c.to_dict() for c in checks]
+        self.threats.append(threat)
+        self.tool_calls += 1
+
+        verified = sum(1 for c in checks if c.verified)
+        brief = f"type={threat_type!r}"
+        if checks:
+            brief += f", evidence={verified}/{len(checks)} verified"
+        self.progress.tool_call("report_threat", brief, cached=False)
+        return (
+            f"Recorded threat #{len(self.threats)} ({threat_type}). "
+            + summarise_checks(checks)
+        )
+
+    def _handle_exploration(self, tc: ToolCallResult) -> str:
+        if self.max_tool_calls and self.explore_calls >= self.max_tool_calls:
+            # Answered rather than skipped: a tool call with no result is a
+            # malformed conversation, and the grace round sends this history.
+            return (
+                "Error: the tool budget for this analysis is exhausted; this call was "
+                "not executed. Report the threats you already have with report_threat, "
+                "then call finish."
+            )
+
+        key = tc.function_name + ":" + json.dumps(tc.arguments, sort_keys=True)
+        # A call with unparseable arguments isn't the same call as one with no
+        # arguments, so keep it out of the cache both ways.
+        cached = self._cache.get(key)
+        if cached is not None:
+            result = (
+                "You already have this result from a previous call. "
+                "Refer to the earlier tool response instead of requesting it again."
+            )
+            self.progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=True)
+        else:
+            result = execute_tool(self.target_path, tc, loaded_refs=self.loaded_refs)
+            self._cache[key] = result
+            self.progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=False)
+
+        self.tool_calls += 1
+        self.explore_calls += 1
+        if tc.function_name == "read_file" and not result.startswith("Error"):
+            self._record_file(tc.arguments.get("path"))
+        return result
+
+    def _record_file(self, path: Any) -> None:
+        """Record a file the agent really opened.
+
+        ``files_analyzed`` used to be whatever the model claimed at the end.
+        Only successful ``read_file`` calls count: a grep hit shows one line,
+        not a file the agent studied.
+        """
+        clean = normalise_path(path)
+        if clean and clean not in self.files_read:
+            self.files_read.append(clean)
+
+    # -- results ----------------------------------------------------------
+
+    def take_text_fallback(self, content: str) -> bool:
+        """Absorb a final plain-text answer. Returns True if it carried JSON.
+
+        Deprecated transition path for models with weak tool calling: threats
+        written as JSON prose are still parsed for one release.
+        """
+        logger.warning(
+            "Subsystem %r answered with plain text instead of calling finish; "
+            "parsing JSON from the text (deprecated fallback).",
+            self.subsystem_name,
+        )
+        data = extract_json_object(content)
+        if data is None:
+            return False
+        # Only when nothing came through the tools — a model that does both
+        # would otherwise have every threat counted twice.
+        if not self.threats:
+            threats = data.get("threats")
+            if isinstance(threats, list):
+                self.threats.extend(t for t in threats if isinstance(t, dict))
+        suggestions = data.get("improvement_suggestions")
+        if isinstance(suggestions, list):
+            self.suggestions.extend(str(s) for s in suggestions if s)
+        if not self.files_read:
+            claimed = data.get("files_analyzed")
+            if isinstance(claimed, list):
+                self.files_read.extend(normalise_path(f) for f in claimed if f)
+        return True
+
+    def finding(self) -> SubsystemFinding:
+        return SubsystemFinding(
+            subsystem=self.subsystem_name,
+            threats=self.threats,
+            improvement_suggestions=self.suggestions,
+            files_analyzed=self.files_read,
+        )
+
+
 def _analyze_subsystem(
     models: ModelPair,
     target_path: Path,
@@ -298,153 +567,154 @@ def _analyze_subsystem(
     call_counts: dict[str, int],
     loaded_refs: set[str] | None = None,
 ) -> SubsystemFinding:
-    """Analyze a single subsystem using the agent loop."""
+    """Analyze a single subsystem using the agent loop.
+
+    The model explores with the filesystem tools and reports each threat
+    through ``report_threat`` as it finds it, ending with ``finish``. When the
+    budget runs out it gets one final round offering only those two tools, on
+    the real conversation — no summarisation, no forced-JSON call on a lossy
+    copy of the history.
+    """
     user_prompt = f"""Analyze the "{subsystem_name}" subsystem for STRIDE threats.
 
 Description: {subsystem_description}
 Key files to examine: {', '.join(key_files) if key_files else 'Discover relevant files using search_files and list_directory'}
 Focus areas: {', '.join(focus_areas) if focus_areas else 'All STRIDE categories'}
 
-Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, encryption, and network calls."""
+Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, and network calls. Report each threat with report_threat as you find it, then call finish."""
 
     messages: list[dict] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ]
 
-    llm_calls = 0
-    tool_calls = 0
-    tool_cache: dict[str, str] = {}
+    run = _SubsystemRun(
+        target_path=target_path,
+        subsystem_name=subsystem_name,
+        progress=progress,
+        max_tool_calls=max_tool_calls,
+        loaded_refs=loaded_refs,
+    )
+    nudged = False
 
-    while (not max_llm_calls or llm_calls < max_llm_calls) and \
-          (not max_tool_calls or tool_calls < max_tool_calls):
-        progress.status(f"Thinking about {subsystem_name}...")
-        response = call_llm_with_tools(models.worker, messages, AGENT_TOOLS)
-        llm_calls += 1
+    try:
+        while not run.finished and (not max_llm_calls or run.llm_calls < max_llm_calls):
+            progress.status(f"Thinking about {subsystem_name}...")
+            response = call_llm_with_tools(models.worker, messages, SUBSYSTEM_TOOLS)
+            run.llm_calls += 1
 
-        if response.tool_calls:
-            # Execute tool calls
-            messages.append({"role": "assistant", "content": response.content or "",
-                           "tool_calls": [
-                               {"id": tc.id, "type": "function",
-                                "function": {"name": tc.function_name,
-                                             "arguments": json.dumps(tc.arguments)}}
-                               for tc in response.tool_calls
-                           ]})
+            if not response.tool_calls:
+                if run.take_text_fallback(response.content) or run.threats or nudged:
+                    return run.finding()
+                # One nudge on the real conversation, where _retry_as_json
+                # used to spend two calls on a summarised copy of it.
+                nudged = True
+                messages = _append_user(messages, NUDGE_PROMPT)
+                continue
 
+            messages.append({
+                "role": "assistant",
+                "content": response.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function_name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    }
+                    for tc in response.tool_calls
+                ],
+            })
             for tc in response.tool_calls:
-                if max_tool_calls and tool_calls >= max_tool_calls:
-                    break
-                cache_key = tc.function_name + ":" + json.dumps(tc.arguments, sort_keys=True)
-                # A call with unparseable arguments isn't the same call as one
-                # with no arguments, so keep it out of the cache both ways.
-                cached = None if tc.parse_error else tool_cache.get(cache_key)
-                if cached is not None:
-                    result = (
-                        "You already have this result from a previous call. "
-                        "Refer to the earlier tool response instead of requesting it again."
-                    )
-                    progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=True)
-                else:
-                    result = execute_tool(target_path, tc, loaded_refs=loaded_refs)
-                    if not tc.parse_error:
-                        tool_cache[cache_key] = result
-                    progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=False)
-                tool_calls += 1
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "name": tc.function_name,
-                    "content": result,
+                    "content": run.handle(tc),
                 })
 
-            # Check context and compress if needed
+            if run.finished:
+                break
+            if _explore_budget_spent(run, max_tool_calls):
+                break
             if ctx.needs_compression(messages):
                 compressed = ctx.compress(models.for_architect(), messages)
                 if compressed is not messages:
                     # The cache points the model at earlier tool responses,
                     # which the summary has just replaced.
-                    tool_cache.clear()
+                    run.clear_tool_cache()
                     messages = compressed
-                llm_calls += 1  # Compression uses an LLM call
-        else:
-            # No tool calls — the model is done analyzing
-            call_counts["llm"] = llm_calls
-            call_counts["tool"] = tool_calls
-            finding = _parse_subsystem_finding(subsystem_name, response.content)
-            if finding is not None:
-                return finding
-            # JSON parse failed — retry with forced JSON output
-            return _retry_as_json(models, messages, subsystem_name, call_counts)
+                run.llm_calls += 1  # Compression uses an LLM call
 
-    # Hit limits — summarize findings and ask model to produce final analysis
-    clean_msgs = _prepare_for_plain_llm(models.for_architect(), messages)
-    llm_calls += 1  # summarization call
-    clean_msgs = _append_user(
-        clean_msgs,
-        "You've reached the tool call limit. Please provide your STRIDE threat analysis now based on what you've gathered so far. Respond with the JSON format specified.",
-    )
-    json_config = models.worker.model_copy(update={"response_format": "json"})
-    response = call_llm(json_config, clean_msgs)
-    call_counts["llm"] = llm_calls + 1
-    call_counts["tool"] = tool_calls
-    finding = _parse_subsystem_finding(subsystem_name, response.content)
-    if finding is not None:
-        return finding
-    return SubsystemFinding(
-        subsystem=subsystem_name,
-        threats=[],
-        improvement_suggestions=["Failed to parse model response as JSON"],
-    )
+        if not run.finished and run.llm_calls:
+            _grace_round(models, messages, run, progress)
+        return run.finding()
+    finally:
+        # One place, because the paths out of here multiplied: finish, a text
+        # answer, a nudged text answer, and two grace-round outcomes.
+        call_counts["llm"] = run.llm_calls
+        call_counts["tool"] = run.tool_calls
+        call_counts["explore"] = run.explore_calls
 
 
-def _parse_subsystem_finding(subsystem_name: str, content: str) -> SubsystemFinding | None:
-    """Parse an LLM response into a SubsystemFinding.
-
-    Returns None if JSON cannot be extracted, signaling the caller to retry.
-    """
-    data = extract_json_object(content)
-    if data is None:
-        return None
-
-    return SubsystemFinding(
-        subsystem=subsystem_name,
-        threats=data.get("threats", []),
-        improvement_suggestions=data.get("improvement_suggestions", []),
-        files_analyzed=data.get("files_analyzed", []),
-    )
+def _explore_budget_spent(run: _SubsystemRun, max_tool_calls: int) -> bool:
+    """Whether exploration is over, so the model should be asked to wrap up."""
+    return bool(max_tool_calls) and run.explore_calls >= max_tool_calls
 
 
-def _retry_as_json(
+def _grace_round(
     models: ModelPair,
     messages: list[dict],
-    subsystem_name: str,
-    call_counts: dict[str, int],
-) -> SubsystemFinding:
-    """Retry the final analysis with forced JSON output.
+    run: _SubsystemRun,
+    progress: ProgressCallback,
+) -> None:
+    """One last call on the real conversation, offering only the two reporting tools.
 
-    Summarization uses the architect (a reasoning task). The JSON-forced
-    final call uses the worker (it's the same task as the original
-    exploration's final-answer call, just with stricter formatting).
+    This replaces the old cap path, which summarised the conversation and then
+    forced JSON out of the summary — two calls, on a copy that had already
+    lost the detail the model was about to write up.
     """
-    clean_msgs = _prepare_for_plain_llm(models.for_architect(), messages)
-    call_counts["llm"] = call_counts.get("llm", 0) + 1  # summarization call
-    clean_msgs = _append_user(
-        clean_msgs,
-        "Please respond with ONLY a valid JSON object in the format specified in your instructions. No other text.",
-    )
-    json_config = models.worker.model_copy(update={"response_format": "json"})
-    response = call_llm(json_config, clean_msgs)
-    call_counts["llm"] = call_counts.get("llm", 0) + 1
+    progress.status(f"Final round for {run.subsystem_name}...")
+    run.reporting_only = True
+    grace_msgs = _append_user(messages, GRACE_ROUND_PROMPT)
+    response = call_llm_with_tools(models.worker, grace_msgs, REPORTING_TOOLS)
+    run.llm_calls += 1
 
-    finding = _parse_subsystem_finding(subsystem_name, response.content)
-    if finding is not None:
-        return finding
-    return SubsystemFinding(
-        subsystem=subsystem_name,
-        threats=[],
-        improvement_suggestions=["Failed to parse model response as JSON after retry"],
-    )
+    if not response.tool_calls:
+        run.take_text_fallback(response.content)
+        return
+
+    grace_msgs.append({
+        "role": "assistant",
+        "content": response.content or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function_name, "arguments": json.dumps(tc.arguments)},
+            }
+            for tc in response.tool_calls
+        ],
+    })
+    for tc in response.tool_calls:
+        grace_msgs.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "name": tc.function_name,
+            "content": run.handle(tc),
+        })
+
+
+def _threats_without_evidence(threats: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop evidence snippets before sending threats to another model.
+
+    Cross-cutting synthesis and the system DFD reason about what the threats
+    are, not the code behind them, and snippets would be the largest thing in
+    a payload that already has to be trimmed to fit.
+    """
+    return [{k: v for k, v in t.items() if k != "evidence"} for t in threats]
 
 
 def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dict[str, Any]]:
@@ -456,7 +726,7 @@ def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dic
         [
             {
                 "subsystem": f.subsystem,
-                "threats": f.threats,
+                "threats": _threats_without_evidence(f.threats),
                 "files_analyzed": f.files_analyzed,
             }
             for f in findings
@@ -558,7 +828,7 @@ def _truncate_findings_to_fit(
             [
                 {
                     "subsystem": f.subsystem,
-                    "threats": f.threats,
+                    "threats": _threats_without_evidence(f.threats),
                     "files_analyzed": f.files_analyzed[:5],
                 }
                 for f in findings
@@ -570,131 +840,6 @@ def _truncate_findings_to_fit(
 
 
 COMPRESSION_BUDGET = 0.75  # leave headroom for the system prompt + response
-
-
-SUMMARIZE_TRUNCATION = 6_000  # chars per message when building summary input
-
-SUMMARIZE_PROMPT = """You are summarizing the results of a security-focused codebase exploration.
-
-The following is a conversation between a security analyst and their tools. The analyst read files, searched for patterns, and listed directories. Summarize the key findings into a concise briefing that preserves:
-
-- Specific code patterns found (e.g., auth checks, input validation, secret handling)
-- File contents and architectural details relevant to STRIDE threat analysis
-- Any security weaknesses or concerns already noted
-- Enough concrete detail to support writing specific threat scenarios
-
-Be thorough — the analyst needs this summary to produce a final STRIDE threat report without access to the original files."""
-
-
-def _summarize_for_analysis(config: LLMConfig, messages: list[dict]) -> str:
-    """Summarize tool exploration results into a security-focused findings briefing."""
-    parts: list[str] = []
-    for msg in messages:
-        role = msg.get("role", "unknown")
-        content = str(msg.get("content", ""))
-        if not content.strip():
-            continue
-        # Tool call metadata: show what was called
-        if "tool_calls" in msg:
-            tcs = msg.get("tool_calls", [])
-            calls = ", ".join(
-                f"{tc.get('function', {}).get('name', '?')}({tc.get('function', {}).get('arguments', '')})"
-                for tc in tcs
-            )
-            parts.append(f"[assistant] Called: {calls}")
-            continue
-        # Truncate long content (file reads can be huge)
-        if len(content) > SUMMARIZE_TRUNCATION:
-            content = content[:SUMMARIZE_TRUNCATION] + "\n... (truncated)"
-        parts.append(f"[{role}] {content}")
-
-    conversation = "\n---\n".join(parts)
-
-    summary_messages = [
-        {"role": "system", "content": SUMMARIZE_PROMPT},
-        {"role": "user", "content": conversation},
-    ]
-    response = call_llm(config, summary_messages)
-    return response.content
-
-
-def _prepare_for_plain_llm(config: LLMConfig, messages: list[dict]) -> list[dict]:
-    """Prepare messages for a plain (non-tool-use) LLM call.
-
-    Summarizes tool exploration via an LLM call, then builds a clean message
-    list with no tool artifacts. Falls back to _strip_tool_calls if the
-    summarization call fails.
-    """
-    # Extract system messages and original user prompt
-    system_msgs = []
-    user_prompt_msg = None
-    for msg in messages:
-        if msg.get("role") == "system" and user_prompt_msg is None:
-            system_msgs.append(msg)
-        elif msg.get("role") == "user" and user_prompt_msg is None:
-            user_prompt_msg = msg
-            break
-
-    # Check if there are any tool results worth summarizing
-    has_tool_results = any(msg.get("role") == "tool" for msg in messages)
-    if not has_tool_results:
-        return _strip_tool_artifacts(messages)
-
-    try:
-        summary = _summarize_for_analysis(config, messages)
-    except Exception:
-        # Summarization failed — fall back to lossy stripping
-        return _strip_tool_artifacts(messages)
-
-    # The findings go into the task message rather than a second user
-    # message: strict chat templates require user and assistant to alternate.
-    findings = f"[Findings from codebase exploration]\n{summary}"
-    result = list(system_msgs)
-    if user_prompt_msg:
-        task = user_prompt_msg["content"]
-        result.append({**user_prompt_msg, "content": f"{task}\n\n{findings}"})
-    else:
-        result.append({"role": "user", "content": findings})
-
-    # Preserve any substantive assistant analysis text
-    assistant_parts = []
-    for msg in messages:
-        if msg.get("role") == "assistant":
-            text = (msg.get("content") or "").strip()
-            if text and "tool_calls" not in msg:
-                assistant_parts.append(text)
-    if assistant_parts:
-        result.append({"role": "assistant", "content": "\n\n".join(assistant_parts)})
-
-    return result
-
-
-def _strip_tool_artifacts(messages: list[dict]) -> list[dict]:
-    """Remove tool-call metadata from messages so they're valid for plain LLM calls.
-
-    Assistant messages left empty are dropped, and neighbours with the same
-    role are merged, so user and assistant messages still alternate.
-    """
-    cleaned: list[dict] = []
-    for msg in messages:
-        if msg.get("role") == "tool":
-            continue
-        if "tool_calls" in msg:
-            if not (msg.get("content") or "").strip():
-                continue
-            msg = {"role": msg["role"], "content": msg["content"]}
-        prev = cleaned[-1] if cleaned else None
-        if (
-            prev is not None
-            and msg.get("role") in ("user", "assistant")
-            and prev.get("role") == msg.get("role")
-            and isinstance(prev.get("content"), str)
-            and isinstance(msg.get("content"), str)
-        ):
-            cleaned[-1] = {**prev, "content": f"{prev['content']}\n\n{msg['content']}"}
-        else:
-            cleaned.append(msg)
-    return cleaned
 
 
 def _append_user(messages: list[dict], text: str) -> list[dict]:
