@@ -39,7 +39,7 @@ If the deployment archetype is unclear from the code, assume L2/L3 for any syste
 
 ## The five threat categories
 
-Each category is mapped to an insider archetype and to STRIDE. When you raise a threat that fits one of these categories, set `INSIDER_CATEGORY` to the category name on the threat object.
+Each category is mapped to an insider archetype and to STRIDE. When you raise a threat that fits one of these categories, set `INSIDER_CATEGORY` to the category name.
 
 1. **Credential Compromise** — Archetype: insider stealing credentials for lateral movement. AI manifestation: agent harvests API tokens, SSH keys, service-account credentials from environment, config files, and process memory. STRIDE: Spoofing, Elevation of Privilege.
 
@@ -103,7 +103,7 @@ When proposing `improvement_suggestions` for an insider-threat-relevant threat, 
 
 ## Schema additions
 
-Each threat object in `"threats"` for which an insider-threat category applies must additionally include an `"INSIDER_CATEGORY"` field. The value **must be EXACTLY one of these five literal strings, or `null`**:
+Every threat for which an insider-threat category applies carries an `"INSIDER_CATEGORY"`. The value **must be EXACTLY one of these five literal strings**:
 
 ```
 "Credential Compromise"
@@ -115,6 +115,6 @@ Each threat object in `"threats"` for which an insider-threat category applies m
 
 **Do not put a STRIDE category name (Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege) in this field.** The STRIDE category goes in `"Threat Type"`; `"INSIDER_CATEGORY"` is a separate axis answering "what insider archetype best describes this threat?". An Elevation of Privilege threat where the agent abuses its IAM credentials is `"Credential Compromise"`; an Elevation of Privilege threat where the agent escapes the container to compromise the host is `"Infrastructure Sabotage"`. The two fields are not synonyms.
 
-If a threat genuinely doesn't fit any of the five insider categories (for example, a purely external attack with no insider-style framing), set `"INSIDER_CATEGORY"` to `null`.
+If a threat genuinely doesn't fit any of the five insider categories (for example, a purely external attack with no insider-style framing), leave `"INSIDER_CATEGORY"` out — omit the argument when reporting through `report_threat`, or set the field to `null` when replying with JSON.
 
 A threat may simultaneously carry `"OWASP_LLM"`, `"OWASP_ASI"`, and `"INSIDER_CATEGORY"` codes. The three lenses are complementary — when a single threat crosses framings, report all applicable codes.

@@ -14,7 +14,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from stride_gpt.core.report_utils import mitre_url, normalize_mitre_techniques
+from stride_gpt.core.report_utils import (
+    evidence_items,
+    evidence_location,
+    mitre_url,
+    normalize_mitre_techniques,
+)
 from stride_gpt.core.schemas import AnalysisReport
 
 # STRIDE category → Tailwind badge classes. Six categories carry distinct
@@ -351,6 +356,8 @@ def _render_threat_card(threat: dict[str, Any], *, cross_cutting: bool) -> str:
         rows.append(_dl_row("Scenario", html.escape(scenario)))
     if impact:
         rows.append(_dl_row("Potential impact", html.escape(impact)))
+    if evidence_items(threat):
+        rows.append(_dl_row("Evidence", _render_evidence(threat)))
     if cross_cutting and affected:
         pills = "".join(
             f'<span class="{_PILL_BASE}">{html.escape(str(a))}</span> '
@@ -398,6 +405,38 @@ def _render_mitre_pills(value: Any) -> list[str]:
                 f'{html.escape(tid)}</span>'
             )
     return pills
+
+
+def _render_evidence(threat: dict[str, Any]) -> str:
+    """The code a threat cites, with the line range the snippet matched.
+
+    An unverified item is shown, not hidden: the snippet is still what the
+    model based the threat on, and saying we couldn't find it is more useful
+    than dropping it silently.
+    """
+    rows: list[str] = []
+    for item in evidence_items(threat):
+        location = html.escape(evidence_location(item))
+        snippet = html.escape(str(item.get("snippet") or ""))
+        occurrences = item.get("occurrences")
+        if not item.get("verified"):
+            flag = f' <span class="{_PILL_BASE}">unverified</span>'
+        elif isinstance(occurrences, int) and occurrences > 1:
+            # The range is the first match; say so rather than imply it is
+            # the only one.
+            flag = f' <span class="{_PILL_BASE}">{occurrences} matches</span>'
+        else:
+            flag = ""
+        rows.append(
+            f"""                <li>
+                  <div class="font-mono text-xs text-slate-600">{location}{flag}</div>
+                  <pre class="mt-1 overflow-x-auto rounded bg-slate-50 p-2 text-xs \
+font-mono text-slate-800"><code>{snippet}</code></pre>
+                </li>"""
+        )
+    return f"""<ul class="space-y-2">
+{chr(10).join(rows)}
+              </ul>"""
 
 
 def _dl_row(label: str, value_html: str) -> str:

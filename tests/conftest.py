@@ -134,4 +134,8 @@ def sandbox_dir(tmp_path) -> Path:
     (tmp_path / "big.txt").write_text("x" * 100_000)
     # A binary-extension file
     (tmp_path / "image.png").write_bytes(b"\x89PNG\r\n")
+    # CRLF line endings, so evidence matching is exercised against them
+    (tmp_path / "crlf.py").write_bytes(
+        b"import os\r\n\r\ndef run(cmd):\r\n    os.system(cmd)\r\n"
+    )
     return tmp_path

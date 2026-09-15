@@ -72,8 +72,13 @@ def _link_target_allowed(root_resolved: Path, path: Path) -> bool:
     return _sandbox_violation(root_resolved, target) is None
 
 
-def _resolve_safe_path(root: Path, user_path: str) -> Path:
-    """Resolve a user-provided path relative to root, rejecting traversal."""
+def resolve_safe_path(root: Path, user_path: str) -> Path:
+    """Resolve a user-provided path relative to root, rejecting traversal.
+
+    Public because evidence verification (:mod:`stride_gpt.agent.evidence`)
+    reads files the model cites and must apply exactly the same sandbox rules
+    ``read_file`` does.
+    """
     # Treat as relative to root even if it looks absolute
     cleaned = user_path.lstrip("/")
     resolved = (root / cleaned).resolve()
@@ -81,6 +86,10 @@ def _resolve_safe_path(root: Path, user_path: str) -> Path:
     if reason:
         raise ValueError(f"{reason}: {user_path}")
     return resolved
+
+
+# Existing call sites in this module use the private name.
+_resolve_safe_path = resolve_safe_path
 
 
 def _should_skip(name: str) -> bool:
@@ -433,6 +442,204 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Reporting tools
+# ---------------------------------------------------------------------------
+#
+# These are offered only in the subsystem analysis loop and are handled there,
+# not through ``_TOOL_DISPATCH`` — they record loop state rather than reading
+# the user's filesystem. Keeping them out of the dispatch table is also what
+# lets ``QUICK_TOOLS`` and the dispatch-coverage test stay as they are.
+
+STRIDE_CATEGORIES = [
+    "Spoofing",
+    "Tampering",
+    "Repudiation",
+    "Information Disclosure",
+    "Denial of Service",
+    "Elevation of Privilege",
+]
+OWASP_LLM_CODES = [f"LLM{n:02d}" for n in range(1, 11)]
+OWASP_ASI_CODES = [f"ASI{n:02d}" for n in range(1, 11)]
+INSIDER_CATEGORIES = [
+    "Credential Compromise",
+    "Supply Chain Sabotage",
+    "Data Exfiltration",
+    "Infrastructure Sabotage",
+    "Deception & Evasion",
+]
+AUTONOMY_LEVELS = ["L1", "L2", "L3", "L4"]
+
+REPORTING_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "report_threat",
+            "description": (
+                "Record one STRIDE threat. Call this as soon as you are confident about "
+                "a threat — do not wait until the end of the analysis, and do not write "
+                "your threats out as prose or JSON. Cite the code the threat lives in "
+                "through `evidence`: the snippet is matched against the file and the "
+                "line range is recorded for you."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    # snake_case, not the report's "Threat Type" / "Potential
+                    # Impact" keys: providers mangle parameter names containing
+                    # spaces. DeepSeek truncates them at the space, so
+                    # "Threat Type" arrives as a key called "Threat" and the
+                    # whole call fails to parse. The loop maps these back.
+                    "threat_type": {
+                        "type": "string",
+                        "enum": STRIDE_CATEGORIES,
+                        "description": "The STRIDE category this threat falls under.",
+                    },
+                    "scenario": {
+                        "type": "string",
+                        "description": "The specific attack scenario, grounded in this code.",
+                    },
+                    "potential_impact": {
+                        "type": "string",
+                        "description": "What damage could result.",
+                    },
+                    "evidence": {
+                        "type": "array",
+                        "maxItems": 5,
+                        "description": (
+                            "Code that demonstrates the threat. Copy the lines verbatim "
+                            "from read_file output WITHOUT the leading line number and "
+                            "tab, and never write line numbers of your own. Pass an "
+                            "empty array for a threat about a missing control that no "
+                            "single snippet demonstrates."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": (
+                                        "File path relative to the project root, as "
+                                        "passed to read_file."
+                                    ),
+                                },
+                                "snippet": {
+                                    "type": "string",
+                                    "description": (
+                                        "A few lines of code copied verbatim from that "
+                                        "file — the lines where the weakness lives."
+                                    ),
+                                },
+                            },
+                            "required": ["path", "snippet"],
+                        },
+                    },
+                    "owasp_llm": {
+                        "type": "string",
+                        "enum": OWASP_LLM_CODES,
+                        "description": (
+                            "OWASP Top 10 for LLM Applications code. Set only when the "
+                            "genai reference card is loaded and applies; otherwise omit."
+                        ),
+                    },
+                    "owasp_asi": {
+                        "type": "string",
+                        "enum": OWASP_ASI_CODES,
+                        "description": (
+                            "OWASP Top 10 for Agentic Applications code. Set only when "
+                            "the agentic card is loaded and applies; otherwise omit."
+                        ),
+                    },
+                    "insider_category": {
+                        "type": "string",
+                        "enum": INSIDER_CATEGORIES,
+                        "description": (
+                            "AI Insider Threat category. Set only when the "
+                            "insider_threat card is loaded and applies; otherwise omit."
+                        ),
+                    },
+                    "autonomy_level": {
+                        "type": "string",
+                        "enum": AUTONOMY_LEVELS,
+                        "description": (
+                            "Deployment archetype from the insider_threat card, L1 "
+                            "(human approves every action) to L4 (continuous autonomy)."
+                        ),
+                    },
+                    "mitre_attack": {
+                        "type": "array",
+                        "description": (
+                            "MITRE ATT&CK Enterprise or ATLAS techniques. Set only when "
+                            "a MITRE card is loaded and applies; otherwise omit."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": "e.g. T1190, T1078.004, AML.T0051.",
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "The technique name.",
+                                },
+                            },
+                            "required": ["id"],
+                        },
+                    },
+                },
+                "required": ["threat_type", "scenario", "potential_impact", "evidence"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "finish",
+            "description": (
+                "End the analysis of this subsystem. Call this once, after you have "
+                "reported every threat you found with report_threat. No further tools "
+                "will run."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "improvement_suggestions": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Actionable, specific recommendations for this subsystem. "
+                            "May be empty."
+                        ),
+                    }
+                },
+                "required": ["improvement_suggestions"],
+            },
+        },
+    },
+]
+
+REPORTING_TOOL_NAMES = frozenset(t["function"]["name"] for t in REPORTING_TOOLS)
+
+# report_threat argument -> the key it becomes in the threat dict. The report
+# keys are fixed by every downstream consumer (DREAD, mitigations, the HTML
+# report, saved JSON); the argument names are snake_case because providers
+# mangle parameter names with spaces or, in some cases, change their case.
+THREAT_ARG_TO_FIELD = {
+    "threat_type": "Threat Type",
+    "scenario": "Scenario",
+    "potential_impact": "Potential Impact",
+    "owasp_llm": "OWASP_LLM",
+    "owasp_asi": "OWASP_ASI",
+    "insider_category": "INSIDER_CATEGORY",
+    "autonomy_level": "autonomy_level",
+    "mitre_attack": "MITRE_ATTACK",
+}
+
+# What the subsystem loop offers: explore the code, then report what you found.
+SUBSYSTEM_TOOLS: list[dict[str, Any]] = [*AGENT_TOOLS, *REPORTING_TOOLS]
 
 
 # ---------------------------------------------------------------------------

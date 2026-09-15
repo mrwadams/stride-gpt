@@ -81,12 +81,12 @@ def json_to_markdown(threat_model, improvement_suggestions):
         threat_table_row,
     )
 
-    show_llm, show_asi, show_insider, show_mitre = detect_extra_columns(threat_model)
-    header, separator = threat_table_header(show_llm, show_asi, show_insider, show_mitre)
+    cols = detect_extra_columns(threat_model)
+    header, separator = threat_table_header(*cols)
 
     lines = ["## Threat Model", "", header, separator]
     lines.extend(
-        threat_table_row(threat, show_llm, show_asi, show_insider, show_mitre)
+        threat_table_row(threat, *cols)
         for threat in threat_model
     )
 

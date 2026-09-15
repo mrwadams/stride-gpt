@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.loop import (
+    MAX_THREATS_PER_SUBSYSTEM,
+    SubsystemAbortedError,
     _append_user,
-    _parse_subsystem_finding,
-    _prepare_for_plain_llm,
-    _strip_tool_artifacts,
-    _summarize_for_analysis,
     _synthesize,
     run_analysis,
 )
@@ -23,100 +22,17 @@ from stride_gpt.core.schemas import (
     SubsystemFinding,
     ToolCallResult,
 )
-from tests.fakes import AGENT_TOOL_NAMES, ScriptedLLM, call_tools, fail, reply
+from tests.fakes import (
+    REPORTING_TOOL_NAMES,
+    SUBSYSTEM_TOOL_NAMES,
+    ScriptedLLM,
+    call_tools,
+    fail,
+    reply,
+)
 
 # The system-level DFD call at the end of run_analysis.
 _DFD = reply("```mermaid\nflowchart LR\n  A --> B\n```")
-
-# ---------------------------------------------------------------------------
-# _parse_subsystem_finding
-# ---------------------------------------------------------------------------
-
-
-class TestParseSubsystemFinding:
-    def test_valid_json(self):
-        content = json.dumps({
-            "threats": [{"Threat Type": "Spoofing", "Scenario": "test", "Potential Impact": "bad"}],
-            "improvement_suggestions": ["fix it"],
-            "files_analyzed": ["auth.py"],
-        })
-        finding = _parse_subsystem_finding("Auth", content)
-        assert finding is not None
-        assert finding.subsystem == "Auth"
-        assert len(finding.threats) == 1
-        assert finding.files_analyzed == ["auth.py"]
-
-    def test_json_in_markdown_code_fence(self):
-        content = '```json\n{"threats": [], "improvement_suggestions": []}\n```'
-        finding = _parse_subsystem_finding("Test", content)
-        assert finding is not None
-        assert finding.threats == []
-
-    def test_json_embedded_in_text(self):
-        content = 'Here is my analysis:\n{"threats": [{"Threat Type": "Tampering"}], "improvement_suggestions": []}\nThat is all.'
-        finding = _parse_subsystem_finding("Test", content)
-        assert finding is not None
-        assert len(finding.threats) == 1
-
-    def test_no_json_returns_none(self):
-        finding = _parse_subsystem_finding("Test", "I found some threats but here is no JSON")
-        assert finding is None
-
-    def test_missing_keys_default_to_empty(self):
-        content = json.dumps({"threats": []})
-        finding = _parse_subsystem_finding("Test", content)
-        assert finding is not None
-        assert finding.improvement_suggestions == []
-        assert finding.files_analyzed == []
-
-
-# ---------------------------------------------------------------------------
-# _strip_tool_artifacts
-# ---------------------------------------------------------------------------
-
-
-class TestStripToolArtifacts:
-    def test_removes_tool_messages(self):
-        msgs = [
-            {"role": "system", "content": "sys"},
-            {"role": "assistant", "content": "calling tool", "tool_calls": [{"id": "1"}]},
-            {"role": "tool", "tool_call_id": "1", "content": "result"},
-            {"role": "user", "content": "next"},
-        ]
-        result = _strip_tool_artifacts(msgs)
-        assert len(result) == 3  # system + cleaned assistant + user
-        assert all(m["role"] != "tool" for m in result)
-        assert "tool_calls" not in result[1]
-
-    def test_preserves_assistant_content(self):
-        msgs = [
-            {"role": "assistant", "content": "thinking...", "tool_calls": [{"id": "1"}]},
-        ]
-        result = _strip_tool_artifacts(msgs)
-        assert result[0]["content"] == "thinking..."
-
-    def test_noop_on_clean_messages(self):
-        msgs = [
-            {"role": "system", "content": "sys"},
-            {"role": "user", "content": "hello"},
-        ]
-        result = _strip_tool_artifacts(msgs)
-        assert result == msgs
-
-    def test_drops_empty_assistants_and_merges_neighbours(self):
-        msgs = [
-            {"role": "system", "content": "sys"},
-            {"role": "user", "content": "task"},
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
-            {"role": "tool", "tool_call_id": "1", "content": "r1"},
-            {"role": "assistant", "content": "reading", "tool_calls": [{"id": "2"}]},
-            {"role": "tool", "tool_call_id": "2", "content": "r2"},
-            {"role": "assistant", "content": "grepping", "tool_calls": [{"id": "3"}]},
-            {"role": "tool", "tool_call_id": "3", "content": "r3"},
-        ]
-        result = _strip_tool_artifacts(msgs)
-        assert [m["role"] for m in result] == ["system", "user", "assistant"]
-        assert result[2]["content"] == "reading\n\ngrepping"
 
 
 class TestAppendUser:
@@ -131,99 +47,6 @@ class TestAppendUser:
         result = _append_user(msgs, "now answer")
         assert result[-1] == {"role": "user", "content": "now answer"}
         assert len(result) == 3
-
-
-# ---------------------------------------------------------------------------
-# _summarize_for_analysis / _prepare_for_plain_llm
-# ---------------------------------------------------------------------------
-
-
-class TestSummarizeForAnalysis:
-    def test_builds_summary_from_tool_results(self, llm_config):
-        messages = [
-            {"role": "system", "content": "sys"},
-            {"role": "user", "content": "analyze auth"},
-            {"role": "assistant", "content": "", "tool_calls": [
-                {"id": "1", "type": "function", "function": {"name": "read_file", "arguments": '{"path":"auth.py"}'}}
-            ]},
-            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "def login(): pass"},
-        ]
-        with ScriptedLLM([reply("Summary of findings")]) as fake:
-            result = _summarize_for_analysis(llm_config, messages)
-        assert result == "Summary of findings"
-        # Verify the LLM was called with the summary prompt
-        sent_messages = fake.requests[0].messages
-        assert "security-focused" in sent_messages[0]["content"].lower()
-        # Tool results should appear in the conversation sent to the summarizer
-        assert "def login(): pass" in sent_messages[1]["content"]
-
-    def test_skips_empty_content(self, llm_config):
-        messages = [
-            {"role": "assistant", "content": ""},
-            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "data"},
-        ]
-        with ScriptedLLM([reply("Summary")]) as fake:
-            _summarize_for_analysis(llm_config, messages)
-        sent_content = fake.requests[0].messages[1]["content"]
-        # Empty assistant content should be skipped, tool content included
-        assert "data" in sent_content
-
-
-class TestPrepareForPlainLlm:
-    @patch("stride_gpt.agent.loop._summarize_for_analysis")
-    def test_preserves_system_and_user(self, mock_summarize, llm_config):
-        mock_summarize.return_value = "Security findings here"
-        messages = [
-            {"role": "system", "content": "You are a security expert"},
-            {"role": "user", "content": "Analyze auth subsystem"},
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
-            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "file data"},
-        ]
-        result = _prepare_for_plain_llm(llm_config, messages)
-        assert result[0]["role"] == "system"
-        assert result[0]["content"] == "You are a security expert"
-        # The findings join the task message so user and assistant alternate
-        assert [m["role"] for m in result] == ["system", "user"]
-        assert result[1]["content"].startswith("Analyze auth subsystem\n\n")
-        assert "Security findings here" in result[1]["content"]
-
-    @patch("stride_gpt.agent.loop._summarize_for_analysis")
-    def test_no_tool_results_skips_summarization(self, mock_summarize, llm_config):
-        messages = [
-            {"role": "system", "content": "sys"},
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "response"},
-        ]
-        result = _prepare_for_plain_llm(llm_config, messages)
-        mock_summarize.assert_not_called()
-        assert all(m.get("role") != "tool" for m in result)
-
-    @patch("stride_gpt.agent.loop._summarize_for_analysis")
-    def test_falls_back_on_summarization_failure(self, mock_summarize, llm_config):
-        mock_summarize.side_effect = Exception("LLM error")
-        messages = [
-            {"role": "system", "content": "sys"},
-            {"role": "user", "content": "analyze"},
-            {"role": "tool", "tool_call_id": "1", "name": "read_file", "content": "data"},
-        ]
-        result = _prepare_for_plain_llm(llm_config, messages)
-        # Should fall back to _strip_tool_artifacts (lossy but doesn't crash)
-        assert all(m.get("role") != "tool" for m in result)
-
-    @patch("stride_gpt.agent.loop._summarize_for_analysis")
-    def test_output_has_no_tool_artifacts(self, mock_summarize, llm_config):
-        mock_summarize.return_value = "findings"
-        messages = [
-            {"role": "system", "content": "sys"},
-            {"role": "user", "content": "task"},
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
-            {"role": "tool", "tool_call_id": "1", "name": "grep", "content": "matches"},
-            {"role": "assistant", "content": "I found something interesting"},
-        ]
-        result = _prepare_for_plain_llm(llm_config, messages)
-        for msg in result:
-            assert msg.get("role") != "tool"
-            assert "tool_calls" not in msg
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +111,7 @@ class TestRunAnalysis:
 
         # Synthesis skipped (only 1 subsystem)
         progress = MagicMock()
-        with ScriptedLLM([reply(finding_json, tools=AGENT_TOOL_NAMES), _DFD]):
+        with ScriptedLLM([reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
             report = run_analysis(model_pair, tmp_path, plan=plan, progress=progress)
 
         assert len(report.findings) == 1
@@ -322,10 +145,10 @@ class TestRunAnalysis:
             # First call: agent makes a tool call
             call_tools(
                 ToolCallResult(id="tc1", function_name="read_file", arguments={"path": "app.py"}),
-                content="Let me read the file", tools=AGENT_TOOL_NAMES,
+                content="Let me read the file", tools=SUBSYSTEM_TOOL_NAMES,
             ),
             # Second call: agent returns findings
-            reply(finding_json, tools=AGENT_TOOL_NAMES),
+            reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES),
             _DFD,
         ]
 
@@ -358,10 +181,11 @@ class TestRunAnalysis:
             ],
         )
 
-        # Each subsystem "spends" 3 LLM calls and 2 tool calls.
+        # Each subsystem "spends" 3 LLM calls and 2 exploration calls.
         def fake_analyze(**kwargs):
             kwargs["call_counts"]["llm"] = 3
             kwargs["call_counts"]["tool"] = 2
+            kwargs["call_counts"]["explore"] = 2
             return SubsystemFinding(subsystem=kwargs["subsystem_name"], threats=[])
 
         mock_analyze.side_effect = fake_analyze
@@ -387,6 +211,46 @@ class TestRunAnalysis:
         assert first_kwargs["max_tool_calls"] == 8
         assert second_kwargs["max_llm_calls"] == 7
         assert second_kwargs["max_tool_calls"] == 6
+
+    @patch("stride_gpt.agent.loop._synthesize", return_value=[])
+    @patch("stride_gpt.agent.loop._analyze_subsystem")
+    def test_reporting_calls_do_not_spend_the_exploration_budget(
+        self, mock_analyze, _mock_synth, model_pair, tmp_path
+    ):
+        """The tool cap bounds reading the code, not reporting what was found.
+
+        Otherwise a subsystem that finds more threats leaves less exploration
+        for the next one, and a run can stop before later subsystems are
+        analysed at all.
+        """
+        plan = AnalysisPlan(
+            target_path=str(tmp_path), overall_description="app",
+            subsystems=[
+                Subsystem(name=n, description="d", key_files=[], focus_areas=[])
+                for n in ("A", "B")
+            ],
+        )
+
+        # 2 exploration calls plus 9 reporting calls: 11 tool calls in total.
+        def fake_analyze(**kwargs):
+            kwargs["call_counts"]["llm"] = 1
+            kwargs["call_counts"]["tool"] = 11
+            kwargs["call_counts"]["explore"] = 2
+            return SubsystemFinding(subsystem=kwargs["subsystem_name"], threats=[])
+
+        mock_analyze.side_effect = fake_analyze
+
+        with ScriptedLLM([_DFD]):
+            report = run_analysis(
+                model_pair, tmp_path, plan=plan,
+                max_llm_calls=0, max_tool_calls=12, progress=MagicMock(),
+            )
+
+        assert mock_analyze.call_count == 2
+        # 12 - 2 explored, not 12 - 11 reported.
+        assert mock_analyze.call_args_list[1].kwargs["max_tool_calls"] == 10
+        # The run still reports every call the model made.
+        assert report.metadata["tool_calls"] == 22
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     @patch("stride_gpt.agent.loop._analyze_subsystem")
@@ -462,7 +326,7 @@ class TestAppTypeFlow:
             ],
         )
 
-        with ScriptedLLM([reply(_EMPTY_FINDING, tools=AGENT_TOOL_NAMES), _DFD]) as fake:
+        with ScriptedLLM([reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES), _DFD]) as fake:
             run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
 
         messages = fake.requests[0].messages
@@ -481,7 +345,7 @@ class TestAppTypeFlow:
             ],
         )
 
-        with ScriptedLLM([reply(_EMPTY_FINDING, tools=AGENT_TOOL_NAMES), _DFD]):
+        with ScriptedLLM([reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
             report = run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
         assert report.metadata["app_type"] == "agentic"
 
@@ -501,11 +365,11 @@ class TestAppTypeFlow:
             call_tools(
                 ToolCallResult(id="tc1", function_name="load_reference",
                                arguments={"name": "agentic"}),
-                content="I need the agentic card", tools=AGENT_TOOL_NAMES,
+                content="I need the agentic card", tools=SUBSYSTEM_TOOL_NAMES,
             ),
             reply(
                 '{"threats": [{"Threat Type": "Tampering", "Scenario": "ASI06 memory poisoning", "Potential Impact": "Bad", "OWASP_ASI": "ASI06"}], "improvement_suggestions": [], "files_analyzed": []}',
-                tools=AGENT_TOOL_NAMES,
+                tools=SUBSYSTEM_TOOL_NAMES,
             ),
             _DFD,
         ]
@@ -537,8 +401,8 @@ def _two_subsystem_run() -> list:
     }))
     return [
         plan,
-        reply(_EMPTY_FINDING, tools=AGENT_TOOL_NAMES),
-        reply(_EMPTY_FINDING, tools=AGENT_TOOL_NAMES),
+        reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
+        reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
         reply('{"cross_cutting_threats": []}'),
         _DFD,
     ]
@@ -627,20 +491,59 @@ def _last_tools_messages(fake) -> list[dict]:
 
 
 def _tool_turn(*calls: ToolCallResult, content: str = ""):
-    return call_tools(*calls, tools=AGENT_TOOL_NAMES, content=content)
+    return call_tools(*calls, tools=SUBSYSTEM_TOOL_NAMES, content=content)
 
 
-_FINAL = reply(_EMPTY_FINDING, tools=AGENT_TOOL_NAMES)
+def _grace_turn(*calls: ToolCallResult, content: str = ""):
+    """A turn in the final round, where only the reporting tools are offered."""
+    return call_tools(*calls, tools=REPORTING_TOOL_NAMES, content=content)
+
+
+def _read(tc_id: str, path: str = "app.py") -> ToolCallResult:
+    return ToolCallResult(id=tc_id, function_name="read_file", arguments={"path": path})
+
+
+def _report(
+    tc_id: str,
+    *,
+    threat_type: str = "Spoofing",
+    scenario: str = "Weak auth",
+    impact: str = "Takeover",
+    evidence: list[dict] | None = None,
+    **extra,
+) -> ToolCallResult:
+    return ToolCallResult(
+        id=tc_id,
+        function_name="report_threat",
+        arguments={
+            "threat_type": threat_type,
+            "scenario": scenario,
+            "potential_impact": impact,
+            "evidence": evidence if evidence is not None else [],
+            **extra,
+        },
+    )
+
+
+def _finish(tc_id: str, *suggestions: str) -> ToolCallResult:
+    return ToolCallResult(
+        id=tc_id,
+        function_name="finish",
+        arguments={"improvement_suggestions": list(suggestions)},
+    )
+
+
+# The model reports one threat and stops. Most tests only care about what
+# happened before this.
+_FINAL = _tool_turn(_report("r0"), _finish("f0", "Use MFA"))
+
+_AUTH_SNIPPET = "def login(user, password):\n    return check_db(user, password)"
 
 _THREAT_FINDING = json.dumps({
     "threats": [{"Threat Type": "Spoofing", "Scenario": "s", "Potential Impact": "i"}],
     "improvement_suggestions": [],
     "files_analyzed": ["app.py"],
 })
-
-
-def _read(tc_id: str, path: str = "app.py") -> ToolCallResult:
-    return ToolCallResult(id=tc_id, function_name="read_file", arguments={"path": path})
 
 
 class TestAnalyzeSubsystemToolHandling:
@@ -700,8 +603,445 @@ class TestAnalyzeSubsystemToolHandling:
         assert "valid JSON object" in tool_msgs["bad"]
         # The failed call wasn't cached as list_directory({}), so the retry runs
         assert "app.py" in tool_msgs["good"]
-        assert counts["tool"] == 2
+        # A malformed call still cost the model a turn, so it still costs
+        # budget. _FINAL's report_threat and finish count as tool calls but
+        # not as exploration — the tool cap bounds reading the code, not
+        # reporting what was found in it.
+        assert (counts["tool"], counts["explore"]) == (4, 2)
 
+
+class TestSubsystemRunToolHandling:
+    """What each reporting tool answers the model with.
+
+    Driven directly, because the results of the final batch are appended
+    after the last request and so never appear in ``fake.requests``.
+    """
+
+    @pytest.fixture
+    def run(self, sandbox_dir):
+        from stride_gpt.agent.loop import _SubsystemRun
+
+        return _SubsystemRun(
+            target_path=sandbox_dir, subsystem_name="App", progress=MagicMock(),
+            max_tool_calls=0, loaded_refs=None,
+        )
+
+    def test_verified_evidence_is_reported_back(self, run):
+        result = run.handle(
+            _report("r", evidence=[{"path": "src/auth.py", "snippet": _AUTH_SNIPPET}])
+        )
+        assert result.startswith("Recorded threat #1 (Spoofing).")
+        assert "src/auth.py lines 1-2 verified" in result
+
+    def test_unverified_evidence_says_the_threat_survived(self, run):
+        result = run.handle(
+            _report("r", evidence=[{"path": "app.py", "snippet": "not in the file"}])
+        )
+        assert "NOT verified" in result
+        assert "kept" in result
+        assert "Do not re-report" in result
+        assert len(run.threats) == 1
+
+    def test_report_fields_also_accepted_under_their_report_names(self, run):
+        """A model that has "Threat Type" in context from a reference card
+        sometimes sends that instead of the snake_case argument. The threat
+        is otherwise fully formed, so take it."""
+        run.handle(
+            ToolCallResult(
+                id="r", function_name="report_threat",
+                arguments={
+                    "Threat Type": "Tampering",
+                    "Scenario": "Amount not revalidated",
+                    "Potential Impact": "Underpayment",
+                    "OWASP_LLM": "LLM01",
+                    "evidence": [],
+                },
+            )
+        )
+        assert run.threats == [{
+            "Threat Type": "Tampering",
+            "Scenario": "Amount not revalidated",
+            "Potential Impact": "Underpayment",
+            "OWASP_LLM": "LLM01",
+        }]
+
+    def test_optional_fields_land_under_their_report_names(self, run):
+        run.handle(
+            _report(
+                "r", owasp_asi="ASI05", insider_category="Data Exfiltration",
+                autonomy_level="L3",
+                mitre_attack=[{"id": "T1190", "name": "Exploit Public-Facing Application"}],
+            )
+        )
+        threat = run.threats[0]
+        assert threat["OWASP_ASI"] == "ASI05"
+        assert threat["INSIDER_CATEGORY"] == "Data Exfiltration"
+        assert threat["autonomy_level"] == "L3"
+        assert threat["MITRE_ATTACK"][0]["id"] == "T1190"
+
+    def test_missing_scenario_is_refused(self, run):
+        assert "non-empty 'scenario'" in run.handle(_report("r", scenario="  "))
+        assert run.threats == []
+
+    def test_duplicate_is_refused(self, run):
+        run.handle(_report("r1", scenario="Same  thing"))
+        assert "already recorded" in run.handle(_report("r2", scenario="same thing"))
+        assert len(run.threats) == 1
+
+    def test_threat_limit(self, run):
+        for i in range(MAX_THREATS_PER_SUBSYSTEM):
+            run.handle(_report(f"r{i}", scenario=f"Threat {i}"))
+        result = run.handle(_report("over", scenario="One too many"))
+        assert "limit" in result
+        assert len(run.threats) == MAX_THREATS_PER_SUBSYSTEM
+
+    def test_finish_summarises_and_tells_the_model_to_stop(self, run):
+        run.handle(_report("r", evidence=[{"path": "src/auth.py", "snippet": _AUTH_SNIPPET}]))
+        result = run.handle(_finish("f", "Do x", "Do y"))
+        assert "1 threats recorded (1 with verified evidence)" in result
+        assert "2 improvement suggestions" in result
+        assert "do not call any more tools" in result
+
+    def test_finish_twice_is_refused(self, run):
+        run.handle(_finish("f1"))
+        assert "already been called" in run.handle(_finish("f2"))
+
+    def test_exploration_is_refused_in_the_final_round(self, run):
+        run.reporting_only = True
+        result = run.handle(_read("late"))
+        assert "not available in the final round" in result
+        assert run.explore_calls == 0
+
+    def test_over_budget_exploration_still_answers(self, sandbox_dir):
+        from stride_gpt.agent.loop import _SubsystemRun
+
+        run = _SubsystemRun(
+            target_path=sandbox_dir, subsystem_name="App", progress=MagicMock(),
+            max_tool_calls=1, loaded_refs=None,
+        )
+        assert "Flask" in run.handle(_read("a"))
+        assert "budget for this analysis is exhausted" in run.handle(_read("b", "config.yaml"))
+        assert run.explore_calls == 1
+
+
+class TestToolReportedThreats:
+    """Threats arrive through report_threat, not as a JSON blob at the end."""
+
+    def test_threat_dict_keeps_its_old_shape_and_gains_evidence(
+        self, model_pair, sandbox_dir
+    ):
+        """One turn carrying a read, a report and a finish — the mixed batch."""
+        steps = [
+            _tool_turn(_read("a", "src/auth.py")),
+            _tool_turn(
+                _report(
+                    "r",
+                    threat_type="Information Disclosure",
+                    scenario="Credentials compared in the clear",
+                    impact="Account takeover",
+                    owasp_llm="LLM02",
+                    evidence=[{"path": "src/auth.py", "snippet": _AUTH_SNIPPET}],
+                ),
+                _finish("f", "Hash the password"),
+            ),
+        ]
+
+        _, counts, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        (threat,) = finding.threats
+        assert threat == {
+            "Threat Type": "Information Disclosure",
+            "Scenario": "Credentials compared in the clear",
+            "Potential Impact": "Account takeover",
+            "OWASP_LLM": "LLM02",
+            "evidence": [
+                {
+                    "path": "src/auth.py",
+                    "snippet": _AUTH_SNIPPET,
+                    "verified": True,
+                    "start_line": 1,
+                    "end_line": 2,
+                }
+            ],
+        }
+        assert finding.improvement_suggestions == ["Hash the password"]
+        assert (counts["tool"], counts["explore"]) == (3, 1)  # read + report + finish
+
+    def test_files_analyzed_comes_from_what_was_read(self, model_pair, sandbox_dir):
+        """Not from the model's claim, and not from grep hits."""
+        steps = [
+            _tool_turn(
+                _read("a", "app.py"),
+                ToolCallResult(
+                    id="g", function_name="grep_content",
+                    arguments={"pattern": "SECRET", "path": "src"},
+                ),
+                _read("b", "src/auth.py"),
+                _read("c", "does-not-exist.py"),
+            ),
+            _FINAL,
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert finding.files_analyzed == ["app.py", "src/auth.py"]
+
+    def test_no_evidence_threat_is_shaped_like_a_pre_change_one(
+        self, model_pair, sandbox_dir
+    ):
+        """An absence-of-control threat has nothing to quote."""
+        _, _, finding = _run_subsystem(
+            model_pair, sandbox_dir,
+            [_tool_turn(_report("r", evidence=[]), _finish("f"))],
+        )
+        assert "evidence" not in finding.threats[0]
+
+    def test_report_mid_exploration(self, model_pair, sandbox_dir):
+        """A threat can be filed the moment it's found, then work continues."""
+        steps = [
+            _tool_turn(_read("a", "app.py"), _report("r1", scenario="First")),
+            _tool_turn(_read("b", "src/auth.py")),
+            _tool_turn(_report("r2", scenario="Second"), _finish("f")),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert [t["Scenario"] for t in finding.threats] == ["First", "Second"]
+
+    def test_duplicate_report_is_dropped(self, model_pair, sandbox_dir):
+        """Compression can summarise away the model's own report turns."""
+        steps = [
+            _tool_turn(_report("r1", scenario="Same  thing"), _report("r2", scenario="same thing")),
+            _tool_turn(_finish("f")),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert len(finding.threats) == 1
+
+    def test_threats_survive_compression(self, model_pair, sandbox_dir):
+        """Reported threats live in loop state, not in the conversation."""
+        ctx = ContextManager(model_pair.worker, context_window=1)
+        steps = [
+            _tool_turn(_read("a"), _report("r", scenario="Found early")),
+            _tool_turn(_read("b", "src/auth.py")),
+            reply("summary of the first turn"),  # compression
+            _tool_turn(_finish("f")),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps, ctx)
+
+        assert [t["Scenario"] for t in finding.threats] == ["Found early"]
+
+
+
+class TestSubsystemFailure:
+    def test_threats_already_reported_survive_a_crash(self, model_pair, sandbox_dir):
+        """A rate limit on turn 3 must not discard what turns 1-2 filed.
+
+        Threats used to exist only in the final answer, so a mid-analysis
+        failure had nothing to lose. They accumulate turn by turn now.
+        """
+        steps = [
+            _tool_turn(_read("a"), _report("r", scenario="Found before the crash")),
+            fail(RuntimeError("rate limited"), tools=SUBSYSTEM_TOOL_NAMES),
+        ]
+
+        with pytest.raises(SubsystemAbortedError) as excinfo:
+            _run_subsystem(model_pair, sandbox_dir, steps)
+
+        finding = excinfo.value.finding
+        assert [t["Scenario"] for t in finding.threats] == ["Found before the crash"]
+        assert finding.files_analyzed == ["app.py"]
+        assert str(excinfo.value.cause) == "rate limited"
+
+    def test_run_analysis_keeps_them_and_still_reports_the_error(
+        self, model_pair, sandbox_dir
+    ):
+        plan = AnalysisPlan(
+            target_path=str(sandbox_dir), overall_description="app",
+            subsystems=[Subsystem(name="App", description="d", key_files=[], focus_areas=[])],
+        )
+        steps = [
+            _tool_turn(_report("r", scenario="Found before the crash")),
+            fail(RuntimeError("boom"), tools=SUBSYSTEM_TOOL_NAMES),
+            _DFD,
+        ]
+
+        progress = MagicMock()
+        with ScriptedLLM(steps):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+
+        (finding,) = report.findings
+        assert [t["Scenario"] for t in finding.threats] == ["Found before the crash"]
+        assert any("stopped early" in s for s in finding.improvement_suggestions)
+        progress.error.assert_called_once()
+        # The failed subsystem's spend is still charged to the run.
+        assert report.metadata["tool_calls"] == 1
+
+
+class TestGraceRound:
+    """When the budget runs out, one last round on the real conversation."""
+
+    def test_offers_only_the_reporting_tools_and_does_not_summarise(
+        self, model_pair, sandbox_dir
+    ):
+        steps = [
+            _tool_turn(_read("a"), _read("b", "config.yaml")),
+            _grace_turn(_report("r", scenario="Found late"), _finish("f", "Do x")),
+        ]
+
+        fake, counts, finding = _run_subsystem(
+            model_pair, sandbox_dir, steps, max_tool_calls=1
+        )
+
+        # Two tool-using calls and nothing else: the old cap path spent a
+        # plain summarisation call plus a forced-JSON call here.
+        assert [r.kind for r in fake.requests] == ["tools", "tools"]
+        assert fake.requests[1].tools == REPORTING_TOOL_NAMES
+        assert "final round" in fake.requests[1].messages[-1]["content"]
+        assert [t["Scenario"] for t in finding.threats] == ["Found late"]
+        assert finding.improvement_suggestions == ["Do x"]
+        assert counts["llm"] == 2
+
+    def test_grace_round_replays_the_real_conversation(self, model_pair, sandbox_dir):
+        """Not a summarised copy — the tool results are still there."""
+        steps = [
+            _tool_turn(_read("a")),
+            _grace_turn(_finish("f")),
+        ]
+
+        fake, _, _ = _run_subsystem(model_pair, sandbox_dir, steps, max_tool_calls=1)
+
+        final = fake.requests[1].messages
+        assert any(m["role"] == "tool" and "Flask" in m["content"] for m in final)
+
+    def test_over_budget_tool_calls_still_get_a_result(self, model_pair, sandbox_dir):
+        """A tool call with no result is a conversation a provider rejects.
+
+        The loop used to break mid-batch and leave one dangling, which only
+        worked because the cap path threw the history away.
+        """
+        steps = [
+            _tool_turn(_read("a"), _read("b", "config.yaml")),
+            _grace_turn(_finish("f")),
+        ]
+
+        fake, counts, _ = _run_subsystem(
+            model_pair, sandbox_dir, steps, max_tool_calls=1
+        )
+
+        results = {
+            m["tool_call_id"]: m["content"]
+            for m in fake.requests[1].messages if m["role"] == "tool"
+        }
+        assert set(results) == {"a", "b"}
+        assert "budget for this analysis is exhausted" in results["b"]
+        assert counts["explore"] == 1
+
+    def test_llm_budget_exhaustion_also_gets_a_final_round(
+        self, model_pair, sandbox_dir
+    ):
+        steps = [
+            _tool_turn(_read("a")),
+            _grace_turn(_report("r"), _finish("f")),
+        ]
+
+        _, counts, finding = _run_subsystem(
+            model_pair, sandbox_dir, steps, max_llm_calls=1
+        )
+
+        # One over the cap, where the old path went two over.
+        assert counts["llm"] == 2
+        assert len(finding.threats) == 1
+
+    def test_plain_text_in_the_final_round_falls_back_to_json(
+        self, model_pair, sandbox_dir, caplog
+    ):
+        steps = [
+            _tool_turn(_read("a")),
+            reply(_THREAT_FINDING, tools=REPORTING_TOOL_NAMES),
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            fake, _, finding = _run_subsystem(
+                model_pair, sandbox_dir, steps, max_tool_calls=1
+            )
+
+        assert len(finding.threats) == 1
+        assert len(fake.requests) == 2  # no second attempt
+        assert "deprecated fallback" in caplog.text
+
+    def test_reporting_without_finishing_keeps_the_threats(
+        self, model_pair, sandbox_dir
+    ):
+        steps = [
+            _tool_turn(_read("a")),
+            _grace_turn(_report("r", scenario="Last gasp")),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps, max_tool_calls=1)
+
+        assert [t["Scenario"] for t in finding.threats] == ["Last gasp"]
+
+
+
+class TestPlainTextFallback:
+    """Deprecated transition path for models with weak tool calling."""
+
+    def test_json_in_text_is_still_parsed(self, model_pair, sandbox_dir, caplog):
+        with caplog.at_level(logging.WARNING):
+            fake, _, finding = _run_subsystem(
+                model_pair, sandbox_dir,
+                [reply(_THREAT_FINDING, tools=SUBSYSTEM_TOOL_NAMES)],
+            )
+
+        assert len(finding.threats) == 1
+        assert finding.files_analyzed == ["app.py"]
+        assert len(fake.requests) == 1
+        assert "deprecated fallback" in caplog.text
+
+    def test_text_without_json_is_nudged_once(self, model_pair, sandbox_dir):
+        """One nudge on the real history, where the old retry spent two calls
+        on a summarised copy of it."""
+        steps = [
+            _tool_turn(_read("a")),
+            reply("I found some issues but forgot to call anything", tools=SUBSYSTEM_TOOL_NAMES),
+            _tool_turn(_report("r"), _finish("f")),
+        ]
+
+        fake, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert len(finding.threats) == 1
+        nudge = fake.requests[2].messages[-1]
+        assert nudge["role"] == "user"
+        assert "did not call finish" in nudge["content"]
+        # The nudge went onto the real conversation, tool results intact.
+        assert any(m["role"] == "tool" for m in fake.requests[2].messages)
+
+    def test_a_second_text_turn_ends_the_subsystem(self, model_pair, sandbox_dir):
+        steps = [
+            reply("no tools here", tools=SUBSYSTEM_TOOL_NAMES),
+            reply("still nothing", tools=SUBSYSTEM_TOOL_NAMES),
+        ]
+
+        fake, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert finding.threats == []
+        assert len(fake.requests) == 2
+
+    def test_tool_reported_threats_are_not_doubled_by_the_text(
+        self, model_pair, sandbox_dir
+    ):
+        """A belt-and-braces model that reports AND writes the JSON blob."""
+        steps = [
+            _tool_turn(_report("r", scenario="Reported by tool")),
+            reply(_THREAT_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert [t["Scenario"] for t in finding.threats] == ["Reported by tool"]
 
 class TestAgentLoopProtocol:
     """Every request the loop sends must be one a strict provider accepts.
@@ -736,53 +1076,3 @@ class TestAgentLoopProtocol:
         fake, _, _ = _run_subsystem(model_pair, sandbox_dir, steps, ctx)
 
         assert "summary of the first turn" in _last_tools_messages(fake)[1]["content"]
-
-    def test_budget_cap_path_alternates_roles(self, model_pair, sandbox_dir):
-        """Hitting the tool cap summarises, then asks for JSON in one user turn."""
-        steps = [
-            _tool_turn(_read("a"), _read("b", "config.yaml")),
-            reply("exploration summary"),
-            reply(_THREAT_FINDING),
-        ]
-
-        fake, _, finding = _run_subsystem(model_pair, sandbox_dir, steps, max_tool_calls=1)
-
-        assert len(finding.threats) == 1
-        final = fake.requests[-1]
-        assert final.config.response_format == "json"
-        assert [m["role"] for m in final.messages] == ["system", "user"]
-        assert "exploration summary" in final.messages[1]["content"]
-        assert "tool call limit" in final.messages[1]["content"]
-
-    def test_json_retry_path_alternates_roles(self, model_pair, sandbox_dir):
-        steps = [
-            _tool_turn(_read("a")),
-            reply("I found some issues but forgot the JSON", tools=AGENT_TOOL_NAMES),
-            reply("exploration summary"),
-            reply(_THREAT_FINDING),
-        ]
-
-        fake, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
-
-        assert len(finding.threats) == 1
-        final = fake.requests[-1].messages
-        assert [m["role"] for m in final] == ["system", "user"]
-        assert "ONLY a valid JSON object" in final[1]["content"]
-
-    def test_failed_summary_falls_back_to_stripped_history(self, model_pair, sandbox_dir):
-        """With no summary, tool artifacts are stripped and the assistant's
-        notes from separate turns merge into one message."""
-        steps = [
-            _tool_turn(_read("a"), content="Reading the app"),
-            _tool_turn(_read("b", "config.yaml"), content="Now the config"),
-            reply("no JSON here", tools=AGENT_TOOL_NAMES),
-            fail(RuntimeError("summariser down")),
-            reply(_THREAT_FINDING),
-        ]
-
-        fake, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
-
-        assert len(finding.threats) == 1
-        final = fake.requests[-1].messages
-        assert [m["role"] for m in final] == ["system", "user", "assistant", "user"]
-        assert final[2]["content"] == "Reading the app\n\nNow the config"

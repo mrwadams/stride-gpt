@@ -20,6 +20,7 @@ always JSON.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -247,8 +248,28 @@ def _redact_subsystem(sub: Subsystem) -> Subsystem:
 
 def _redact_finding(finding: SubsystemFinding) -> SubsystemFinding:
     return finding.model_copy(
-        update={"files_analyzed": [redact_path(f) for f in finding.files_analyzed]}
+        update={
+            "files_analyzed": [redact_path(f) for f in finding.files_analyzed],
+            "threats": [_redact_threat(t) for t in finding.threats],
+        }
     )
+
+
+def _redact_threat(threat: dict) -> dict:
+    """Redact the paths inside a threat's evidence.
+
+    Deep-copied rather than edited in place: ``model_copy`` is shallow, and
+    ``write_intermediates`` promises the in-memory report is left alone so the
+    auto-saved archive still gets verbatim values.
+    """
+    evidence = threat.get("evidence")
+    if not isinstance(evidence, list):
+        return threat
+    redacted = copy.deepcopy(threat)
+    for item in redacted["evidence"]:
+        if isinstance(item, dict) and isinstance(item.get("path"), str):
+            item["path"] = redact_path(item["path"])
+    return redacted
 
 
 def _write_json(path: Path, payload: str) -> None:
