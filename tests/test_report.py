@@ -20,7 +20,11 @@ from stride_gpt.agent.report import (
     save_quick_report,
     save_report,
 )
-from stride_gpt.core.schemas import AnalysisReport, ThreatModelOutput
+from stride_gpt.core.schemas import (
+    AnalysisReport,
+    SubsystemFinding,
+    ThreatModelOutput,
+)
 
 # ---------------------------------------------------------------------------
 # render_markdown
@@ -137,6 +141,104 @@ class TestRenderSarif:
 # ---------------------------------------------------------------------------
 # render_*_from_json (round-trip)
 # ---------------------------------------------------------------------------
+
+
+class TestOutcomeReporting:
+    """A crashed or skipped subsystem must not read as a clean one."""
+
+    def _report(self, sample_plan, findings) -> AnalysisReport:
+        return AnalysisReport(plan=sample_plan, findings=findings, metadata={})
+
+    def test_markdown_explains_a_failed_subsystem(self, sample_plan):
+        report = self._report(sample_plan, [
+            SubsystemFinding(
+                subsystem="Auth", threats=[], outcome="error",
+                error_class="context_overflow",
+            ),
+        ])
+
+        md = render_markdown(report)
+
+        assert "> **Status**: error" in md
+        assert "context window was exceeded" in md
+        assert "- **Subsystems analyzed**: 0/1" in md
+        assert "- **Not analyzed**: 1 error" in md
+
+    def test_markdown_explains_a_skipped_subsystem(self, sample_plan):
+        report = self._report(sample_plan, [
+            SubsystemFinding(subsystem="Auth", threats=[]),
+            SubsystemFinding(subsystem="API", threats=[], outcome="skipped"),
+        ])
+
+        md = render_markdown(report)
+
+        assert "> **Status**: skipped" in md
+        assert "- **Subsystems analyzed**: 1/2" in md
+
+    def test_markdown_says_nothing_extra_when_every_subsystem_completed(
+        self, sample_report: AnalysisReport
+    ):
+        md = render_markdown(sample_report)
+
+        assert "> **Status**" not in md
+        assert "- **Not analyzed**" not in md
+
+    def test_html_badges_a_failed_subsystem(self, sample_plan):
+        report = self._report(sample_plan, [
+            SubsystemFinding(
+                subsystem="Auth", threats=[], outcome="error",
+                error_class="rate_limited",
+            ),
+        ])
+
+        html = render_html(report)
+
+        assert "rate-limited the run" in html
+        # A failed subsystem has no threats, but saying so would be a lie.
+        assert "No threats identified." not in html
+
+    def test_html_still_says_no_threats_for_a_clean_subsystem(self, sample_plan):
+        report = self._report(sample_plan, [
+            SubsystemFinding(subsystem="Auth", threats=[]),
+        ])
+
+        assert "No threats identified." in render_html(report)
+
+    def test_the_outcome_survives_the_json_round_trip(self, sample_plan):
+        report = self._report(sample_plan, [
+            SubsystemFinding(
+                subsystem="Auth", threats=[], outcome="error", error_class="auth",
+            ),
+        ])
+
+        data = render_json(report)
+
+        assert data["subsystems"][0]["outcome"] == "error"
+        assert data["subsystems"][0]["error_class"] == "auth"
+        assert "> **Status**: error" in render_markdown_from_json(data)
+
+    def test_a_report_saved_before_outcomes_existed_renders_unchanged(self):
+        """No outcome key means the subsystem was analysed."""
+        data = {
+            "target": "app",
+            "overview": "",
+            "subsystems": [
+                {
+                    "name": "Auth",
+                    "threats": [],
+                    "improvement_suggestions": [],
+                    "files_analyzed": [],
+                }
+            ],
+            "cross_cutting_threats": [],
+            "metadata": {},
+        }
+
+        md = render_markdown_from_json(data)
+
+        assert "> **Status**" not in md
+        assert "- **Subsystems analyzed**: 1/1" in md
+        assert "No threats identified." in render_html_from_json(data)
 
 
 class TestFromJsonRenderers:

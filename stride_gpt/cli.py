@@ -263,9 +263,7 @@ def _persist_analyze_intermediates(
         references_loaded=refs,
         llm_calls=report.metadata.get("llm_calls", 0),
         tool_calls=report.metadata.get("tool_calls", 0),
-        subsystems_analyzed=report.metadata.get(
-            "subsystems_analyzed", len(report.findings)
-        ),
+        findings=report.findings,
     )
     written = write_intermediates(
         output,

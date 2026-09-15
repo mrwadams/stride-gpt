@@ -25,8 +25,16 @@ class ProgressCallback(Protocol):
     def subsystem_start(self, index: int, total: int, name: str, description: str) -> None:
         """Starting analysis of a subsystem."""
 
-    def subsystem_done(self, name: str, threat_count: int) -> None:
-        """Finished analyzing a subsystem."""
+    def subsystem_done(self, name: str, threat_count: int, outcome: str) -> None:
+        """Finished analyzing a subsystem.
+
+        ``outcome`` is a ``SubsystemOutcome`` — "completed" when the model
+        finished on its own terms, "budget_exhausted" when it took the final
+        round, "parse_failed" when its answer was unusable.
+        """
+
+    def subsystems_skipped(self, names: list[str]) -> None:
+        """The run budget ran out before these subsystems started."""
 
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         """A tool was called during exploration."""
@@ -71,8 +79,24 @@ class RichProgress:
         self.console.print(f"\n[bold cyan]({index}/{total}) Analyzing: {name}[/bold cyan]")
         self.console.print(f"  {description}")
 
-    def subsystem_done(self, name: str, threat_count: int) -> None:
-        self.console.print(f"  [green]Found {threat_count} threats in {name}[/green]")
+    def subsystem_done(self, name: str, threat_count: int, outcome: str) -> None:
+        if outcome == "completed":
+            self.console.print(f"  [green]Found {threat_count} threats in {name}[/green]")
+        elif outcome == "budget_exhausted":
+            self.console.print(
+                f"  [yellow]Found {threat_count} threats in {name} "
+                f"(budget ran out; reported in a final round)[/yellow]"
+            )
+        else:
+            self.console.print(
+                f"  [yellow]{name}: the model's final answer could not be read. "
+                f"Recorded {threat_count} threats.[/yellow]"
+            )
+
+    def subsystems_skipped(self, names: list[str]) -> None:
+        self.console.print(
+            f"  [yellow]Skipped {len(names)} subsystems: {', '.join(names)}[/yellow]"
+        )
 
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         suffix = " (cached)" if cached else ""
@@ -131,8 +155,12 @@ class QueueProgress:
         self._put({"type": "subsystem_start", "index": index, "total": total,
                     "name": name, "description": description})
 
-    def subsystem_done(self, name: str, threat_count: int) -> None:
-        self._put({"type": "subsystem_done", "name": name, "threat_count": threat_count})
+    def subsystem_done(self, name: str, threat_count: int, outcome: str) -> None:
+        self._put({"type": "subsystem_done", "name": name,
+                    "threat_count": threat_count, "outcome": outcome})
+
+    def subsystems_skipped(self, names: list[str]) -> None:
+        self._put({"type": "subsystems_skipped", "names": list(names)})
 
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         self._put({"type": "tool_call", "name": name, "args_brief": args_brief, "cached": cached})

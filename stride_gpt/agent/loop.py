@@ -10,6 +10,7 @@ from typing import Any
 from rich.console import Console
 
 from stride_gpt.agent.context import ContextManager
+from stride_gpt.agent.errors import classify_error
 from stride_gpt.agent.evidence import normalise_path, summarise_checks, verify_evidence
 from stride_gpt.agent.planner import create_plan, format_plan_for_display
 from stride_gpt.agent.progress import ProgressCallback, RichProgress
@@ -24,12 +25,17 @@ from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm, call_llm_with_tools
 from stride_gpt.core.prompts import base_system_prompt
 from stride_gpt.core.schemas import (
+    ANALYSED_OUTCOMES,
     AnalysisPlan,
     AnalysisReport,
     LLMConfig,
     ModelPair,
+    Subsystem,
     SubsystemFinding,
+    SubsystemOutcome,
     ToolCallResult,
+    count_analysed,
+    count_outcomes,
 )
 
 logger = logging.getLogger(__name__)
@@ -142,7 +148,7 @@ def run_analysis(
                     progress.complete("Analysis cancelled.")
                     cancel_meta = _build_metadata(
                         models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
-                        subsystems_analyzed=0, status="cancelled",
+                        findings=[], status="cancelled",
                     )
                     cancel_meta["references_loaded"] = sorted(loaded_refs)
                     return AnalysisReport(
@@ -169,11 +175,17 @@ def run_analysis(
     findings: list[SubsystemFinding] = []
 
     for i, subsystem in enumerate(plan.subsystems, 1):
+        # A budget that runs out mid-plan used to drop the remaining
+        # subsystems entirely, so the run's own N/M counts couldn't see them.
+        # Each one is recorded as ``skipped`` instead: findings always match
+        # the plan.
         if max_llm_calls and llm_calls >= max_llm_calls - 1:
             progress.limit_reached("LLM call", llm_calls, max_llm_calls)
+            findings.extend(_skip_remaining(plan.subsystems[i - 1:], "LLM call", progress))
             break
         if max_tool_calls and explore_calls >= max_tool_calls:
             progress.limit_reached("tool call", explore_calls, max_tool_calls)
+            findings.extend(_skip_remaining(plan.subsystems[i - 1:], "tool call", progress))
             break
 
         progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
@@ -207,20 +219,16 @@ def run_analysis(
             # only reported threats still never looked at the code.
             if sub_counts.get("explore", 0) == 0:
                 progress.no_tool_use_warning(subsystem.name)
-            progress.subsystem_done(subsystem.name, len(finding.threats))
+            progress.subsystem_done(subsystem.name, len(finding.threats), finding.outcome)
         except Exception as e:
             partial = e.finding if isinstance(e, SubsystemAbortedError) else None
             # The counts were recorded before the exception escaped.
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
             explore_calls += sub_counts["explore"]
-            err_str = str(e.cause) if isinstance(e, SubsystemAbortedError) else str(e)
-            if "n_keep" in err_str and "n_ctx" in err_str:
-                reason = "Context window exceeded — model ran out of space for this subsystem."
-            elif "crashed" in err_str.lower():
-                reason = "The model crashed, likely due to memory constraints."
-            else:
-                reason = f"Unexpected error: {err_str}"
+            error_class, reason = classify_error(
+                e.cause if isinstance(e, SubsystemAbortedError) else e
+            )
             progress.error(subsystem.name, reason)
             note = f"Analysis stopped early — {reason}"
             findings.append(
@@ -232,15 +240,21 @@ def run_analysis(
                         note,
                     ],
                     files_analyzed=partial.files_analyzed if partial else [],
+                    outcome="error",
+                    error_class=error_class,
                 )
             )
 
+    # Skipped subsystems are placeholders, not findings — synthesis and the
+    # DFD must reason about what was actually looked at.
+    analysed = [f for f in findings if f.outcome != "skipped"]
+
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
-    if len(findings) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
+    if len(analysed) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
-        cross_cutting = _synthesize(models, findings)
+        cross_cutting = _synthesize(models, analysed)
         llm_calls += 1
         progress.synthesis_done(len(cross_cutting))
 
@@ -249,17 +263,17 @@ def run_analysis(
     # boundaries. Wrapped in try/except so a bad DFD never nukes a good
     # report. Skipped when no findings exist or the call budget is spent.
     data_flow_diagram: str | None = None
-    if findings and (not max_llm_calls or llm_calls < max_llm_calls):
+    if analysed and (not max_llm_calls or llm_calls < max_llm_calls):
         progress.status("Generating system-level Data Flow Diagram...")
         try:
-            data_flow_diagram = _generate_system_dfd(models, plan, findings)
+            data_flow_diagram = _generate_system_dfd(models, plan, analysed)
             llm_calls += 1
         except Exception:
             data_flow_diagram = None
 
     metadata = _build_metadata(
         models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
-        subsystems_analyzed=len(findings),
+        findings=findings,
     )
     metadata["references_loaded"] = sorted(loaded_refs)
 
@@ -271,27 +285,56 @@ def run_analysis(
         metadata=metadata,
     )
 
-    total_threats = sum(len(f.threats) for f in findings) + len(cross_cutting)
-    succeeded = sum(1 for f in findings if f.threats)
-    failed = len(findings) - succeeded
-
-    if failed:
-        summary = (
-            f"Analysis partially complete — {failed}/{len(findings)} subsystems failed\n"
-            f"Subsystems analyzed: {succeeded}/{len(findings)}\n"
-            f"Total threats found: {total_threats}\n"
-            f"LLM calls: {llm_calls} | Tool calls: {tool_calls}"
-        )
-    else:
-        summary = (
-            f"Analysis complete!\n"
-            f"Subsystems analyzed: {succeeded}/{len(findings)}\n"
-            f"Total threats found: {total_threats}\n"
-            f"LLM calls: {llm_calls} | Tool calls: {tool_calls}"
-        )
-
-    progress.complete(summary)
+    progress.complete(_run_summary_text(findings, cross_cutting, llm_calls, tool_calls))
     return report
+
+
+def _run_summary_text(
+    findings: list[SubsystemFinding],
+    cross_cutting: list[dict[str, Any]],
+    llm_calls: int,
+    tool_calls: int,
+) -> str:
+    """The end-of-run console summary, counted by outcome.
+
+    It used to count a subsystem as succeeded only if it found threats, so a
+    clean subsystem with nothing to report was announced as a failure.
+    """
+    total_threats = sum(len(f.threats) for f in findings) + len(cross_cutting)
+    counts = count_outcomes(findings)
+    analysed = count_analysed(findings)
+
+    headline = (
+        "Analysis complete!" if analysed == len(findings) else "Analysis partially complete"
+    )
+    lines = [headline, f"Subsystems analyzed: {analysed}/{len(findings)}"]
+
+    unfinished = {o: n for o, n in counts.items() if o not in ANALYSED_OUTCOMES}
+    if unfinished:
+        lines.append(
+            "Not analyzed: "
+            + ", ".join(f"{n} {o.replace('_', ' ')}" for o, n in sorted(unfinished.items()))
+        )
+    lines.append(f"Total threats found: {total_threats}")
+    lines.append(f"LLM calls: {llm_calls} | Tool calls: {tool_calls}")
+    return "\n".join(lines)
+
+
+def _skip_remaining(
+    subsystems: list[Subsystem], kind: str, progress: ProgressCallback
+) -> list[SubsystemFinding]:
+    """Record every subsystem the run budget stopped it from starting."""
+    note = f"Analysis skipped — the run's {kind} budget ran out before this subsystem."
+    progress.subsystems_skipped([s.name for s in subsystems])
+    return [
+        SubsystemFinding(
+            subsystem=s.name,
+            threats=[],
+            improvement_suggestions=[note],
+            outcome="skipped",
+        )
+        for s in subsystems
+    ]
 
 
 def _build_metadata(
@@ -300,10 +343,16 @@ def _build_metadata(
     *,
     llm_calls: int,
     tool_calls: int,
-    subsystems_analyzed: int,
+    findings: list[SubsystemFinding],
     status: str | None = None,
 ) -> dict[str, Any]:
-    """Build the metadata block stored on an AnalysisReport."""
+    """Build the metadata block stored on an AnalysisReport.
+
+    ``subsystems_analyzed`` counts the subsystems the model really analysed,
+    not the findings recorded: a crashed or skipped subsystem now has a
+    finding too.
+    """
+    counts = count_outcomes(findings)
     meta: dict[str, Any] = {
         "worker_model": models.worker.model_name,
         "worker_provider": models.worker.provider,
@@ -312,7 +361,8 @@ def _build_metadata(
         "app_type": plan.detected_app_type,
         "llm_calls": llm_calls,
         "tool_calls": tool_calls,
-        "subsystems_analyzed": subsystems_analyzed,
+        "subsystems_analyzed": count_analysed(findings),
+        "subsystem_outcomes": counts,
     }
     if status:
         meta["status"] = status
@@ -405,6 +455,10 @@ class _SubsystemRun:
         self.explore_calls = 0
         self.finished = False
         self.reporting_only = False
+        # Why the subsystem stopped is derived from these two at the end
+        # rather than assigned from each of the loop's several exits.
+        self.grace_ran = False
+        self.lost_text = False
         self._seen: set[tuple[str, str]] = set()
         self._cache: dict[str, str] = {}
 
@@ -579,6 +633,7 @@ class _SubsystemRun:
         )
         data = extract_json_object(content)
         if data is None:
+            self.lost_text = True
             return False
         # Only when nothing came through the tools — a model that does both
         # would otherwise have every threat counted twice.
@@ -595,12 +650,26 @@ class _SubsystemRun:
                 self.files_read.extend(normalise_path(f) for f in claimed if f)
         return True
 
+    def outcome(self) -> SubsystemOutcome:
+        """Why this subsystem stopped.
+
+        Checked in this order because an unparseable text answer that left no
+        threats is the one case where the finding is empty and untrustworthy —
+        that matters more than which budget ran out first.
+        """
+        if self.lost_text and not self.threats:
+            return "parse_failed"
+        if self.grace_ran:
+            return "budget_exhausted"
+        return "completed"
+
     def finding(self) -> SubsystemFinding:
         return SubsystemFinding(
             subsystem=self.subsystem_name,
             threats=self.threats,
             improvement_suggestions=self.suggestions,
             files_analyzed=self.files_read,
+            outcome=self.outcome(),
         )
 
 
@@ -731,6 +800,7 @@ def _grace_round(
     """
     progress.status(f"Final round for {run.subsystem_name}...")
     run.reporting_only = True
+    run.grace_ran = True
     grace_msgs = _append_user(messages, GRACE_ROUND_PROMPT)
     response = call_llm_with_tools(models.worker, grace_msgs, REPORTING_TOOLS)
     run.llm_calls += 1
