@@ -11,8 +11,8 @@ siblings next to the report:
   threats + data flow diagram (analyze only)
 * ``<stem>.run.json`` — a ``RunManifest`` describing models, config, version,
   which reference cards the agent actually loaded, and a ``run_summary``
-  recording whether the run completed or a call cap truncated it (analyze
-  and quick)
+  recording whether every subsystem was analysed or some crashed, produced no
+  readable answer, or never started (analyze and quick)
 
 The format flag (`-f`) controls only the report artefact; siblings are
 always JSON.
@@ -37,6 +37,8 @@ from stride_gpt.core.schemas import (
     ModelPair,
     Subsystem,
     SubsystemFinding,
+    count_analysed,
+    count_outcomes,
 )
 
 
@@ -60,13 +62,17 @@ class RunSummary(BaseModel):
     """Completeness of a run, so the intermediates are self-describing.
 
     Without this, an auditor reading ``findings.json`` in isolation can't
-    tell a full analysis from one a call/tool cap cut short — a truncated
-    run and a complete one look identical. ``status`` is:
+    tell a full analysis from one that lost subsystems along the way — a
+    truncated run and a complete one look identical. ``status`` is:
 
-    * ``"completed"`` — every planned subsystem was reached (analyze), or the
+    * ``"completed"`` — every planned subsystem was analysed (analyze), or the
       single-shot model returned (quick).
-    * ``"partial"`` — a call/tool cap stopped /analyze before every planned
-      subsystem was reached (``subsystems_analyzed < subsystems_planned``).
+    * ``"partial"`` — at least one subsystem crashed, produced no readable
+      answer, or was never started because the run budget ran out.
+
+    A subsystem that took the #195 grace round still analysed the code, so it
+    counts towards ``subsystems_analyzed`` and doesn't make a run partial;
+    ``subsystem_outcomes`` is where that shows up.
 
     ``subsystems_planned`` / ``subsystems_analyzed`` are ``None`` for /quick,
     which has no per-subsystem phase.
@@ -75,6 +81,9 @@ class RunSummary(BaseModel):
     status: Literal["completed", "partial"]
     subsystems_planned: int | None = None
     subsystems_analyzed: int | None = None
+    # Subsystem count per ``SubsystemOutcome``, omitting outcomes that didn't
+    # occur. Empty for /quick.
+    subsystem_outcomes: dict[str, int] = {}
     llm_calls: int
     tool_calls: int
 
@@ -365,19 +374,21 @@ def build_analyze_manifest(
     references_loaded: list[str],
     llm_calls: int,
     tool_calls: int,
-    subsystems_analyzed: int,
+    findings: list[SubsystemFinding],
 ) -> RunManifest:
     """Assemble the manifest for a /analyze run.
 
-    ``subsystems_analyzed`` is the number of subsystems that produced a
-    finding; when it's below the planned count a call/tool cap truncated the
-    run and ``run_summary.status`` is reported as ``"partial"``.
+    Completeness is derived from the findings' outcomes rather than from how
+    many findings there are — every planned subsystem gets one now, including
+    the ones that crashed or were never started.
     """
     subsystems_planned = len(plan.subsystems)
+    subsystems_analyzed = count_analysed(findings)
     run_summary = RunSummary(
         status="partial" if subsystems_analyzed < subsystems_planned else "completed",
         subsystems_planned=subsystems_planned,
         subsystems_analyzed=subsystems_analyzed,
+        subsystem_outcomes=count_outcomes(findings),
         llm_calls=llm_calls,
         tool_calls=tool_calls,
     )
@@ -429,6 +440,7 @@ def build_quick_manifest(
         status="completed",
         subsystems_planned=None,
         subsystems_analyzed=None,
+        subsystem_outcomes={},
         llm_calls=llm_calls,
         tool_calls=tool_calls,
     )

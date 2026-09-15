@@ -32,10 +32,19 @@ class TestQueueProgress:
     def test_subsystem_done(self):
         q: queue.Queue = queue.Queue()
         p = QueueProgress(q)
-        p.subsystem_done("Auth", 3)
+        p.subsystem_done("Auth", 3, "completed")
         event = q.get_nowait()
         assert event["type"] == "subsystem_done"
         assert event["threat_count"] == 3
+        assert event["outcome"] == "completed"
+
+    def test_subsystems_skipped(self):
+        q: queue.Queue = queue.Queue()
+        p = QueueProgress(q)
+        p.subsystems_skipped(["API", "Storage"])
+        event = q.get_nowait()
+        assert event["type"] == "subsystems_skipped"
+        assert event["names"] == ["API", "Storage"]
 
     @pytest.mark.parametrize("cached", [False, True])
     def test_tool_call(self, cached):

@@ -19,6 +19,7 @@ from stride_gpt.core.report_utils import (
     evidence_location,
     mitre_url,
     normalize_mitre_techniques,
+    outcome_note,
 )
 from stride_gpt.core.schemas import AnalysisReport
 
@@ -73,6 +74,8 @@ def render_html(report: AnalysisReport) -> str:
                 "threats": f.threats,
                 "improvement_suggestions": f.improvement_suggestions,
                 "files_analyzed": f.files_analyzed,
+                "outcome": f.outcome,
+                "error_class": f.error_class,
             }
             for f in report.findings
         ],
@@ -245,12 +248,43 @@ def _render_footer(metadata: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
+# A subsystem that didn't finish is a caveat about the report, not a threat
+# category — so it reads as a bordered callout rather than another round chip.
+# Every Tailwind hue is already spoken for by the six STRIDE badges, and a
+# seventh pill would compete with the one signal the page is built around.
+_OUTCOME_CALLOUT = (
+    "rounded-r border-l-4 border-amber-400 bg-amber-50/60 px-3 py-2 text-sm "
+    "text-amber-900"
+)
+
+
+def _render_outcome_callout(outcome: str, error_class: str | None) -> str:
+    """Why a subsystem didn't complete, or "" when it did.
+
+    Reports that show only threats make a crashed subsystem indistinguishable
+    from a clean one, which is the whole point of recording the outcome.
+    """
+    note = outcome_note(outcome, error_class)
+    if note is None:
+        return ""
+    label = outcome.replace("_", " ")
+    return (
+        f'        <p class="{_OUTCOME_CALLOUT}">'
+        f"<span class=\"font-medium\">{html.escape(label)}</span> — "
+        f"{html.escape(note)}.</p>"
+    )
+
+
 def _render_subsystem(sub: dict[str, Any]) -> str:
     name = sub.get("name") or "(unnamed)"
     description = (sub.get("description") or "").strip()
     files = sub.get("files_analyzed") or []
     threats = sub.get("threats") or []
     suggestions = sub.get("improvement_suggestions") or []
+    # Reports saved before outcomes existed have no key; anything written out
+    # at all had been analysed.
+    outcome = sub.get("outcome") or "completed"
+    callout = _render_outcome_callout(outcome, sub.get("error_class"))
 
     parts: list[str] = []
     parts.append(f"""        <header class="space-y-1">
@@ -261,6 +295,9 @@ def _render_subsystem(sub: dict[str, Any]) -> str:
         )
     parts.append("        </header>")
 
+    if callout:
+        parts.append(callout)
+
     if files:
         parts.append(_render_files_analyzed(files))
 
@@ -269,7 +306,7 @@ def _render_subsystem(sub: dict[str, Any]) -> str:
         parts.append(f"""        <div class="space-y-4">
 {cards}
         </div>""")
-    else:
+    elif outcome == "completed":
         parts.append(
             '        <p class="text-sm italic text-slate-500">No threats identified.</p>'
         )

@@ -84,6 +84,30 @@ class AnalysisPlan(BaseModel):
     detected_app_type: Literal["web", "genai", "agentic"] = "web"
 
 
+# Why a subsystem stopped. A closed set, so a consumer of findings.json can
+# tell a clean analysis with nothing to report from one that crashed:
+#
+# * ``completed`` — the model called ``finish`` (or answered in full).
+# * ``budget_exhausted`` — the call/tool budget ran out and the grace round ran.
+# * ``parse_failed`` — the model ended on text that carried no usable JSON and
+#   nothing had come through the reporting tools, so the finding is empty.
+# * ``error`` — the subsystem raised; see ``error_class``.
+# * ``skipped`` — the run budget ran out before this subsystem started.
+SubsystemOutcome = Literal[
+    "completed", "budget_exhausted", "parse_failed", "error", "skipped"
+]
+
+# What kind of failure an ``error`` outcome was, classified from the exception
+# rather than from its message text. See ``stride_gpt.agent.errors``.
+ErrorClass = Literal[
+    "context_overflow", "rate_limited", "auth", "provider_error", "unexpected"
+]
+
+# Outcomes where the model really did analyse the subsystem. A grace round
+# still produces a genuine finding, so it doesn't make a run partial.
+ANALYSED_OUTCOMES: frozenset[str] = frozenset({"completed", "budget_exhausted"})
+
+
 class SubsystemFinding(BaseModel):
     """Threat findings for a single subsystem."""
 
@@ -91,6 +115,24 @@ class SubsystemFinding(BaseModel):
     threats: list[dict[str, Any]]
     improvement_suggestions: list[str] = []
     files_analyzed: list[str] = []
+    # Defaults to ``completed`` so a findings.json written before outcomes
+    # existed still loads — a run that recorded a finding at all had reached
+    # the subsystem.
+    outcome: SubsystemOutcome = "completed"
+    error_class: ErrorClass | None = None
+
+
+def count_outcomes(findings: list[SubsystemFinding]) -> dict[str, int]:
+    """Per-outcome subsystem counts, omitting outcomes that didn't occur."""
+    counts: dict[str, int] = {}
+    for finding in findings:
+        counts[finding.outcome] = counts.get(finding.outcome, 0) + 1
+    return counts
+
+
+def count_analysed(findings: list[SubsystemFinding]) -> int:
+    """How many subsystems the model actually analysed."""
+    return sum(1 for f in findings if f.outcome in ANALYSED_OUTCOMES)
 
 
 class AnalysisReport(BaseModel):

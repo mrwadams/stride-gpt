@@ -212,6 +212,7 @@ def test_write_intermediates_analyze_files_parse_as_models(
     assert "cross_cutting_threats" in findings_data
     assert "data_flow_diagram" in findings_data
     for f in findings_data["findings"]:
+        assert f["outcome"] == "completed"
         SubsystemFinding(**f)
 
     run_data = json.loads((tmp_path / "audit.run.json").read_text())
@@ -356,6 +357,13 @@ def test_run_manifest_round_trip():
 # ---------------------------------------------------------------------------
 
 
+def _findings_for(plan) -> list[SubsystemFinding]:
+    """One completed finding per planned subsystem — the all-clear baseline."""
+    return [
+        SubsystemFinding(subsystem=s.name, threats=[]) for s in plan.subsystems
+    ]
+
+
 def test_build_analyze_manifest_populates_expected_fields(
     tmp_path, monkeypatch, sample_plan, model_pair,
 ):
@@ -374,7 +382,7 @@ def test_build_analyze_manifest_populates_expected_fields(
         references_loaded=["genai"],
         llm_calls=5,
         tool_calls=12,
-        subsystems_analyzed=len(sample_plan.subsystems),
+        findings=_findings_for(sample_plan),
     )
 
     assert manifest.mode == "analyze"
@@ -406,7 +414,7 @@ def test_build_analyze_manifest_status_completed_when_all_subsystems_analyzed(
         references_loaded=[],
         llm_calls=5,
         tool_calls=12,
-        subsystems_analyzed=len(sample_plan.subsystems),
+        findings=_findings_for(sample_plan),
     )
 
     assert manifest.run_summary.status == "completed"
@@ -421,6 +429,8 @@ def test_build_analyze_manifest_status_partial_when_cap_truncates(
 ):
     # A call cap stopped analysis after 1 of the plan's 2 subsystems.
     monkeypatch.chdir(tmp_path)
+    findings = _findings_for(sample_plan)
+    findings[1] = findings[1].model_copy(update={"outcome": "skipped"})
     manifest = build_analyze_manifest(
         models=model_pair,
         plan=sample_plan,
@@ -432,12 +442,86 @@ def test_build_analyze_manifest_status_partial_when_cap_truncates(
         references_loaded=[],
         llm_calls=8,
         tool_calls=8,
-        subsystems_analyzed=1,
+        findings=findings,
     )
 
     assert manifest.run_summary.status == "partial"
     assert manifest.run_summary.subsystems_planned == 2
     assert manifest.run_summary.subsystems_analyzed == 1
+    assert manifest.run_summary.subsystem_outcomes == {"completed": 1, "skipped": 1}
+
+
+def test_build_analyze_manifest_is_completed_when_a_subsystem_took_the_grace_round(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    """A final round still analysed the code, so the run isn't partial."""
+    monkeypatch.chdir(tmp_path)
+    findings = _findings_for(sample_plan)
+    findings[0] = findings[0].model_copy(update={"outcome": "budget_exhausted"})
+
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=5,
+        tool_calls=12,
+        findings=findings,
+    )
+
+    assert manifest.run_summary.status == "completed"
+    assert manifest.run_summary.subsystems_analyzed == 2
+    assert manifest.run_summary.subsystem_outcomes == {
+        "budget_exhausted": 1, "completed": 1,
+    }
+
+
+def test_build_analyze_manifest_is_partial_when_a_subsystem_crashed(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    """The count used to be of findings recorded, so a crash read as complete."""
+    monkeypatch.chdir(tmp_path)
+    findings = _findings_for(sample_plan)
+    findings[0] = findings[0].model_copy(
+        update={"outcome": "error", "error_class": "context_overflow"}
+    )
+
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=5,
+        tool_calls=12,
+        findings=findings,
+    )
+
+    assert manifest.run_summary.status == "partial"
+    assert manifest.run_summary.subsystems_analyzed == 1
+    assert manifest.run_summary.subsystem_outcomes == {"completed": 1, "error": 1}
+
+
+def test_findings_json_written_before_outcomes_existed_still_loads():
+    """Pre-change files have no outcome key; they had reached the subsystem."""
+    legacy = {
+        "subsystem": "Auth",
+        "threats": [{"Threat Type": "Spoofing"}],
+        "improvement_suggestions": [],
+        "files_analyzed": ["./auth.py"],
+    }
+
+    finding = SubsystemFinding(**legacy)
+
+    assert finding.outcome == "completed"
+    assert finding.error_class is None
 
 
 def test_build_quick_manifest_uses_target_label_verbatim(model_pair):

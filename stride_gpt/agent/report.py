@@ -14,10 +14,16 @@ from stride_gpt.core.report_utils import (
     detect_extra_columns,
     evidence_items,
     normalize_mitre_techniques,
+    outcome_note,
     threat_table_header,
     threat_table_row,
 )
-from stride_gpt.core.schemas import AnalysisReport, ModelPair, ThreatModelOutput
+from stride_gpt.core.schemas import (
+    ANALYSED_OUTCOMES,
+    AnalysisReport,
+    ModelPair,
+    ThreatModelOutput,
+)
 
 
 def _get_stride_gpt_version() -> str:
@@ -70,6 +76,7 @@ def render_markdown(report: AnalysisReport) -> str:
     for finding in report.findings:
         lines.append(f"## {finding.subsystem}")
         lines.append("")
+        lines.extend(_status_lines(finding.outcome, finding.error_class))
 
         if finding.files_analyzed:
             lines.append("### Files Analyzed")
@@ -112,7 +119,14 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.append("## Summary")
     lines.append("")
     lines.append(f"- **Total threats identified**: {total_threats}")
-    lines.append(f"- **Subsystems analyzed**: {len(report.findings)}")
+    lines.extend(
+        _subsystem_summary_lines(
+            [
+                {"outcome": f.outcome, "error_class": f.error_class}
+                for f in report.findings
+            ]
+        )
+    )
     lines.append(f"- **Cross-cutting threats**: {len(report.cross_cutting_threats)}")
     if report.metadata:
         lines.append(f"- **LLM calls**: {report.metadata.get('llm_calls', 'N/A')}")
@@ -131,6 +145,34 @@ def render_markdown(report: AnalysisReport) -> str:
     return "\n".join(lines)
 
 
+def _status_lines(outcome: str, error_class: str | None) -> list[str]:
+    """A blockquote under a subsystem heading when it didn't complete.
+
+    Without it a crashed subsystem reads as one that was analysed and found
+    nothing.
+    """
+    note = outcome_note(outcome, error_class)
+    if note is None:
+        return []
+    return [f"> **Status**: {outcome.replace('_', ' ')} — {note}.", ""]
+
+
+def _subsystem_summary_lines(subsystems: list[dict[str, Any]]) -> list[str]:
+    """The summary block's subsystem counts, split by outcome."""
+    counts: dict[str, int] = {}
+    for sub in subsystems:
+        outcome = sub.get("outcome") or "completed"
+        counts[outcome] = counts.get(outcome, 0) + 1
+    analysed = sum(n for o, n in counts.items() if o in ANALYSED_OUTCOMES)
+
+    lines = [f"- **Subsystems analyzed**: {analysed}/{len(subsystems)}"]
+    unfinished = {o: n for o, n in counts.items() if o not in ANALYSED_OUTCOMES}
+    if unfinished:
+        detail = ", ".join(f"{n} {o.replace('_', ' ')}" for o, n in sorted(unfinished.items()))
+        lines.append(f"- **Not analyzed**: {detail}")
+    return lines
+
+
 def render_json(report: AnalysisReport) -> dict[str, Any]:
     """Render an AnalysisReport as a structured JSON-serializable dict."""
     return {
@@ -145,6 +187,8 @@ def render_json(report: AnalysisReport) -> dict[str, Any]:
                 "threats": f.threats,
                 "improvement_suggestions": f.improvement_suggestions,
                 "files_analyzed": f.files_analyzed,
+                "outcome": f.outcome,
+                "error_class": f.error_class,
             }
             for f in report.findings
         ],
@@ -402,6 +446,8 @@ def save_quick_report(
                 "threats": output.threat_model,
                 "improvement_suggestions": output.improvement_suggestions,
                 "files_analyzed": [],
+                "outcome": "completed",
+                "error_class": None,
             }
         ],
         "cross_cutting_threats": [],
@@ -543,6 +589,11 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     for sub in data.get("subsystems", []):
         lines.append(f"## {sub['name']}")
         lines.append("")
+        # Reports saved before outcomes existed have no key; a subsystem that
+        # was written out at all had been analysed.
+        lines.extend(
+            _status_lines(sub.get("outcome", "completed"), sub.get("error_class"))
+        )
 
         files = sub.get("files_analyzed", [])
         if files:
@@ -586,7 +637,7 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     lines.append("## Summary")
     lines.append("")
     lines.append(f"- **Total threats identified**: {total}")
-    lines.append(f"- **Subsystems analyzed**: {len(data.get('subsystems', []))}")
+    lines.extend(_subsystem_summary_lines(data.get("subsystems", [])))
     lines.append(f"- **Cross-cutting threats**: {len(cross_cutting)}")
     if metadata:
         lines.append(f"- **LLM calls**: {metadata.get('llm_calls', 'N/A')}")

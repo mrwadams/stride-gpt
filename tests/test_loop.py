@@ -122,7 +122,7 @@ class TestRunAnalysis:
         # Verify progress callbacks were invoked
         progress.phase_start.assert_called()
         progress.subsystem_start.assert_called()
-        progress.subsystem_done.assert_called_with("Auth", 1)
+        progress.subsystem_done.assert_called_with("Auth", 1, "completed")
         progress.complete.assert_called()
 
     def test_tool_call_flow(self, model_pair, sandbox_dir):
@@ -448,13 +448,14 @@ class TestTierRouting:
             subsystems=[Subsystem(name="A", description="A", key_files=[], focus_areas=[])],
         )
 
-        m1 = _build_metadata(tiered_pair, plan, llm_calls=2, tool_calls=3, subsystems_analyzed=1)
+        finding = SubsystemFinding(subsystem="A", threats=[])
+        m1 = _build_metadata(tiered_pair, plan, llm_calls=2, tool_calls=3, findings=[finding])
         assert m1["worker_model"] == tiered_pair.worker.model_name
         assert m1["worker_provider"] == tiered_pair.worker.provider
         assert m1["architect_model"] == tiered_pair.architect.model_name
         assert m1["architect_provider"] == tiered_pair.architect.provider
 
-        m2 = _build_metadata(model_pair, plan, llm_calls=0, tool_calls=0, subsystems_analyzed=0)
+        m2 = _build_metadata(model_pair, plan, llm_calls=0, tool_calls=0, findings=[])
         assert m2["worker_model"] == model_pair.worker.model_name
         assert m2["architect_model"] is None
         assert m2["architect_provider"] is None
@@ -875,9 +876,152 @@ class TestSubsystemFailure:
         (finding,) = report.findings
         assert [t["Scenario"] for t in finding.threats] == ["Found before the crash"]
         assert any("stopped early" in s for s in finding.improvement_suggestions)
+        assert finding.outcome == "error"
         progress.error.assert_called_once()
         # The failed subsystem's spend is still charged to the run.
         assert report.metadata["tool_calls"] == 1
+
+    def test_the_error_class_comes_from_the_exception(self, model_pair, sandbox_dir):
+        """Not from its message — that's what classify_error is for."""
+        import litellm
+
+        plan = AnalysisPlan(
+            target_path=str(sandbox_dir), overall_description="app",
+            subsystems=[Subsystem(name="App", description="d", key_files=[], focus_areas=[])],
+        )
+        rate_limit = litellm.RateLimitError(
+            message="slow down", model="m", llm_provider="openai"
+        )
+        steps = [fail(rate_limit, tools=SUBSYSTEM_TOOL_NAMES), _DFD]
+
+        with ScriptedLLM(steps):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=MagicMock()
+            )
+
+        (finding,) = report.findings
+        assert finding.outcome == "error"
+        assert finding.error_class == "rate_limited"
+        assert report.metadata["subsystems_analyzed"] == 0
+        assert report.metadata["subsystem_outcomes"] == {"error": 1}
+
+
+class TestSubsystemOutcomes:
+    """Every subsystem records why it stopped, and the run is judged on that."""
+
+    def _plan(self, target, *names: str) -> AnalysisPlan:
+        return AnalysisPlan(
+            target_path=str(target),
+            overall_description="app",
+            subsystems=[
+                Subsystem(name=n, description="d", key_files=[], focus_areas=[])
+                for n in names
+            ],
+        )
+
+    def test_a_clean_subsystem_with_no_threats_counts_as_analysed(
+        self, model_pair, sandbox_dir
+    ):
+        """Zero threats is an answer, not a failure.
+
+        The summary used to count a subsystem as succeeded only if it found
+        threats, so a clean one made the whole run read as partial.
+        """
+        plan = self._plan(sandbox_dir, "App")
+        progress = MagicMock()
+
+        with ScriptedLLM([_tool_turn(_finish("f", "Looks fine")), _DFD]):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+
+        (finding,) = report.findings
+        assert finding.threats == []
+        assert finding.outcome == "completed"
+        assert report.metadata["subsystems_analyzed"] == 1
+        assert progress.complete.call_args.args[0].startswith("Analysis complete!")
+
+    def test_a_grace_rounded_subsystem_still_counts_as_analysed(
+        self, model_pair, sandbox_dir
+    ):
+        """It ran out of budget but reported real threats, so it isn't a failure."""
+        _, _, finding = _run_subsystem(
+            model_pair, sandbox_dir,
+            [
+                _tool_turn(_read("a")),
+                _grace_turn(_report("r", scenario="Found late"), _finish("f")),
+            ],
+            max_tool_calls=1,
+        )
+
+        assert finding.outcome == "budget_exhausted"
+        assert [t["Scenario"] for t in finding.threats] == ["Found late"]
+
+    def test_an_unreadable_final_answer_is_parse_failed(self, model_pair, sandbox_dir):
+        """Text, a nudge, then text again — nothing came back."""
+        steps = [
+            reply("I could not analyse this", tools=SUBSYSTEM_TOOL_NAMES),
+            reply("still just prose", tools=SUBSYSTEM_TOOL_NAMES),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert finding.outcome == "parse_failed"
+        assert finding.threats == []
+
+    def test_threats_through_the_tools_outrank_a_lost_text_answer(
+        self, model_pair, sandbox_dir
+    ):
+        """An unparseable sign-off doesn't discredit threats already recorded."""
+        steps = [
+            _tool_turn(_report("r", scenario="Found early")),
+            reply("that's all folks", tools=SUBSYSTEM_TOOL_NAMES),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert finding.outcome == "completed"
+
+    def test_an_exhausted_run_budget_records_the_rest_as_skipped(
+        self, model_pair, sandbox_dir
+    ):
+        """Findings always match the plan, so the run's own counts can see them."""
+        plan = self._plan(sandbox_dir, "One", "Two", "Three")
+        progress = MagicMock()
+
+        # One LLM call of headroom: the first subsystem runs, then the guard
+        # stops the loop before the second.
+        with ScriptedLLM([_tool_turn(_report("r"), _finish("f")), _DFD]):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=progress,
+                max_llm_calls=2,
+            )
+
+        assert [f.subsystem for f in report.findings] == ["One", "Two", "Three"]
+        assert [f.outcome for f in report.findings] == [
+            "completed", "skipped", "skipped",
+        ]
+        assert all("skipped" in s for f in report.findings[1:]
+                   for s in f.improvement_suggestions)
+        progress.subsystems_skipped.assert_called_once_with(["Two", "Three"])
+        assert report.metadata["subsystem_outcomes"] == {"completed": 1, "skipped": 2}
+        summary = progress.complete.call_args.args[0]
+        assert "Analysis partially complete" in summary
+        assert "Subsystems analyzed: 1/3" in summary
+        assert "2 skipped" in summary
+
+    @patch("stride_gpt.agent.loop._synthesize", return_value=[])
+    def test_skipped_placeholders_do_not_trigger_synthesis(
+        self, mock_synth, model_pair, sandbox_dir
+    ):
+        """Only one subsystem was really analysed, however many findings exist."""
+        plan = self._plan(sandbox_dir, "One", "Two", "Three")
+
+        with ScriptedLLM([_tool_turn(_report("r"), _finish("f")), _DFD]):
+            run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=MagicMock(),
+                max_llm_calls=2,
+            )
+
+        mock_synth.assert_not_called()
 
 
 class TestGraceRound:

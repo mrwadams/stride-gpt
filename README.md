@@ -77,6 +77,7 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ### Version 0.19 (latest)
 
+- **Every subsystem records why it stopped** (closes #196): A `SubsystemFinding` now carries an `outcome` — `completed`, `budget_exhausted`, `parse_failed`, `error`, or `skipped` — so a subsystem that crashed is no longer indistinguishable from one that was analysed and found nothing. Findings always match the plan: subsystems the run budget never reached are recorded as `skipped` rather than dropped. `run_summary.status` is derived from those outcomes, so a run where subsystems crashed is reported as `partial` instead of `completed`, and a clean subsystem with zero threats no longer makes the console print "Analysis partially complete". Failures are classified from the exception type (`context_overflow`, `rate_limited`, `auth`, `provider_error`) rather than by searching the error text, and the markdown and HTML reports show failed and skipped subsystems explicitly. Findings files written before this change still load, treated as `completed`.
 - **`--version` flag** (#161): `stride-gpt --version` now prints the installed version and exits, and the interactive TUI banner shows the running version so you can confirm what you're on at a glance.
 - **Dependency management consolidated onto uv** (closes #155): `uv.lock` is now the single source of truth for every dependency. The duplicated `requirements.txt` files are retired; the Docker UI image and the security-scan workflow install from `uv.lock` via `uv export`, so what ships and what gets scanned can no longer drift from what's locked. No change for `pip install stride-gpt` users.
 - **Documentation**: Added a sample threat-model markdown output (#151) and an interactive REPL cheat sheet (#163) to the README.
@@ -449,8 +450,10 @@ Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-
 | File | Contents |
 |------|----------|
 | `<stem>.plan.json` | The `AnalysisPlan` the architect produced — subsystems, focus areas, detected app type (analyze only). |
-| `<stem>.findings.json` | Per-subsystem `SubsystemFinding` list, cross-cutting threats, and the system-level data flow diagram (analyze only). |
-| `<stem>.run.json` | A `RunManifest` — models, prompt + config hash, references the agent actually loaded, git SHA, version, timing. Emitted for both `analyze` and `quick`. |
+| `<stem>.findings.json` | Per-subsystem `SubsystemFinding` list, cross-cutting threats, and the system-level data flow diagram (analyze only). Every planned subsystem appears, each with an `outcome` saying why it stopped. |
+| `<stem>.run.json` | A `RunManifest` — models, prompt + config hash, references the agent actually loaded, git SHA, version, timing, and a `run_summary` whose `status` is `partial` when any subsystem crashed, returned nothing readable, or was never started. Emitted for both `analyze` and `quick`. |
+
+A subsystem's `outcome` is one of `completed`, `budget_exhausted` (the call or tool budget ran out and it reported in a final round), `parse_failed` (its closing answer couldn't be read), `error` (it raised — see `error_class`), or `skipped` (the run budget ran out before it started). The first two count as analysed; the rest make the run `partial`, and the markdown and HTML reports say so under the affected subsystem.
 
 The format flag (`-f`) controls the report artefact only; the siblings are always JSON. File paths in the manifest and findings are redacted (`./…` when under the working directory, `~/…` when under `$HOME`) so a manifest is safe to share. The auto-archive at `~/.stride-gpt/reports/{analyze,quick}/` is unaffected — siblings are only emitted when you pass `-o`.
 

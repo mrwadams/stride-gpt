@@ -29,6 +29,45 @@ class ExtraColumns(NamedTuple):
     show_evidence: bool
 
 
+# Why a subsystem stopped, phrased for a report reader. Keyed by
+# ``SubsystemOutcome``; ``completed`` is absent because a completed subsystem
+# needs no explanation.
+_OUTCOME_NOTES: dict[str, str] = {
+    "budget_exhausted": (
+        "the analysis budget ran out, so threats were reported in a final round "
+        "without further exploration"
+    ),
+    "parse_failed": (
+        "the model's final answer could not be read, so this subsystem may be "
+        "incomplete"
+    ),
+    "error": "the analysis stopped with an error",
+    "skipped": "the run budget ran out before this subsystem was analysed",
+}
+
+_ERROR_CLASS_NOTES: dict[str, str] = {
+    "context_overflow": "the context window was exceeded",
+    "rate_limited": "the provider rate-limited the run",
+    "auth": "the provider rejected the credentials",
+    "provider_error": "the provider failed to answer",
+    "unexpected": "an unexpected error",
+}
+
+
+def outcome_note(outcome: str, error_class: str | None = None) -> str | None:
+    """A one-line explanation of a subsystem's outcome, or None if it completed.
+
+    Reports that show only threats make a crashed subsystem look like a clean
+    one with nothing to report. Markdown and HTML share this wording so they
+    can't drift.
+    """
+    note = _OUTCOME_NOTES.get(outcome)
+    if note is None:
+        return None
+    detail = _ERROR_CLASS_NOTES.get(error_class or "")
+    return f"{note} ({detail})" if detail else note
+
+
 def detect_extra_columns(
     all_threats: Iterable[dict[str, Any]],
 ) -> ExtraColumns:
