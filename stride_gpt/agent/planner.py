@@ -61,6 +61,61 @@ Be specific about which files to examine. Prioritize subsystems that handle:
 5. Infrastructure and deployment"""
 
 
+def _round_robin(queues: list[list[str]]) -> list[str]:
+    """Interleave ``queues`` fairly: one item from each non-empty queue per round.
+
+    Consumes ``queues`` in place and returns every item, in round-robin
+    order, with no cutoff; callers that need a cap apply it to the result.
+    """
+    result: list[str] = []
+    while any(queues):
+        result.extend(queue.pop(0) for queue in queues if queue)
+    return result
+
+
+def _diverse_key_files(files: list[str], limit: int) -> list[str]:
+    """Cap ``files`` at ``limit`` while representing every directory.
+
+    A flat alphabetical slice privileges early-sorting directories and can
+    drop a whole subsystem's files past the cutoff (issue #175: on OWASP
+    crAPI, ``services/web`` and ``services/workshop`` sorted last and
+    received zero file-level signal). Round-robin across each file's
+    containing directory instead, so every directory contributes before any
+    directory repeats.
+
+    A single round-robin pass over every leaf directory still starves whole
+    subsystems once there are more leaf directories than ``limit``: the
+    first pass through them consumes the entire budget before a
+    later-sorting subsystem's leaf directories are ever reached (issue
+    #178: 250 nested ``services/web/src/mod*`` directories left the sibling
+    ``services/workshop`` directory with zero files, even though it is a
+    small, shallow subsystem of its own). Group leaf directories by their
+    top-level (first one or two path components) directory first, and
+    round-robin across those groups before round-robining the leaf
+    directories within each one, so a subsystem with many nested
+    directories cannot exhaust the budget before a sibling top-level
+    directory gets its share.
+    """
+    if len(files) <= limit:
+        return files
+
+    leaf_queues: dict[str, list[str]] = {}
+    for f in files:
+        leaf_queues.setdefault(str(Path(f).parent), []).append(f)
+
+    top_groups: dict[str, list[list[str]]] = {}
+    for d in sorted(leaf_queues):
+        parts = Path(d).parts
+        top = "/".join(parts[:2]) if len(parts) >= 2 else (parts[0] if parts else d)
+        top_groups.setdefault(top, []).append(leaf_queues[d])
+
+    # Flatten each top-level group into its own fair leaf-directory
+    # ordering first, then round-robin across the (far fewer) groups.
+    group_queues = [_round_robin(top_groups[t]) for t in sorted(top_groups)]
+    sample = _round_robin(group_queues)[:limit]
+    return sorted(sample)
+
+
 def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
     """Scan a codebase and generate an analysis plan via LLM."""
     # Gather codebase structure
@@ -72,6 +127,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
 
     # Deduplicate and sort
     key_files = sorted(set(key_files))
+    key_files_shown = _diverse_key_files(key_files, 200)
 
     discovery_prompt = f"""Analyze this codebase structure and identify subsystems for STRIDE threat modeling.
 
@@ -79,7 +135,7 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
 {dir_listing}
 
 ## Key Files Found ({len(key_files)} files)
-{chr(10).join(key_files[:200])}"""
+{chr(10).join(key_files_shown)}"""
 
     json_config = config.model_copy(update={"response_format": AnalysisPlan.model_json_schema()})
     messages = [

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from stride_gpt.agent.planner import (
     _build_plan,
+    _diverse_key_files,
     create_plan,
 )
 from stride_gpt.core.schemas import LLMResponse
@@ -113,3 +114,66 @@ class TestCreatePlanRetry:
         assert plan.subsystems[0].name == "Full Codebase"
         assert "not json" in plan.overall_description
         assert mock_call_llm.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# _diverse_key_files
+# ---------------------------------------------------------------------------
+
+
+class TestDiverseKeyFiles:
+    def test_list_under_limit_is_unchanged(self):
+        files = ["a/one.py", "b/two.py"]
+        assert _diverse_key_files(files, 200) == files
+
+    def test_round_robins_across_directories(self):
+        early = [f"aaa/f{i:03d}.py" for i in range(200)]
+        late = [f"zzz/f{i:03d}.py" for i in range(10)]
+        sample = _diverse_key_files(early + late, 200)
+        assert len(sample) == 200
+        assert set(late).issubset(sample)
+
+    def test_round_robins_when_directory_count_exceeds_the_limit(self):
+        # PR #178 review: 250 nested leaf directories under one subsystem
+        # must not starve a sibling subsystem of every file, the same
+        # failure as #175 moved from file granularity to directory
+        # granularity.
+        web = [f"services/web/src/mod{i:03d}/index.js" for i in range(250)]
+        workshop = [f"services/workshop/f{i:03d}.py" for i in range(56)]
+        sample = _diverse_key_files(web + workshop, 200)
+        web_count = sum(1 for f in sample if f.startswith("services/web/"))
+        workshop_count = sum(1 for f in sample if f.startswith("services/workshop/"))
+        assert len(sample) == 200
+        assert web_count == 144
+        assert workshop_count == 56
+
+
+# ---------------------------------------------------------------------------
+# create_plan key-file coverage (issue #175)
+# ---------------------------------------------------------------------------
+
+
+class TestCreatePlanKeyFileCoverage:
+    @patch("stride_gpt.agent.planner.call_llm")
+    def test_late_sorting_directory_reaches_the_prompt(self, mock_call_llm, llm_config, tmp_path):
+        mock_call_llm.return_value = LLMResponse(
+            content=json.dumps({
+                "overall_description": "Test",
+                "subsystems": [{"name": "App", "description": "Main", "key_files": ["app.py"]}],
+            }),
+            thinking=None, reasoning=None, model="test",
+        )
+        extensions = [".py", ".js", ".ts", ".go", ".rs"]
+        (tmp_path / "service_early").mkdir()
+        for ext in extensions:
+            for i in range(40):
+                (tmp_path / "service_early" / f"f{i:03d}{ext}").write_text("x\n")
+        (tmp_path / "service_late").mkdir()
+        for ext in extensions:
+            for i in range(2):
+                (tmp_path / "service_late" / f"f{i:03d}{ext}").write_text("x\n")
+
+        create_plan(llm_config, tmp_path)
+
+        prompt = mock_call_llm.call_args[0][1][1]["content"]
+        assert "service_late/f000.py" in prompt
