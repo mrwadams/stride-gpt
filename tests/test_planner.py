@@ -147,6 +147,29 @@ class TestDiverseKeyFiles:
         assert web_count == 144
         assert workshop_count == 56
 
+    def test_round_robins_when_the_subsystem_boundary_is_one_level_up(self):
+        # PR #178 review, second round: grouping by a fixed depth just
+        # relocates the #178 failure to whatever depth the real subsystem
+        # boundary is not at. 250 directories nested one level under `web/`
+        # must not starve a sibling `workshop/` directory that never nests
+        # at all, pinning the fix at depth 1 as well as depth 2.
+        web = [f"web/pkg{i:03d}/index.js" for i in range(250)]
+        workshop = [f"workshop/f{i:03d}.py" for i in range(56)]
+        sample = _diverse_key_files(web + workshop, 200)
+        web_count = sum(1 for f in sample if f.startswith("web/"))
+        workshop_count = sum(1 for f in sample if f.startswith("workshop/"))
+        assert len(sample) == 200
+        assert web_count == 144
+        assert workshop_count == 56
+
+    def test_round_robins_root_level_files_against_a_nested_tree(self):
+        web = [f"a{i:03d}.py" for i in range(100)]
+        workshop = [f"nested/deep/tree/b{i:03d}.py" for i in range(100)]
+        sample = _diverse_key_files(web + workshop, 200)
+        assert len(sample) == 200
+        assert sum(1 for f in sample if "/" not in f) == 100
+        assert sum(1 for f in sample if f.startswith("nested/")) == 100
+
 
 # ---------------------------------------------------------------------------
 # create_plan key-file coverage (issue #175)

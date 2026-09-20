@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import deque
 from pathlib import Path
 
 from stride_gpt.agent.tools import list_directory, search_files
@@ -18,6 +19,9 @@ KEY_PATTERNS = [
     "go.mod", "package.json", "requirements.txt", "Cargo.toml", "pom.xml",
     "*.proto", "*.graphql", "*.sql",
 ]
+
+# Cap on how many of the discovered key files get shown to the planner LLM.
+KEY_FILE_SAMPLE_LIMIT = 200
 
 PLANNER_SYSTEM_PROMPT = """You are a security architect planning a STRIDE threat model analysis of a codebase.
 
@@ -61,59 +65,56 @@ Be specific about which files to examine. Prioritize subsystems that handle:
 5. Infrastructure and deployment"""
 
 
-def _round_robin(queues: list[list[str]]) -> list[str]:
-    """Interleave ``queues`` fairly: one item from each non-empty queue per round.
+def _tree_round_robin(files: list[str]) -> list[str]:
+    """Interleave ``files`` fairly across every level of their directory tree.
 
-    Consumes ``queues`` in place and returns every item, in round-robin
-    order, with no cutoff; callers that need a cap apply it to the result.
+    A flat alphabetical slice privileges early-sorting directories and can
+    drop a whole subsystem's files past a later cutoff (issue #175: on
+    OWASP crAPI, ``services/web`` and ``services/workshop`` sorted last and
+    received zero file-level signal). A single round-robin pass over leaf
+    directories fixes that but starves a subsystem with many nested leaf
+    directories, because the first pass through them consumes the whole
+    budget before a sibling subsystem's leaf directories are ever reached.
+    Grouping by a fixed depth (the first one or two path components) before
+    round-robining just relocates the same failure to whatever depth the
+    real subsystem boundary happens not to be at (issue #178 review: 250
+    directories nested under ``web/pkg*`` still starved a flat sibling
+    ``workshop/`` directory, one level up from the original report).
+
+    Round-robin the whole path tree recursively instead: at each directory
+    level, give every child (a subdirectory, or the files sitting directly
+    in this directory) one turn before any child gets a second, and recurse
+    into a child's own children only once it is that child's turn. This
+    bounds the group count that must all get a turn in the same pass to the
+    branching factor at that level, at any depth, rather than to the total
+    number of leaf directories.
     """
-    result: list[str] = []
-    while any(queues):
-        result.extend(queue.pop(0) for queue in queues if queue)
-    return result
+    root: dict = {}
+    for f in files:
+        node = root
+        for part in Path(f).parts[:-1]:
+            node = node.setdefault(part, {})
+        node.setdefault(None, []).append(f)
+
+    def walk(node: dict) -> list[str]:
+        streams: deque[deque[str]] = deque()
+        if None in node:
+            streams.append(deque(sorted(node[None])))
+        for name in sorted(k for k in node if k is not None):
+            streams.append(deque(walk(node[name])))
+        result: list[str] = []
+        while any(streams):
+            result.extend(s.popleft() for s in streams if s)
+        return result
+
+    return walk(root)
 
 
 def _diverse_key_files(files: list[str], limit: int) -> list[str]:
-    """Cap ``files`` at ``limit`` while representing every directory.
-
-    A flat alphabetical slice privileges early-sorting directories and can
-    drop a whole subsystem's files past the cutoff (issue #175: on OWASP
-    crAPI, ``services/web`` and ``services/workshop`` sorted last and
-    received zero file-level signal). Round-robin across each file's
-    containing directory instead, so every directory contributes before any
-    directory repeats.
-
-    A single round-robin pass over every leaf directory still starves whole
-    subsystems once there are more leaf directories than ``limit``: the
-    first pass through them consumes the entire budget before a
-    later-sorting subsystem's leaf directories are ever reached (issue
-    #178: 250 nested ``services/web/src/mod*`` directories left the sibling
-    ``services/workshop`` directory with zero files, even though it is a
-    small, shallow subsystem of its own). Group leaf directories by their
-    top-level (first one or two path components) directory first, and
-    round-robin across those groups before round-robining the leaf
-    directories within each one, so a subsystem with many nested
-    directories cannot exhaust the budget before a sibling top-level
-    directory gets its share.
-    """
+    """Cap ``files`` at ``limit`` while representing every directory, at any depth."""
     if len(files) <= limit:
         return files
-
-    leaf_queues: dict[str, list[str]] = {}
-    for f in files:
-        leaf_queues.setdefault(str(Path(f).parent), []).append(f)
-
-    top_groups: dict[str, list[list[str]]] = {}
-    for d in sorted(leaf_queues):
-        parts = Path(d).parts
-        top = "/".join(parts[:2]) if len(parts) >= 2 else (parts[0] if parts else d)
-        top_groups.setdefault(top, []).append(leaf_queues[d])
-
-    # Flatten each top-level group into its own fair leaf-directory
-    # ordering first, then round-robin across the (far fewer) groups.
-    group_queues = [_round_robin(top_groups[t]) for t in sorted(top_groups)]
-    sample = _round_robin(group_queues)[:limit]
-    return sorted(sample)
+    return sorted(_tree_round_robin(files)[:limit])
 
 
 def create_plan(
@@ -129,14 +130,22 @@ def create_plan(
 
     # Deduplicate and sort
     key_files = sorted(set(key_files))
-    key_files_shown = _diverse_key_files(key_files, 200)
+    key_files_shown = _diverse_key_files(key_files, KEY_FILE_SAMPLE_LIMIT)
+
+    if len(key_files_shown) < len(key_files):
+        key_files_heading = (
+            f"## Key Files Found ({len(key_files)} files, "
+            f"showing a {len(key_files_shown)}-file sample across all directories)"
+        )
+    else:
+        key_files_heading = f"## Key Files Found ({len(key_files)} files)"
 
     discovery_prompt = f"""Analyze this codebase structure and identify subsystems for STRIDE threat modeling.
 
 ## Directory Structure
 {dir_listing}
 
-## Key Files Found ({len(key_files)} files)
+{key_files_heading}
 {chr(10).join(key_files_shown)}"""
 
     json_config = config.model_copy(update={"response_format": AnalysisPlan.model_json_schema()})
