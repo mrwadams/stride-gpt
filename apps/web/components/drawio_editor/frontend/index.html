@@ -6,40 +6,44 @@
   <title>draw.io Editor</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fff; }
+    /* Xplor brand palette. This iframe renders outside the Streamlit theme,
+       so the colours are set here rather than inherited. */
+    body { font-family: Roboto, Aptos, "Segoe UI", system-ui, sans-serif; background: #fff; }
 
     #toolbar {
       display: flex;
       align-items: center;
       gap: 8px;
       padding: 8px 12px;
-      background: #f0f2f6;
-      border-bottom: 1px solid #d0d3da;
+      background: #F1F6FA;            /* Light Grey - Tint 2 */
+      border-bottom: 1px solid #CCD4DA; /* Light Grey - Shade */
     }
 
     .btn {
       padding: 5px 16px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
+      border-radius: 999px;
+      border: 1px solid #CCD4DA;      /* Light Grey - Shade */
       cursor: pointer;
       font-size: 13px;
-      font-family: inherit;
+      font-family: Poppins, Aptos, "Segoe UI", system-ui, sans-serif;
+      font-weight: 600;
       background: #fff;
+      color: #282F35;                 /* Darkest Grey */
       transition: background 0.1s;
     }
-    .btn:hover { background: #e8eaf0; }
+    .btn:hover { background: #EAF0F4; } /* Light Grey - Tint 1 */
 
     .btn-primary {
-      background: #ff4b4b;
+      background: #6923F4;            /* Purple */
       color: #fff;
-      border-color: #c83030;
+      border-color: #6923F4;
     }
-    .btn-primary:hover { background: #d93030; }
+    .btn-primary:hover { background: #401F9F; } /* Purple - Shade */
 
     #status {
       margin-left: auto;
       font-size: 12px;
-      color: #6c757d;
+      color: #545D63;                 /* Dark Grey */
       white-space: nowrap;
     }
 

@@ -1,9 +1,51 @@
 [browser]
 gatherUsageStats = false
 
+# Xplor brand theme.
+#
+# Colours come from the Xplor visual identity. The palette's stated weighting
+# is White -> Light Grey Tint 2 -> Purple -> Teal -> Lime -> Darkest Grey, so
+# light is the default; users switch to dark from the app menu (Settings ->
+# Appearance), which picks up [theme.dark] below.
+#
+# Fonts are Poppins (headings) and Roboto (body) per the guidelines, with
+# Aptos as the documented Microsoft fallback. The families are loaded from
+# Google Fonts by inject_brand_styles() in apps/web/main.py; if that request
+# is blocked (offline or air-gapped), the stacks below fall back to Aptos and
+# then the platform sans-serif, so the app stays legible either way.
 [theme]
-primaryColor="#1cb3e0"
-backgroundColor="#222f3b"
-secondaryBackgroundColor="#344758"
-textColor="#d2d2d6"
-font="sans serif"
+base = "light"
+
+font = '"Roboto", "Aptos", "Segoe UI", system-ui, sans-serif'
+headingFont = '"Poppins", "Aptos", "Segoe UI", system-ui, sans-serif'
+headingFontWeights = [700, 700, 700, 600, 600, 600]
+
+# Pill buttons and softened panels echo the brand's circle motif.
+baseRadius = "medium"
+buttonRadius = "full"
+
+[theme.light]
+backgroundColor = "#FFFFFF"           # White
+secondaryBackgroundColor = "#F1F6FA"  # Light Grey - Tint 2
+textColor = "#282F35"                 # Darkest Grey
+primaryColor = "#6923F4"              # Purple
+linkColor = "#401F9F"                 # Purple - Shade (raises contrast on white)
+borderColor = "#CCD4DA"               # Light Grey - Shade
+
+[theme.light.sidebar]
+backgroundColor = "#F1F6FA"           # Light Grey - Tint 2
+secondaryBackgroundColor = "#EAF0F4"  # Light Grey - Tint 1
+borderColor = "#CCD4DA"               # Light Grey - Shade
+
+[theme.dark]
+backgroundColor = "#282F35"           # Darkest Grey
+secondaryBackgroundColor = "#353D45"  # derived: Darkest Grey lifted one step
+textColor = "#E3EAEF"                 # Light Grey
+primaryColor = "#8C85FF"              # Purple - Tint 1 (Purple is too dark here)
+linkColor = "#BABEFC"                 # Purple - Tint 2
+borderColor = "#545D63"               # Dark Grey
+
+[theme.dark.sidebar]
+backgroundColor = "#222930"           # derived: Darkest Grey dropped one step
+secondaryBackgroundColor = "#353D45"  # derived: matches the main surface
+borderColor = "#545D63"               # Dark Grey

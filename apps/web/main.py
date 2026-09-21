@@ -30,6 +30,12 @@ from attack_tree import (
     get_attack_tree_lm_studio,
     get_attack_tree_mistral,
 )
+from branding import (
+    APP_NAME,
+    inject_brand_styles,
+    render_sidebar_logo,
+    render_upstream_credit,
+)
 from components.drawio_editor import drawio_editor_component
 from dfd import (
     get_dfd_anthropic,
@@ -908,11 +914,13 @@ from stride_gpt.models import PROVIDERS as _PROVIDERS
 from stride_gpt.models import get_model, get_models_for_provider
 
 st.set_page_config(
-    page_title="STRIDE GPT",
+    page_title=APP_NAME,
     page_icon=":shield:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+inject_brand_styles()
 
 
 # Define callback for model provider change
@@ -951,10 +959,10 @@ def on_model_selection_change():
 
 # ------------------ Sidebar ------------------ #
 
-st.sidebar.image("stride-gpt-logo.png", width=250)
+render_sidebar_logo()
 
 # Add instructions on how to use the app to the sidebar
-st.sidebar.header("How to use STRIDE GPT")
+st.sidebar.header(f"How to use {APP_NAME}")
 
 with st.sidebar:
     # Add model selection input field to the sidebar
@@ -1097,37 +1105,6 @@ with st.sidebar:
         # Store the token limit in session state
         st.session_state["token_limit"] = token_limit
 
-    st.markdown("---")
-
-    # Add "About" section to the sidebar
-    st.header("About")
-
-    st.markdown(
-        "Welcome to STRIDE GPT, an AI-powered tool designed to help teams produce better threat models for their applications."
-    )
-    st.markdown(
-        "Threat modelling is a key activity in the software development lifecycle, but is often overlooked or poorly executed. STRIDE GPT aims to help teams produce more comprehensive threat models by leveraging the power of Large Language Models (LLMs) to generate a threat list, attack tree and/or mitigating controls for an application based on the details provided."
-    )
-    st.markdown("Created by [Matt Adams](https://www.linkedin.com/in/matthewrwadams/).")
-    # Add "Star on GitHub" link to the sidebar
-    st.markdown(
-        "⭐ Star on GitHub: [![Star on GitHub](https://img.shields.io/github/stars/mrwadams/stride-gpt?style=social)](https://github.com/mrwadams/stride-gpt)"
-    )
-
-    # Donate button - smaller version
-    st.markdown(
-        """
-        <div style="text-align: center; margin: 10px 0;">
-            <a href="https://buymeacoffee.com/mrwadams" target="_blank">
-                <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png"
-                     alt="Buy Me A Coffee"
-                     style="height: 35px !important; width: 127px !important;">
-            </a>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     st.markdown("""---""")
 
 
@@ -1135,7 +1112,7 @@ with st.sidebar:
 st.sidebar.header("Example Application Description")
 
 with st.sidebar:
-    st.markdown("Below is an example application description that you can use to test STRIDE GPT:")
+    st.markdown("Here's an example application description you can use to try the tool:")
     st.markdown(
         "> A web application that allows users to create, store, and share personal notes. The application is built using the React frontend framework and a Node.js backend with a MongoDB database. Users can sign up for an account and log in using OAuth2 with Google or Facebook. The notes are encrypted at rest and are only accessible by the user who created them. The application also supports real-time collaboration on notes with other users."
     )
@@ -1153,14 +1130,16 @@ with st.sidebar:
     )
     st.markdown(
         """
-    ### **How does STRIDE GPT work?**
-    When you enter an application description and other relevant details, the tool uses advanced AI models from multiple providers (OpenAI, Anthropic, Google, Mistral, LM Studio, and Groq) to generate a threat model for your application. The selected model analyzes the application description and details to generate a list of potential threats and then categorises each threat according to the STRIDE methodology.
+    ### **How does it work?**
+    You describe your application, and the model you've selected analyses that description to produce a list of potential threats, each categorised against STRIDE. You choose the provider — OpenAI, Anthropic, Google, Mistral, DeepSeek, Groq, or a local LM Studio server.
     """
     )
     st.markdown(
         """
-    ### **Do you store the application details provided?**
-    No, STRIDE GPT does not store your application description or other details. All entered data is deleted after you close the browser tab.
+    ### **What happens to the details I enter?**
+    This app doesn't store them. Everything you enter lives in your browser session and is gone when you close the tab.
+
+    It is sent to the model provider you select, though — that's how the analysis happens. Check that provider's terms and your own data classification before you paste in anything sensitive.
     """
     )
     st.markdown(
@@ -1180,16 +1159,20 @@ with st.sidebar:
     )
     st.markdown(
         """
-    ### **Are the threat models 100% accurate?**
-    No, the threat models are not 100% accurate. STRIDE GPT uses various Large Language Models (LLMs) from multiple AI providers to generate its output. While these models are powerful, they can sometimes make mistakes and are prone to 'hallucinations' (generating irrelevant or inaccurate content). Please use the output only as a starting point for identifying and addressing potential security risks in your applications.
+    ### **Are the threat models accurate?**
+    Not reliably, no. The output comes from large language models (LLMs), which can make mistakes and invent plausible-sounding detail that isn't true. Treat every run as a starting point for a human review, not a finished threat model.
     """
     )
     st.markdown(
         """
-    ### **How can I improve the accuracy of the threat models?**
-    You can improve the accuracy of the threat models by providing a detailed description of the application and selecting the correct application type, authentication methods, and other relevant details. The more information you provide, the more accurate the threat models will be.
+    ### **How do I get better results?**
+    Give it more to work with. A detailed application description, the right application type, and accurate authentication and data-sensitivity settings all sharpen the output.
     """
     )
+
+    st.markdown("""---""")
+
+    render_upstream_credit()
 
 
 # ------------------ Provider API keys (module scope) ------------------ #
@@ -1764,7 +1747,7 @@ with dfd_tab:
 A Data Flow Diagram (DFD) makes the system under analysis legible: it names every external entity,
 process, and data store, and shows the data flows between them. Crucially, it lets you mark
 **trust boundaries** — the lines a threat must cross to attack the system. DFDs are foundational to
-threat modelling; reviewing one is the cleanest way to confirm STRIDE-GPT has understood your system
+threat modelling; reviewing one is the cleanest way to confirm the model has understood your system
 the same way you have.
 
 Three ways to use this tab:
