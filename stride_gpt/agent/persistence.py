@@ -37,6 +37,7 @@ from stride_gpt.core.schemas import (
     ModelPair,
     Subsystem,
     SubsystemFinding,
+    TokenUsage,
     count_analysed,
     count_outcomes,
 )
@@ -86,6 +87,13 @@ class RunSummary(BaseModel):
     subsystem_outcomes: dict[str, int] = {}
     llm_calls: int
     tool_calls: int
+    # Token totals for the run. ``token_usage_total.available`` is ``False``
+    # when no response anywhere in the run reported usage — distinct from a
+    # genuine zero. Empty for /quick, which has no phase or subsystem
+    # breakdown.
+    token_usage_total: TokenUsage = TokenUsage()
+    token_usage_by_phase: dict[str, TokenUsage] = {}
+    token_usage_by_subsystem: dict[str, TokenUsage] = {}
 
 
 class RunManifest(BaseModel):
@@ -375,15 +383,29 @@ def build_analyze_manifest(
     llm_calls: int,
     tool_calls: int,
     findings: list[SubsystemFinding],
+    token_usage_by_phase: dict[str, dict[str, int | None]] | None = None,
 ) -> RunManifest:
     """Assemble the manifest for a /analyze run.
 
     Completeness is derived from the findings' outcomes rather than from how
     many findings there are — every planned subsystem gets one now, including
     the ones that crashed or were never started.
+
+    ``token_usage_by_phase`` is the JSON-safe dict from
+    ``report.metadata["token_usage"]["by_phase"]`` — plain
+    ``{"prompt_tokens": ..., "completion_tokens": ...}`` dicts, reconstructed
+    into ``TokenUsage`` here. Per-subsystem totals come straight off
+    ``findings`` rather than a separate parameter — each finding already
+    carries its own.
     """
     subsystems_planned = len(plan.subsystems)
     subsystems_analyzed = count_analysed(findings)
+    by_phase = {
+        name: TokenUsage(**usage) for name, usage in (token_usage_by_phase or {}).items()
+    }
+    token_usage_total = TokenUsage()
+    for usage in by_phase.values():
+        token_usage_total.merge(usage)
     run_summary = RunSummary(
         status="partial" if subsystems_analyzed < subsystems_planned else "completed",
         subsystems_planned=subsystems_planned,
@@ -391,6 +413,9 @@ def build_analyze_manifest(
         subsystem_outcomes=count_outcomes(findings),
         llm_calls=llm_calls,
         tool_calls=tool_calls,
+        token_usage_total=token_usage_total,
+        token_usage_by_phase=by_phase,
+        token_usage_by_subsystem={f.subsystem: f.token_usage for f in findings},
     )
     return RunManifest(
         stride_gpt_version=_stride_gpt_version(),

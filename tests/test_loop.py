@@ -562,7 +562,7 @@ class TestAnalyzeSubsystemToolHandling:
         call must return the file again, not point at a message that's gone."""
         ctx = MagicMock()
         ctx.needs_compression.side_effect = [True, False]
-        ctx.compress.side_effect = lambda _cfg, msgs: [
+        ctx.compress.side_effect = lambda _cfg, msgs, **_kwargs: [
             msgs[0], {"role": "user", "content": "task + summary"},
         ]
 
@@ -577,7 +577,7 @@ class TestAnalyzeSubsystemToolHandling:
     def test_cache_kept_when_compression_is_a_noop(self, model_pair, sandbox_dir):
         ctx = MagicMock()
         ctx.needs_compression.side_effect = [True, False]
-        ctx.compress.side_effect = lambda _cfg, msgs: msgs
+        ctx.compress.side_effect = lambda _cfg, msgs, **_kwargs: msgs
 
         fake, _, _ = _run_subsystem(
             model_pair, sandbox_dir,
@@ -1022,6 +1022,168 @@ class TestSubsystemOutcomes:
             )
 
         mock_synth.assert_not_called()
+
+
+class TestTokenBudget:
+    """--max-tokens-budget: stop starting subsystems once used + an estimate
+    for the next one would exceed the budget, keeping headroom for synthesis."""
+
+    def _plan(self, target, *names: str) -> AnalysisPlan:
+        return AnalysisPlan(
+            target_path=str(target),
+            overall_description="app",
+            subsystems=[
+                Subsystem(name=n, description="d", key_files=[], focus_areas=[])
+                for n in names
+            ],
+        )
+
+    def test_unset_budget_never_skips_a_subsystem(self, model_pair, sandbox_dir):
+        """0 (the default) must behave exactly like today: no token-budget
+        skip logic runs, no matter how much usage is reported."""
+        plan = self._plan(sandbox_dir, "One", "Two")
+        progress = MagicMock()
+
+        steps = [
+            call_tools(_finish("f1"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=1_000_000, completion_tokens=1_000_000),
+            call_tools(_finish("f2"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=1_000_000, completion_tokens=1_000_000),
+            reply('{"cross_cutting_threats": []}'),
+            _DFD,
+        ]
+        with ScriptedLLM(steps):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=progress,
+                max_tokens_budget=0,
+            )
+
+        assert [f.outcome for f in report.findings] == ["completed", "completed"]
+        assert "skipped" not in report.metadata["subsystem_outcomes"]
+
+    def test_stops_starting_subsystems_once_the_budget_would_be_exceeded(
+        self, model_pair, sandbox_dir
+    ):
+        """A budget too small for the whole plan skips the rest, but still
+        completes synthesis over what was actually analysed."""
+        from stride_gpt.agent.loop import SYNTHESIS_TOKEN_RESERVE
+
+        plan = self._plan(sandbox_dir, "A", "B", "C")
+        progress = MagicMock()
+
+        # A costs 1000 tokens, B costs 1500. Before B: used=1000, estimate is
+        # the average so far (1000) — projected 21000+reserve. Before C:
+        # used=2500, estimate is now (1000+1500)/2=1250 — projected
+        # 23750+reserve. The budget sits strictly between the two, so B
+        # starts but C never does.
+        projected_before_b = 1000 + 1000 + SYNTHESIS_TOKEN_RESERVE
+        projected_before_c = 2500 + 1250 + SYNTHESIS_TOKEN_RESERVE
+        budget = (projected_before_b + projected_before_c) // 2
+
+        steps = [
+            call_tools(_finish("fa"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=1000, completion_tokens=0),
+            call_tools(_finish("fb"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=1500, completion_tokens=0),
+            reply('{"cross_cutting_threats": []}'),
+            _DFD,
+        ]
+        with ScriptedLLM(steps):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=progress,
+                max_tokens_budget=budget,
+            )
+
+        assert [f.outcome for f in report.findings] == ["completed", "completed", "skipped"]
+        assert report.findings[0].token_usage.total_tokens == 1000
+        assert report.findings[1].token_usage.total_tokens == 1500
+        assert "the run's token budget ran out" in report.findings[2].improvement_suggestions[0]
+        progress.subsystems_skipped.assert_called_once_with(["C"])
+        # Synthesis still ran over the two subsystems that did complete.
+        assert report.data_flow_diagram
+
+    def test_first_subsystem_always_starts_even_under_a_tiny_budget(
+        self, model_pair, sandbox_dir
+    ):
+        """No usage has been reported yet when the first subsystem is about
+        to start, so there's nothing to compare against the budget."""
+        plan = self._plan(sandbox_dir, "Only")
+        with ScriptedLLM([call_tools(_finish("f"), tools=SUBSYSTEM_TOOL_NAMES,
+                                      prompt_tokens=5, completion_tokens=5), _DFD]):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=MagicMock(),
+                max_tokens_budget=1,
+            )
+        assert report.findings[0].outcome == "completed"
+
+    def test_falls_back_to_call_counts_when_usage_is_never_reported(
+        self, model_pair, sandbox_dir
+    ):
+        """A provider that never reports usage must not be read as "spent
+        nothing" — the token budget check is skipped entirely rather than
+        running unbounded, so a huge budget with no call-count cap analyses
+        everything, exactly like before this feature existed."""
+        plan = self._plan(sandbox_dir, "One", "Two", "Three")
+        steps = [
+            call_tools(_finish("f1"), tools=SUBSYSTEM_TOOL_NAMES),
+            call_tools(_finish("f2"), tools=SUBSYSTEM_TOOL_NAMES),
+            call_tools(_finish("f3"), tools=SUBSYSTEM_TOOL_NAMES),
+            reply('{"cross_cutting_threats": []}'),
+            _DFD,
+        ]
+        with ScriptedLLM(steps):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=MagicMock(),
+                max_tokens_budget=1,
+            )
+        assert [f.outcome for f in report.findings] == ["completed"] * 3
+        assert report.metadata["token_usage"]["available"] is False
+
+    def test_manifest_metadata_breaks_usage_down_by_phase_and_subsystem(
+        self, model_pair, sandbox_dir
+    ):
+        plan = self._plan(sandbox_dir, "A", "B")
+        steps = [
+            call_tools(_finish("fa"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=100, completion_tokens=10),
+            call_tools(_finish("fb"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=200, completion_tokens=20),
+            reply('{"cross_cutting_threats": []}', prompt_tokens=50, completion_tokens=5),
+            reply("```mermaid\nflowchart LR\n  A --> B\n```",
+                  prompt_tokens=60, completion_tokens=6),
+        ]
+        with ScriptedLLM(steps):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=MagicMock())
+
+        usage = report.metadata["token_usage"]
+        assert usage["available"] is True
+        assert usage["by_phase"]["exploration"] == {"prompt_tokens": 300, "completion_tokens": 30}
+        assert usage["by_phase"]["synthesis"] == {"prompt_tokens": 50, "completion_tokens": 5}
+        assert usage["by_phase"]["dfd"] == {"prompt_tokens": 60, "completion_tokens": 6}
+        assert usage["total"] == {"prompt_tokens": 410, "completion_tokens": 41}
+        assert report.findings[0].token_usage.total_tokens == 110
+        assert report.findings[1].token_usage.total_tokens == 220
+
+    def test_console_summary_shows_unavailable_with_no_usage(self, model_pair, sandbox_dir):
+        plan = self._plan(sandbox_dir, "A")
+        progress = MagicMock()
+        with ScriptedLLM([call_tools(_finish("f"), tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
+            run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+        summary = progress.complete.call_args.args[0]
+        assert "Token usage: unavailable" in summary
+
+    def test_console_summary_shows_totals_when_usage_is_available(
+        self, model_pair, sandbox_dir
+    ):
+        plan = self._plan(sandbox_dir, "A")
+        progress = MagicMock()
+        with ScriptedLLM([call_tools(_finish("f"), tools=SUBSYSTEM_TOOL_NAMES,
+                                      prompt_tokens=100, completion_tokens=25), _DFD]):
+            run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+        summary = progress.complete.call_args.args[0]
+        assert "Token usage: 125" in summary
+        assert "prompt: 100" in summary
+        assert "completion: 25" in summary
 
 
 class TestGraceRound:

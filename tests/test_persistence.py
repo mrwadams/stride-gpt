@@ -20,6 +20,7 @@ from stride_gpt.core.schemas import (
     LLMConfig,
     ModelPair,
     SubsystemFinding,
+    TokenUsage,
 )
 
 # ---------------------------------------------------------------------------
@@ -397,6 +398,77 @@ def test_build_analyze_manifest_populates_expected_fields(
     # 64-char sha256 hex.
     assert len(manifest.config_hash) == 64
     int(manifest.config_hash, 16)
+
+
+def test_build_analyze_manifest_defaults_to_unavailable_usage(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    """No ``token_usage_by_phase`` given (or no response in the run reported
+    usage) reads as unavailable, not a silent zero."""
+    monkeypatch.chdir(tmp_path)
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=5,
+        tool_calls=12,
+        findings=_findings_for(sample_plan),
+    )
+
+    assert manifest.run_summary.token_usage_total.available is False
+    assert manifest.run_summary.token_usage_total.total_tokens is None
+    assert manifest.run_summary.token_usage_by_phase == {}
+
+
+def test_build_analyze_manifest_records_token_usage_by_phase_and_subsystem(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    monkeypatch.chdir(tmp_path)
+    findings = [
+        SubsystemFinding(
+            subsystem=sample_plan.subsystems[0].name, threats=[],
+            token_usage=TokenUsage(prompt_tokens=100, completion_tokens=10),
+        ),
+        SubsystemFinding(
+            subsystem=sample_plan.subsystems[1].name, threats=[],
+            token_usage=TokenUsage(prompt_tokens=200, completion_tokens=20),
+        ),
+    ]
+
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=5,
+        tool_calls=12,
+        findings=findings,
+        token_usage_by_phase={
+            "exploration": {"prompt_tokens": 300, "completion_tokens": 30},
+            "synthesis": {"prompt_tokens": 50, "completion_tokens": 5},
+            "planning": {"prompt_tokens": None, "completion_tokens": None},
+        },
+    )
+
+    summary = manifest.run_summary
+    assert summary.token_usage_total.available is True
+    assert summary.token_usage_total.prompt_tokens == 350
+    assert summary.token_usage_total.completion_tokens == 35
+    assert summary.token_usage_by_phase["exploration"] == TokenUsage(
+        prompt_tokens=300, completion_tokens=30,
+    )
+    assert summary.token_usage_by_phase["planning"].available is False
+    assert summary.token_usage_by_subsystem[sample_plan.subsystems[0].name].total_tokens == 110
+    assert summary.token_usage_by_subsystem[sample_plan.subsystems[1].name].total_tokens == 220
 
 
 def test_build_analyze_manifest_status_completed_when_all_subsystems_analyzed(

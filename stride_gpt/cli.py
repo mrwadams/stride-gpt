@@ -252,6 +252,7 @@ def _persist_analyze_intermediates(
     from stride_gpt.core.prompts import base_system_prompt
 
     refs = report.metadata.get("references_loaded", []) or []
+    token_usage = report.metadata.get("token_usage") or {}
     manifest = build_analyze_manifest(
         models=models,
         plan=plan,
@@ -264,6 +265,7 @@ def _persist_analyze_intermediates(
         llm_calls=report.metadata.get("llm_calls", 0),
         tool_calls=report.metadata.get("tool_calls", 0),
         findings=report.findings,
+        token_usage_by_phase=token_usage.get("by_phase"),
     )
     written = write_intermediates(
         output,
@@ -729,6 +731,7 @@ def analyze(
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
     max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls across both tiers; a subsystem that hits it gets one final round to report what it found (0 = unlimited).")] = 0,
     max_tool_calls: Annotated[int, typer.Option(help="Max code-exploration calls; reporting a threat doesn't spend it (0 = unlimited).")] = 0,
+    max_tokens_budget: Annotated[int, typer.Option(help="Max total token usage across the run; before each subsystem, stop and record the rest as skipped once used plus an estimate would exceed it, keeping headroom for synthesis. Falls back to the call-count limits above if no provider in the run reports usage (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
 ) -> None:
@@ -738,6 +741,7 @@ def analyze(
     from stride_gpt.agent.planner import format_plan_for_display
     from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
+    from stride_gpt.core.schemas import TokenUsage
 
     models = _build_model_pair(
         worker_model=worker_model,
@@ -774,7 +778,8 @@ def analyze(
     started_at = datetime.now(UTC)
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
-    plan = create_analysis_plan(models, target)
+    planning_usage = TokenUsage()
+    plan = create_analysis_plan(models, target, usage=planning_usage)
 
     # Apply --app-type override, if any.
     if app_type != AppTypeOverride.auto and app_type.value != plan.detected_app_type:
@@ -800,7 +805,9 @@ def analyze(
         plan=plan,
         max_llm_calls=max_llm_calls,
         max_tool_calls=max_tool_calls,
+        max_tokens_budget=max_tokens_budget,
         progress=progress,
+        planning_usage=planning_usage,
     )
     finished_at = datetime.now(UTC)
 

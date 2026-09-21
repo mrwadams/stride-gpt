@@ -148,6 +148,20 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
     return kwargs
 
 
+def _extract_usage(response) -> tuple[int | None, int | None]:
+    """Pull ``(prompt_tokens, completion_tokens)`` off a raw provider response.
+
+    Some providers/backends (local Ollama models via LM Studio, for example)
+    omit ``usage`` entirely. That must read as unknown, not zero — a caller
+    that treated it as zero would think a token budget had nothing spent and
+    run unbounded.
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None, None
+    return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+
+
 def _extract_thinking(config: LLMConfig, response) -> tuple[str | None, str | None]:
     """Extract thinking/reasoning content from a response based on provider."""
     thinking = None
@@ -217,6 +231,7 @@ def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
             content = fallback
 
     thinking, reasoning = _extract_thinking(config, response)
+    prompt_tokens, completion_tokens = _extract_usage(response)
 
     if config.provider == "Groq API":
         reasoning, content = extract_deepseek_reasoning(content)
@@ -226,6 +241,8 @@ def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
         thinking=thinking,
         reasoning=reasoning,
         model=config.model_name,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
     )
 
 
@@ -276,12 +293,15 @@ def _call_litellm_with_tools(
             )
 
     thinking, _ = _extract_thinking(config, response)
+    prompt_tokens, completion_tokens = _extract_usage(response)
 
     return LLMResponse(
         content=content,
         thinking=thinking,
         model=config.model_name,
         tool_calls=tool_calls,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
     )
 
 
@@ -328,7 +348,14 @@ def _call_litellm_with_image(
     response = litellm.completion(messages=messages, **kwargs)
     content = response.choices[0].message.content or ""
     thinking, _ = _extract_thinking(config, response)
-    return LLMResponse(content=content, thinking=thinking, model=config.model_name)
+    prompt_tokens, completion_tokens = _extract_usage(response)
+    return LLMResponse(
+        content=content,
+        thinking=thinking,
+        model=config.model_name,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
 
 
 # ---------------------------------------------------------------------------
