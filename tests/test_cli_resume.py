@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 from stride_gpt import cli
 from stride_gpt.agent.persistence import build_checkpoint, write_checkpoint
 from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, ModelPair, Subsystem, SubsystemFinding
-from tests.fakes import ScriptedLLM, reply
+from tests.fakes import SUBSYSTEM_TOOL_NAMES, ScriptedLLM, reply
 
 runner = CliRunner()
 
@@ -110,3 +110,90 @@ class TestResumeFlag:
         findings = json.loads((tmp_path / "report.findings.json").read_text())
         assert [f["subsystem"] for f in findings["findings"]] == ["Auth"]
         assert findings["findings"][0]["threats"][0]["Threat Type"] == "Spoofing"
+
+
+class TestResumedRunLooksLikeAnUninterruptedOne:
+    """The checkpoint stores redacted paths; the report renders live ones. A
+    resumed run used to hand the redacted copies straight to the report, so
+    reused subsystems printed ``./src/a.py`` beside ``src/a.py`` for re-run
+    ones and ``analyze .`` lost its project name from the title."""
+
+    def test_reused_finding_paths_match_a_fresh_run_s(self, tmp_path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "auth.py").write_text("PASSWORD = 'x'\n")
+        checkpoint_path = tmp_path / "report.checkpoint.json"
+        reused_finding = SubsystemFinding(
+            subsystem="Auth",
+            threats=[{
+                "Threat Type": "Spoofing", "Scenario": "s", "Potential Impact": "i",
+                "evidence": [{"path": "src/auth.py", "snippet": "PASSWORD = 'x'", "verified": True}],
+            }],
+            files_analyzed=["src/auth.py"],
+            outcome="completed",
+        )
+        _write_checkpoint_for(tmp_path, checkpoint_path, findings=[reused_finding])
+        # The stored checkpoint really is redacted — otherwise this test would
+        # pass for the wrong reason.
+        stored = json.loads(checkpoint_path.read_text())
+        assert stored["findings"][0]["files_analyzed"] == ["./src/auth.py"]
+
+        output_path = tmp_path / "report.md"
+        with ScriptedLLM([_DFD]):
+            result = runner.invoke(cli.app, [
+                "analyze", str(tmp_path),
+                "--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-test",
+                "--resume", str(checkpoint_path), "--force",
+                "-o", str(output_path),
+            ])
+
+        assert result.exit_code == 0, result.stdout
+        report = output_path.read_text()
+        assert "`src/auth.py`" in report
+        assert "./src/auth.py" not in report
+        # And the title still names the project, as an uninterrupted run does.
+        assert f"# STRIDE Threat Model: {tmp_path.name}" in report
+
+    def test_unreadable_checkpoint_refuses_instead_of_raising(self, tmp_path):
+        checkpoint_path = tmp_path / "report.checkpoint.json"
+        checkpoint_path.write_text('{"stride_gpt_version": "0.1.0", "plan": {')
+
+        result = runner.invoke(cli.app, [
+            "analyze", str(tmp_path),
+            "--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-test",
+            "--resume", str(checkpoint_path),
+        ])
+        assert result.exit_code == 1
+        assert "Cannot resume" in result.stdout
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
+class TestAppTypeProvenance:
+    def test_explicit_app_type_is_recorded_as_an_override_even_when_it_agrees(self, tmp_path):
+        """``--app-type web`` is the user's choice whether or not the planner
+        would have said ``web`` on its own, and the manifest has to say so."""
+        plan_json = json.dumps({
+            "detected_app_type": "web",
+            "overall_description": "d",
+            "subsystems": [
+                {"name": "Auth", "description": "d", "key_files": [], "focus_areas": []}
+            ],
+        })
+        finding_json = json.dumps({
+            "threats": [], "improvement_suggestions": [], "files_analyzed": [],
+        })
+        output_path = tmp_path / "report.md"
+        with ScriptedLLM([
+            reply(plan_json),
+            reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES),
+            _DFD,
+        ]):
+            result = runner.invoke(cli.app, [
+                "analyze", str(tmp_path),
+                "--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-test",
+                "--app-type", "web", "-y", "-o", str(output_path),
+            ])
+
+        assert result.exit_code == 0, result.stdout
+        manifest = json.loads((tmp_path / "report.run.json").read_text())
+        assert manifest["app_type_source"] == "override:web"
+        assert manifest["detected_app_type"] == "web"

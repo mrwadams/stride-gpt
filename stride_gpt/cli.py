@@ -327,13 +327,22 @@ def _load_and_validate_checkpoint(resume_path: Path, *, target: Path, models: Mo
     ``stride_gpt.agent.persistence.CheckpointValidationError`` if resuming
     from it would be unsound. Callers decide how to report each.
     """
-    from stride_gpt.agent.persistence import load_checkpoint, validate_checkpoint_for_resume
+    from stride_gpt.agent.persistence import (
+        load_checkpoint,
+        restore_checkpoint_paths,
+        validate_checkpoint_for_resume,
+    )
 
     if not resume_path.is_file():
         raise FileNotFoundError(resume_path)
     checkpoint = load_checkpoint(resume_path)
-    validate_checkpoint_for_resume(checkpoint, target=target, models=models, force=force)
-    return checkpoint
+    validate_checkpoint_for_resume(
+        checkpoint, target=target, models=models, force=force,
+        checkpoint_path=resume_path,
+    )
+    # The plan and findings come back redacted; the run reports from them, so
+    # they have to be live paths again before anything downstream sees them.
+    return restore_checkpoint_paths(checkpoint, target=target)
 
 
 def _resolve_analysis_plan(
@@ -361,15 +370,19 @@ def _resolve_analysis_plan(
     progress.status("Scanning codebase and generating plan...")
     plan = create_analysis_plan(models, target)
 
+    # Provenance follows the flag, not whether the flag changed anything: a
+    # classification the user pinned with --app-type is a user's choice even
+    # when the planner reached the same answer on its own.
     app_type_source = "planner"
-    if app_type is not None and app_type != AppTypeOverride.auto and app_type.value != plan.detected_app_type:
-        console.print(
-            f"[dim]Overriding detected type "
-            f"[yellow]{plan.detected_app_type}[/yellow] → "
-            f"[yellow]{app_type.value}[/yellow] (--app-type).[/dim]"
-        )
-        plan = plan.model_copy(update={"detected_app_type": app_type.value})
+    if app_type is not None and app_type != AppTypeOverride.auto:
         app_type_source = f"override:{app_type.value}"
+        if app_type.value != plan.detected_app_type:
+            console.print(
+                f"[dim]Overriding detected type "
+                f"[yellow]{plan.detected_app_type}[/yellow] → "
+                f"[yellow]{app_type.value}[/yellow] (--app-type).[/dim]"
+            )
+            plan = plan.model_copy(update={"detected_app_type": app_type.value})
 
     console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
 

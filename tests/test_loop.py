@@ -369,6 +369,44 @@ class TestResume:
         assert report.metadata["resumed_subsystems"] == ["Auth"]
         progress.limit_reached.assert_not_called()
 
+    def test_reuse_survives_a_budget_spent_on_an_earlier_subsystem(self, model_pair, tmp_path):
+        """A checkpointed subsystem *after* the one that hit the limit used to
+        be recorded as ``skipped`` and checkpointed as such, destroying the
+        findings the resume existed to keep. Reuse is free, so the budget has
+        no say in it wherever it sits in the plan."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name="Auth", description="Auth", key_files=[], focus_areas=[]),
+                Subsystem(name="API", description="API", key_files=[], focus_areas=[]),
+            ],
+        )
+        reused_finding = SubsystemFinding(
+            subsystem="API", threats=[{"Threat Type": "Tampering"}], outcome="completed",
+        )
+
+        checkpoints: list[list[SubsystemFinding]] = []
+        progress = MagicMock()
+        with ScriptedLLM([_DFD]):
+            report = run_analysis(
+                model_pair, tmp_path, plan=plan, progress=progress,
+                max_llm_calls=1,
+                resume_findings={"API": reused_finding},
+                on_checkpoint=lambda fs: checkpoints.append(list(fs)),
+            )
+
+        # Auth had no checkpointed result and no budget left, so it is skipped;
+        # API is handed back untouched, in plan order.
+        assert [f.subsystem for f in report.findings] == ["Auth", "API"]
+        assert report.findings[0].outcome == "skipped"
+        assert report.findings[1] is reused_finding
+        assert report.metadata["resumed_subsystems"] == ["API"]
+        # Only the genuinely lost subsystem is announced as skipped.
+        progress.subsystems_skipped.assert_called_once_with(["Auth"])
+        # And what got written back to the checkpoint kept API's findings.
+        assert checkpoints[-1][1] is reused_finding
+
     def test_non_resumed_run_has_empty_resumed_list_and_full_rerun_list(self, model_pair, tmp_path):
         plan = AnalysisPlan(
             target_path=str(tmp_path),

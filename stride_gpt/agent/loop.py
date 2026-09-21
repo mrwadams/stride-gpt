@@ -208,13 +208,19 @@ def run_analysis(
         # the plan.
         if max_llm_calls and llm_calls >= max_llm_calls - 1:
             progress.limit_reached("LLM call", llm_calls, max_llm_calls)
-            findings.extend(_skip_remaining(plan.subsystems[i - 1:], "LLM call", progress))
+            findings.extend(_stop_remaining(
+                plan.subsystems[i - 1:], "LLM call", progress,
+                resume_findings=resume_findings, resumed_names=resumed_names,
+            ))
             if on_checkpoint:
                 on_checkpoint(findings)
             break
         if max_tool_calls and explore_calls >= max_tool_calls:
             progress.limit_reached("tool call", explore_calls, max_tool_calls)
-            findings.extend(_skip_remaining(plan.subsystems[i - 1:], "tool call", progress))
+            findings.extend(_stop_remaining(
+                plan.subsystems[i - 1:], "tool call", progress,
+                resume_findings=resume_findings, resumed_names=resumed_names,
+            ))
             if on_checkpoint:
                 on_checkpoint(findings)
             break
@@ -371,6 +377,46 @@ def _skip_remaining(
         )
         for s in subsystems
     ]
+
+
+def _stop_remaining(
+    subsystems: list[Subsystem],
+    kind: str,
+    progress: ProgressCallback,
+    *,
+    resume_findings: dict[str, SubsystemFinding] | None,
+    resumed_names: list[str],
+) -> list[SubsystemFinding]:
+    """Close out the subsystems a spent budget stopped, keeping the free ones.
+
+    A subsystem the checkpoint already completed costs nothing to reuse, which
+    is why the loop's reuse branch sits above the budget checks. The budget
+    checks break out of the loop, though, so any reusable subsystem *after*
+    the one that hit the limit never reached that branch: it was recorded as
+    ``skipped`` and the checkpoint was rewritten with the placeholder, which
+    destroyed the very findings ``--resume`` exists to keep. They are reused
+    here instead, in plan order, and only the rest are skipped.
+    """
+    note = f"Analysis skipped — the run's {kind} budget ran out before this subsystem."
+    out: list[SubsystemFinding] = []
+    skipped: list[str] = []
+    for sub in subsystems:
+        if resume_findings and sub.name in resume_findings:
+            out.append(resume_findings[sub.name])
+            resumed_names.append(sub.name)
+            continue
+        out.append(
+            SubsystemFinding(
+                subsystem=sub.name,
+                threats=[],
+                improvement_suggestions=[note],
+                outcome="skipped",
+            )
+        )
+        skipped.append(sub.name)
+    if skipped:
+        progress.subsystems_skipped(skipped)
+    return out
 
 
 def _build_metadata(

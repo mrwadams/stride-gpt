@@ -15,10 +15,11 @@ from stride_gpt.agent.persistence import (
     compute_checkpoint_config_hash,
     is_git_dirty,
     load_checkpoint,
+    restore_checkpoint_paths,
     validate_checkpoint_for_resume,
     write_checkpoint,
 )
-from stride_gpt.core.schemas import LLMConfig, ModelPair, SubsystemFinding
+from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, ModelPair, Subsystem, SubsystemFinding
 
 # ---------------------------------------------------------------------------
 # compute_checkpoint_config_hash
@@ -188,7 +189,7 @@ class TestValidateCheckpointForResume:
         self, tmp_path, monkeypatch, sample_plan, model_pair
     ):
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: "sha1")
-        monkeypatch.setattr(persistence, "is_git_dirty", lambda target: False)
+        monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: False)
         checkpoint = _checkpoint(
             target_git_sha="sha1",
             config_hash=compute_checkpoint_config_hash(model_pair),
@@ -199,7 +200,7 @@ class TestValidateCheckpointForResume:
 
     def test_sha_changed_refuses_even_with_force(self, tmp_path, monkeypatch, sample_plan, model_pair):
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: "sha-new")
-        monkeypatch.setattr(persistence, "is_git_dirty", lambda target: False)
+        monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: False)
         checkpoint = _checkpoint(
             target_git_sha="sha-old",
             config_hash=compute_checkpoint_config_hash(model_pair),
@@ -213,7 +214,7 @@ class TestValidateCheckpointForResume:
         self, tmp_path, monkeypatch, sample_plan, model_pair
     ):
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: "sha1")
-        monkeypatch.setattr(persistence, "is_git_dirty", lambda target: False)
+        monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: False)
         different_model_pair = _pair("a-different-model")
         checkpoint = _checkpoint(
             target_git_sha="sha1",
@@ -226,7 +227,7 @@ class TestValidateCheckpointForResume:
 
     def test_missing_git_sha_refuses_without_force(self, tmp_path, monkeypatch, sample_plan, model_pair):
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: None)
-        monkeypatch.setattr(persistence, "is_git_dirty", lambda target: False)
+        monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: False)
         checkpoint = _checkpoint(
             target_git_sha=None,
             config_hash=compute_checkpoint_config_hash(model_pair),
@@ -237,7 +238,7 @@ class TestValidateCheckpointForResume:
 
     def test_missing_git_sha_passes_with_force(self, tmp_path, monkeypatch, sample_plan, model_pair):
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: None)
-        monkeypatch.setattr(persistence, "is_git_dirty", lambda target: False)
+        monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: False)
         checkpoint = _checkpoint(
             target_git_sha=None,
             config_hash=compute_checkpoint_config_hash(model_pair),
@@ -247,7 +248,7 @@ class TestValidateCheckpointForResume:
 
     def test_dirty_tree_refuses_without_force(self, tmp_path, monkeypatch, sample_plan, model_pair):
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: "sha1")
-        monkeypatch.setattr(persistence, "is_git_dirty", lambda target: True)
+        monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: True)
         checkpoint = _checkpoint(
             target_git_sha="sha1",
             config_hash=compute_checkpoint_config_hash(model_pair),
@@ -258,7 +259,7 @@ class TestValidateCheckpointForResume:
 
     def test_dirty_tree_passes_with_force(self, tmp_path, monkeypatch, sample_plan, model_pair):
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: "sha1")
-        monkeypatch.setattr(persistence, "is_git_dirty", lambda target: True)
+        monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: True)
         checkpoint = _checkpoint(
             target_git_sha="sha1",
             config_hash=compute_checkpoint_config_hash(model_pair),
@@ -303,3 +304,128 @@ class TestIsGitDirty:
 
         monkeypatch.setattr(persistence.subprocess, "run", lambda *a, **k: _Result())
         assert is_git_dirty(tmp_path) is True
+
+
+# ---------------------------------------------------------------------------
+# load_checkpoint — an unreadable checkpoint refuses, it doesn't crash
+# ---------------------------------------------------------------------------
+
+
+class TestLoadCheckpointRejectsBadInput:
+    """A run killed mid-write is the normal way to meet a bad checkpoint, so
+    "cannot resume" has to come back as a refusal. An unhandled
+    JSONDecodeError takes the interactive session down with it."""
+
+    def test_truncated_json_refuses(self, tmp_path):
+        path = tmp_path / "report.checkpoint.json"
+        path.write_text('{"stride_gpt_version": "0.1.0", "plan": {')
+        with pytest.raises(CheckpointValidationError, match="could not be read as JSON"):
+            load_checkpoint(path)
+
+    def test_valid_json_wrong_shape_refuses(self, tmp_path):
+        path = tmp_path / "report.checkpoint.json"
+        path.write_text('{"stride_gpt_version": "0.1.0"}')
+        with pytest.raises(CheckpointValidationError, match="not a checkpoint this version can read"):
+            load_checkpoint(path)
+
+    def test_not_a_json_object_refuses(self, tmp_path):
+        path = tmp_path / "report.checkpoint.json"
+        path.write_text("[1, 2, 3]")
+        with pytest.raises(CheckpointValidationError):
+            load_checkpoint(path)
+
+
+# ---------------------------------------------------------------------------
+# restore_checkpoint_paths — redaction is undone before the run reports from it
+# ---------------------------------------------------------------------------
+
+
+class TestRestoreCheckpointPaths:
+    def _checkpoint_with_paths(self, tmp_path, monkeypatch, model_pair):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(persistence, "discover_git_sha", lambda target: "abc123")
+        plan = AnalysisPlan(
+            target_path=str(tmp_path / "app"),
+            overall_description="d",
+            subsystems=[
+                Subsystem(name="Auth", description="d", key_files=["app/auth.py"], focus_areas=[])
+            ],
+        )
+        finding = SubsystemFinding(
+            subsystem="Auth",
+            threats=[{
+                "Threat Type": "Spoofing",
+                "Scenario": "s",
+                "evidence": [{"path": "app/auth.py", "snippet": "x", "verified": True}],
+            }],
+            files_analyzed=["app/auth.py"],
+            outcome="completed",
+        )
+        return build_checkpoint(
+            plan=plan,
+            findings=[finding],
+            target=tmp_path / "app",
+            models=model_pair,
+            app_type_source="planner",
+            started_at=datetime.now(UTC),
+        )
+
+    def test_redaction_is_visible_in_the_stored_checkpoint(self, tmp_path, monkeypatch, model_pair):
+        checkpoint = self._checkpoint_with_paths(tmp_path, monkeypatch, model_pair)
+        assert checkpoint.findings[0].files_analyzed == ["./app/auth.py"]
+        assert checkpoint.plan.subsystems[0].key_files == ["./app/auth.py"]
+        assert checkpoint.plan.target_path == "./app"
+
+    def test_restore_gives_back_the_report_s_own_path_form(self, tmp_path, monkeypatch, model_pair):
+        checkpoint = self._checkpoint_with_paths(tmp_path, monkeypatch, model_pair)
+        restored = restore_checkpoint_paths(checkpoint, target=tmp_path / "app")
+
+        # Exactly what an uninterrupted run holds in memory: no "./" prefix,
+        # and a target path the report can take a project name from.
+        assert restored.findings[0].files_analyzed == ["app/auth.py"]
+        assert restored.findings[0].threats[0]["evidence"][0]["path"] == "app/auth.py"
+        assert restored.plan.subsystems[0].key_files == ["app/auth.py"]
+        assert restored.plan.target_path == str(tmp_path / "app")
+
+    def test_restore_leaves_the_stored_checkpoint_alone(self, tmp_path, monkeypatch, model_pair):
+        checkpoint = self._checkpoint_with_paths(tmp_path, monkeypatch, model_pair)
+        restore_checkpoint_paths(checkpoint, target=tmp_path / "app")
+        assert checkpoint.findings[0].files_analyzed == ["./app/auth.py"]
+        assert checkpoint.findings[0].threats[0]["evidence"][0]["path"] == "./app/auth.py"
+
+
+# ---------------------------------------------------------------------------
+# is_git_dirty — the run's own checkpoint is not a change to the code
+# ---------------------------------------------------------------------------
+
+
+class TestIsGitDirtyIgnoresTheCheckpoint:
+    """``analyze . -o report.md`` writes the checkpoint inside the repository
+    it is analysing. Counting it as a working-tree change means the file that
+    makes resume possible is the file that makes resume refuse."""
+
+    def _stub_git(self, monkeypatch, tmp_path, porcelain):
+        def _run(cmd, **kwargs):
+            class _Result:
+                returncode = 0
+                stdout = str(tmp_path) + "\n" if "--show-toplevel" in cmd else porcelain
+
+            return _Result()
+
+        monkeypatch.setattr(persistence.subprocess, "run", _run)
+
+    def test_only_the_checkpoint_untracked_is_not_dirty(self, tmp_path, monkeypatch):
+        self._stub_git(monkeypatch, tmp_path, "?? report.checkpoint.json\n")
+        assert is_git_dirty(tmp_path, ignore=tmp_path / "report.checkpoint.json") is False
+
+    def test_a_real_change_beside_the_checkpoint_is_still_dirty(self, tmp_path, monkeypatch):
+        self._stub_git(monkeypatch, tmp_path, "?? report.checkpoint.json\n M src/auth.py\n")
+        assert is_git_dirty(tmp_path, ignore=tmp_path / "report.checkpoint.json") is True
+
+    def test_without_ignore_the_checkpoint_still_counts(self, tmp_path, monkeypatch):
+        self._stub_git(monkeypatch, tmp_path, "?? report.checkpoint.json\n")
+        assert is_git_dirty(tmp_path) is True
+
+    def test_a_checkpoint_outside_the_repo_changes_nothing(self, tmp_path, monkeypatch):
+        self._stub_git(monkeypatch, tmp_path, " M src/auth.py\n")
+        assert is_git_dirty(tmp_path, ignore=tmp_path.parent / "elsewhere.checkpoint.json") is True
