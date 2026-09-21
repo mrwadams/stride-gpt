@@ -25,7 +25,7 @@ import hashlib
 import json
 import os
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -86,6 +86,10 @@ class RunSummary(BaseModel):
     subsystem_outcomes: dict[str, int] = {}
     llm_calls: int
     tool_calls: int
+    # Names of subsystems reused from a checkpoint (``--resume``) versus
+    # analysed fresh this run. Both empty for a run that didn't resume.
+    resumed_subsystems: list[str] = []
+    rerun_subsystems: list[str] = []
 
 
 class RunManifest(BaseModel):
@@ -342,6 +346,16 @@ def write_intermediates(
     return written
 
 
+def checkpoint_path_for(output: Path) -> Path:
+    """Where a run's checkpoint lives, given its ``-o`` output path.
+
+    Mirrors ``write_intermediates``'s sibling-file convention — the
+    checkpoint sits alongside the ``.plan.json`` / ``.findings.json`` /
+    ``.run.json`` siblings.
+    """
+    return _sibling_stem(output).with_suffix(".checkpoint.json")
+
+
 # ---------------------------------------------------------------------------
 # Manifest assembly helpers
 # ---------------------------------------------------------------------------
@@ -375,6 +389,8 @@ def build_analyze_manifest(
     llm_calls: int,
     tool_calls: int,
     findings: list[SubsystemFinding],
+    resumed_subsystems: list[str] | None = None,
+    rerun_subsystems: list[str] | None = None,
 ) -> RunManifest:
     """Assemble the manifest for a /analyze run.
 
@@ -391,6 +407,8 @@ def build_analyze_manifest(
         subsystem_outcomes=count_outcomes(findings),
         llm_calls=llm_calls,
         tool_calls=tool_calls,
+        resumed_subsystems=resumed_subsystems or [],
+        rerun_subsystems=rerun_subsystems or [],
     )
     return RunManifest(
         stride_gpt_version=_stride_gpt_version(),
@@ -464,3 +482,171 @@ def build_quick_manifest(
         run_summary=run_summary,
         mode="quick",
     )
+
+
+# ---------------------------------------------------------------------------
+# Checkpoints — resuming an interrupted /analyze run (#197)
+# ---------------------------------------------------------------------------
+
+
+class Checkpoint(BaseModel):
+    """In-progress /analyze state, written after each subsystem finishes.
+
+    Lets ``--resume`` pick up a killed run (provider outage, Ctrl+C, crash)
+    without re-paying for subsystems that already finished. Only the plan
+    and per-subsystem findings are checkpointed — synthesis and the system
+    DFD always rerun on resume, since they reason over the *full* set of
+    findings and are cheap relative to a subsystem pass.
+    """
+
+    stride_gpt_version: str
+    started_at: datetime
+    updated_at: datetime
+    # Redacted per ``redact_path``, like the run manifest's ``target_path``.
+    target_path: str
+    target_git_sha: str | None
+    # Identifies the model/prompt pair this checkpoint was produced under.
+    # See ``compute_checkpoint_config_hash`` for why this isn't the same
+    # hash the run manifest records.
+    config_hash: str
+    app_type_source: str
+    plan: AnalysisPlan
+    findings: list[SubsystemFinding]
+
+
+def compute_checkpoint_config_hash(models: ModelPair) -> str:
+    """sha256 identifying the model/prompt pair a checkpoint was produced under.
+
+    Deliberately narrower than the run manifest's ``config_hash``, which
+    folds in every reference card loaded by the *end* of a run — discovered
+    progressively as subsystems execute. Using that here would make a
+    checkpoint's own hash drift as the run that wrote it progressed, so a
+    checkpoint could never validate against a resumption of itself.
+    ``references`` is always passed as ``[]``: this hash exists to catch
+    "the model or prompt changed", not "a different reference card happened
+    to load by this point".
+    """
+    from stride_gpt.core.prompts import base_system_prompt
+
+    return compute_config_hash(
+        system_prompt=base_system_prompt(), models=models, references=[]
+    )
+
+
+def build_checkpoint(
+    *,
+    plan: AnalysisPlan,
+    findings: list[SubsystemFinding],
+    target: Path,
+    models: ModelPair,
+    app_type_source: str,
+    started_at: datetime,
+) -> Checkpoint:
+    """Assemble a redacted checkpoint snapshot of the run so far.
+
+    Redaction mirrors ``write_intermediates`` — a checkpoint never contains
+    anything the final intermediates wouldn't.
+    """
+    redacted_plan = plan.model_copy(
+        update={
+            "target_path": redact_path(plan.target_path),
+            "subsystems": [_redact_subsystem(s) for s in plan.subsystems],
+        }
+    )
+    return Checkpoint(
+        stride_gpt_version=_stride_gpt_version(),
+        started_at=started_at,
+        updated_at=datetime.now(UTC),
+        target_path=redact_path(target),
+        target_git_sha=discover_git_sha(target),
+        config_hash=compute_checkpoint_config_hash(models),
+        app_type_source=app_type_source,
+        plan=redacted_plan,
+        findings=[_redact_finding(f) for f in findings],
+    )
+
+
+def write_checkpoint(path: Path, checkpoint: Checkpoint) -> None:
+    """Atomically write ``checkpoint`` to ``path`` (temp file + rename).
+
+    A crash mid-write must never leave a half-written, unparseable
+    checkpoint behind — that defeats the whole point of checkpointing.
+    Writing to a temp file alongside ``path`` and renaming it into place
+    means the rename is the only step that has to be atomic; a reader never
+    observes a partial file.
+    """
+    payload = checkpoint.model_dump_json(indent=2)
+    if not payload.endswith("\n"):
+        payload += "\n"
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(payload)
+    tmp_path.replace(path)
+
+
+def load_checkpoint(path: Path) -> Checkpoint:
+    """Load and parse a checkpoint file."""
+    return Checkpoint(**json.loads(path.read_text()))
+
+
+def is_git_dirty(target: Path) -> bool:
+    """Whether ``target``'s git working tree has uncommitted changes.
+
+    Best-effort like :func:`discover_git_sha`, but errs the other way: a
+    failure to run ``git status`` is treated as "dirty" so resume refuses by
+    default rather than silently trusting code that might have moved on.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(target), "status", "--porcelain"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return True
+    if result.returncode != 0:
+        return True
+    return bool(result.stdout.strip())
+
+
+class CheckpointValidationError(Exception):
+    """A checkpoint is not safe to resume from. The message states why."""
+
+
+def validate_checkpoint_for_resume(
+    checkpoint: Checkpoint, *, target: Path, models: ModelPair, force: bool
+) -> None:
+    """Raise :class:`CheckpointValidationError` if resuming would be unsound.
+
+    A changed git SHA or config hash always refuses — those mean the
+    checkpointed findings describe code or a model that no longer matches
+    this invocation, and ``--force`` can't make stale findings sound. A
+    dirty working tree, or a target with no discoverable git SHA at all, is
+    weaker evidence (the code *might* still match what was analysed) so
+    ``--force`` can override either of those.
+    """
+    current_sha = discover_git_sha(target)
+    if checkpoint.target_git_sha != current_sha:
+        raise CheckpointValidationError(
+            "target_git_sha changed: checkpoint was "
+            f"{checkpoint.target_git_sha!r}, current is {current_sha!r}."
+        )
+
+    current_hash = compute_checkpoint_config_hash(models)
+    if checkpoint.config_hash != current_hash:
+        raise CheckpointValidationError(
+            "config_hash changed — the model or system prompt differs from "
+            "the checkpointed run."
+        )
+
+    if force:
+        return
+    if current_sha is None:
+        raise CheckpointValidationError(
+            "target has no discoverable git SHA; pass --force to resume anyway."
+        )
+    if is_git_dirty(target):
+        raise CheckpointValidationError(
+            "target has uncommitted changes; pass --force to resume anyway."
+        )
