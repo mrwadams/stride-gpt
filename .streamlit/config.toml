@@ -1,3 +1,6 @@
+[browser]
+gatherUsageStats = false
+
 [theme]
 primaryColor="#1cb3e0"
 backgroundColor="#222f3b"
