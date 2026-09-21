@@ -155,11 +155,23 @@ def _extract_usage(response) -> tuple[int | None, int | None]:
     omit ``usage`` entirely. That must read as unknown, not zero — a caller
     that treated it as zero would think a token budget had nothing spent and
     run unbounded.
+
+    LiteLLM never hands back a response without a ``usage`` attribute: when
+    the provider omits the field, ``ModelResponse`` still carries
+    ``Usage(prompt_tokens=0, completion_tokens=0, ...)``. Checking only for a
+    missing attribute therefore reads "not reported" as a real zero, which is
+    the exact confusion this function exists to prevent. A completion that
+    actually happened always consumed prompt tokens, so an all-zero usage is
+    "the provider didn't say", not "the call was free".
     """
     usage = getattr(response, "usage", None)
     if usage is None:
         return None, None
-    return getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", None)
+    completion_tokens = getattr(usage, "completion_tokens", None)
+    if not prompt_tokens and not completion_tokens:
+        return None, None
+    return prompt_tokens, completion_tokens
 
 
 def _extract_thinking(config: LLMConfig, response) -> tuple[str | None, str | None]:

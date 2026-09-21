@@ -442,6 +442,7 @@ stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
 | `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |
 | `--max-llm-calls` | Cap total LLM calls across both tiers (`analyze` only; `0` = unlimited). A subsystem that reaches the cap gets one final round to report what it found, so a run can exceed it by one call per such subsystem. |
 | `--max-tool-calls` | Cap code exploration (`analyze` only; `0` = unlimited). Reporting a threat doesn't spend it, so a subsystem that finds more threats doesn't leave less exploration for the next one. |
+| `--max-tokens-budget` | Cap total token usage for the run (`analyze` only; `0` = unlimited). Checked before each subsystem starts: once tokens already spent plus an estimate for the next subsystem would exceed the budget, the rest of the plan is recorded as `skipped` and synthesis still runs. Providers that don't report usage fall back to the call-count caps above. |
 
 Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-tokens` (and the `--architect-*` equivalents). Run `stride-gpt analyze --help` or `stride-gpt quick --help` for the complete list.
 

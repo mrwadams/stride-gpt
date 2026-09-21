@@ -322,6 +322,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     from stride_gpt.agent.planner import format_plan_for_display
     from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
+    from stride_gpt.core.schemas import TokenUsage
 
     # Parse inline args
     parts = args_str.split() if args_str else ["."]
@@ -370,7 +371,8 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     started_at = datetime.now(UTC)
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
-    plan = create_analysis_plan(models, target_path)
+    planning_usage = TokenUsage()
+    plan = create_analysis_plan(models, target_path, usage=planning_usage)
     console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
 
     if not auto_approve:
@@ -385,6 +387,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         target_path=target_path,
         plan=plan,
         progress=progress,
+        planning_usage=planning_usage,
     )
     finished_at = datetime.now(UTC)
 

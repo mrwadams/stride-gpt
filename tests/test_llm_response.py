@@ -186,6 +186,30 @@ class TestUsageExtraction:
         assert response.completion_tokens is None
 
     @patch("stride_gpt.core.llm.litellm.completion")
+    def test_litellms_zero_filled_usage_reads_as_unknown(self, mock_completion, llm_config):
+        """The shape a provider that reports nothing actually produces.
+
+        LiteLLM never returns a response without a ``usage`` attribute — when
+        the provider omits the field, ``ModelResponse`` still carries a
+        ``Usage`` zero-filled by the library. Reading that as ``0`` is what
+        made a token budget skip a whole plan against a local model. This
+        uses litellm's own ``Usage`` class so the test tracks the library
+        rather than a hand-rolled stand-in.
+        """
+        from litellm.types.utils import Usage
+
+        message = SimpleNamespace(content="hello", tool_calls=None)
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=Usage(),
+        )
+
+        response = _call_litellm(llm_config, [])
+
+        assert response.prompt_tokens is None
+        assert response.completion_tokens is None
+
+    @patch("stride_gpt.core.llm.litellm.completion")
     def test_a_usage_object_missing_one_field_leaves_only_that_one_none(
         self, mock_completion, llm_config
     ):
