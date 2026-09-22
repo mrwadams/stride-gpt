@@ -257,6 +257,7 @@ def _persist_analyze_intermediates(
     from stride_gpt.core.prompts import base_system_prompt
 
     refs = report.metadata.get("references_loaded", []) or []
+    token_usage = report.metadata.get("token_usage") or {}
     manifest = build_analyze_manifest(
         models=models,
         plan=plan,
@@ -271,6 +272,7 @@ def _persist_analyze_intermediates(
         findings=report.findings,
         resumed_subsystems=report.metadata.get("resumed_subsystems", []),
         rerun_subsystems=report.metadata.get("rerun_subsystems", []),
+        token_usage_by_phase=token_usage.get("by_phase"),
     )
     written = write_intermediates(
         output,
@@ -353,12 +355,17 @@ def _resolve_analysis_plan(
     auto_approve: bool,
     progress,
     app_type: AppTypeOverride | None = None,
+    usage=None,
 ):
     """Get the plan + its app_type_source, from a checkpoint or a fresh Phase 1.
 
     Returns ``None`` if the user declined to approve a freshly generated
     plan — a resumed checkpoint's plan was already approved, so it's never
     re-prompted.
+
+    ``usage``, if given, collects the planning call's tokens. A resumed run
+    never plans, so it stays empty — the tokens the original run spent on
+    planning belong to that run, not this one.
     """
     from stride_gpt.agent.loop import create_analysis_plan
     from stride_gpt.agent.planner import format_plan_for_display
@@ -368,7 +375,7 @@ def _resolve_analysis_plan(
 
     progress.phase_start("Phase 1", "Planning")
     progress.status("Scanning codebase and generating plan...")
-    plan = create_analysis_plan(models, target)
+    plan = create_analysis_plan(models, target, usage=usage)
 
     # Provenance follows the flag, not whether the flag changed anything: a
     # classification the user pinned with --app-type is a user's choice even
@@ -420,6 +427,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     from stride_gpt.agent.persistence import CheckpointValidationError, checkpoint_path_for
     from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
+    from stride_gpt.core.schemas import TokenUsage
 
     # Parse inline args
     parts = args_str.split() if args_str else ["."]
@@ -487,8 +495,10 @@ def _handle_analyze(config: dict, args_str: str) -> None:
 
     # Phase 1: Plan (or reuse a checkpointed one)
     started_at = datetime.now(UTC)
+    planning_usage = TokenUsage()
     resolved = _resolve_analysis_plan(
         models, target_path, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
+        usage=planning_usage,
     )
     if resolved is None:
         console.print("[red]Analysis cancelled.[/red]")
@@ -522,6 +532,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         progress=progress,
         resume_findings=resume_findings,
         on_checkpoint=on_checkpoint,
+        planning_usage=planning_usage,
     )
     finished_at = datetime.now(UTC)
 
@@ -879,6 +890,7 @@ def analyze(
     from stride_gpt.agent.persistence import CheckpointValidationError, checkpoint_path_for
     from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
+    from stride_gpt.core.schemas import TokenUsage
 
     models = _build_model_pair(
         worker_model=worker_model,
@@ -924,9 +936,10 @@ def analyze(
 
     # Phase 1: Plan (or reuse a checkpointed one)
     started_at = datetime.now(UTC)
+    planning_usage = TokenUsage()
     resolved = _resolve_analysis_plan(
         models, target, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
-        app_type=app_type,
+        app_type=app_type, usage=planning_usage,
     )
     if resolved is None:
         console.print("[red]Analysis cancelled.[/red]")
@@ -962,6 +975,7 @@ def analyze(
         progress=progress,
         resume_findings=resume_findings,
         on_checkpoint=on_checkpoint,
+        planning_usage=planning_usage,
     )
     finished_at = datetime.now(UTC)
 

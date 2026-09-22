@@ -8,7 +8,7 @@ from pathlib import Path
 from stride_gpt.agent.tools import list_directory, search_files
 from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm
-from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, Subsystem
+from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, Subsystem, TokenUsage
 
 # File patterns that signal interesting subsystems
 KEY_PATTERNS = [
@@ -61,7 +61,9 @@ Be specific about which files to examine. Prioritize subsystems that handle:
 5. Infrastructure and deployment"""
 
 
-def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
+def create_plan(
+    config: LLMConfig, target_path: Path, *, usage: TokenUsage | None = None
+) -> AnalysisPlan:
     """Scan a codebase and generate an analysis plan via LLM."""
     # Gather codebase structure
     dir_listing = list_directory(target_path, ".")
@@ -87,6 +89,8 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
         {"role": "user", "content": discovery_prompt},
     ]
     response = call_llm(json_config, messages)
+    if usage is not None:
+        usage.record(response)
 
     data = extract_json_object(response.content)
 
@@ -94,6 +98,8 @@ def create_plan(config: LLMConfig, target_path: Path) -> AnalysisPlan:
     if data is None:
         retry_messages = [*messages, {"role": "assistant", "content": response.content}, {"role": "user", "content": "Your previous response was not valid JSON. Respond with ONLY a " "valid JSON object matching the schema in your instructions. " "No prose, no markdown fences, no commentary."}]
         retry_response = call_llm(json_config, retry_messages)
+        if usage is not None:
+            usage.record(retry_response)
         data = extract_json_object(retry_response.content)
 
     if data is None:

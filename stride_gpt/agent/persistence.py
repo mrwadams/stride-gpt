@@ -38,6 +38,7 @@ from stride_gpt.core.schemas import (
     ModelPair,
     Subsystem,
     SubsystemFinding,
+    TokenUsage,
     count_analysed,
     count_outcomes,
 )
@@ -94,6 +95,19 @@ class RunSummary(BaseModel):
     # per-subsystem phase.
     resumed_subsystems: list[str] = []
     rerun_subsystems: list[str] = []
+    # Token totals for the run. ``token_usage_total.available`` is ``False``
+    # when no response anywhere in the run reported usage — distinct from a
+    # genuine zero. Empty for /quick, which has no phase or subsystem
+    # breakdown.
+    #
+    # The total is what *this* run spent. A ``--resume`` run reuses a
+    # checkpointed subsystem without an LLM call, so that subsystem's entry
+    # in ``token_usage_by_subsystem`` keeps the cost from the run that
+    # produced it while contributing nothing to the total: on a resumed run
+    # the per-subsystem figures deliberately don't sum to the total.
+    token_usage_total: TokenUsage = TokenUsage()
+    token_usage_by_phase: dict[str, TokenUsage] = {}
+    token_usage_by_subsystem: dict[str, TokenUsage] = {}
 
 
 class RunManifest(BaseModel):
@@ -395,15 +409,29 @@ def build_analyze_manifest(
     findings: list[SubsystemFinding],
     resumed_subsystems: list[str] | None = None,
     rerun_subsystems: list[str] | None = None,
+    token_usage_by_phase: dict[str, dict[str, int | None]] | None = None,
 ) -> RunManifest:
     """Assemble the manifest for a /analyze run.
 
     Completeness is derived from the findings' outcomes rather than from how
     many findings there are — every planned subsystem gets one now, including
     the ones that crashed or were never started.
+
+    ``token_usage_by_phase`` is the JSON-safe dict from
+    ``report.metadata["token_usage"]["by_phase"]`` — plain
+    ``{"prompt_tokens": ..., "completion_tokens": ...}`` dicts, reconstructed
+    into ``TokenUsage`` here. Per-subsystem totals come straight off
+    ``findings`` rather than a separate parameter — each finding already
+    carries its own.
     """
     subsystems_planned = len(plan.subsystems)
     subsystems_analyzed = count_analysed(findings)
+    by_phase = {
+        name: TokenUsage(**usage) for name, usage in (token_usage_by_phase or {}).items()
+    }
+    token_usage_total = TokenUsage()
+    for usage in by_phase.values():
+        token_usage_total.merge(usage)
     run_summary = RunSummary(
         status="partial" if subsystems_analyzed < subsystems_planned else "completed",
         subsystems_planned=subsystems_planned,
@@ -413,6 +441,9 @@ def build_analyze_manifest(
         tool_calls=tool_calls,
         resumed_subsystems=resumed_subsystems or [],
         rerun_subsystems=rerun_subsystems or [],
+        token_usage_total=token_usage_total,
+        token_usage_by_phase=by_phase,
+        token_usage_by_subsystem={f.subsystem: f.token_usage for f in findings},
     )
     return RunManifest(
         stride_gpt_version=_stride_gpt_version(),

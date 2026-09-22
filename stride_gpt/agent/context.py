@@ -8,7 +8,7 @@ import httpx
 import litellm
 
 from stride_gpt.core.llm import call_llm
-from stride_gpt.core.schemas import LLMConfig
+from stride_gpt.core.schemas import LLMConfig, TokenUsage
 from stride_gpt.models import get_model
 
 # Default context limits per model family (input tokens).
@@ -82,7 +82,9 @@ class ContextManager:
         tokens = self.count_tokens(messages)
         return tokens > int(self.context_window * COMPRESSION_THRESHOLD)
 
-    def compress(self, config: LLMConfig, messages: list[dict]) -> list[dict]:
+    def compress(
+        self, config: LLMConfig, messages: list[dict], *, usage: TokenUsage | None = None
+    ) -> list[dict]:
         """Compress older turns into a summary.
 
         Keeps the leading system message(s), the task (the first user
@@ -134,7 +136,7 @@ class ContextManager:
         to_keep = [msg for turn in turns[keep_from:] for msg in turn]
 
         try:
-            summary = self._summarize(config, to_compress, previous_summary or None)
+            summary = self._summarize(config, to_compress, previous_summary or None, usage=usage)
         except Exception:
             # Carrying on uncompressed beats failing the whole subsystem;
             # the next turn will try again.
@@ -154,6 +156,8 @@ class ContextManager:
         config: LLMConfig,
         messages: list[dict],
         previous_summary: str | None = None,
+        *,
+        usage: TokenUsage | None = None,
     ) -> str:
         """Summarize a list of messages into the sections of ``SUMMARY_PROMPT``."""
         # Build a text representation of the messages. An earlier summary is
@@ -181,6 +185,8 @@ class ContextManager:
         ]
 
         response = call_llm(config, summary_messages)
+        if usage is not None:
+            usage.record(response)
         return response.content
 
     @staticmethod

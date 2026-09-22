@@ -173,3 +173,72 @@ class TestPanelModelsBody:
         body = cli._panel_models_body(models)
         assert "Model:" in body
         assert "Architect:" not in body
+
+
+# ---------------------------------------------------------------------------
+# Planning token usage reaches run_analysis on both entry points
+# ---------------------------------------------------------------------------
+
+
+class TestPlanningUsageIsThreaded:
+    """Planning runs outside ``run_analysis`` on both the ``analyze`` command
+    and the REPL's ``/analyze``. Whichever entry point is used must hand the
+    planning call's usage back in, or the run's totals and the manifest's
+    ``planning`` phase silently lose it.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch, entry: str):
+        """Run one entry point with everything after planning stubbed out.
+
+        Returns the ``usage`` object handed to ``create_analysis_plan`` and
+        the ``planning_usage`` kwarg handed to ``run_analysis``.
+        """
+        from unittest.mock import MagicMock
+
+        from stride_gpt.core.schemas import AnalysisPlan, AnalysisReport, LLMResponse, Subsystem
+
+        seen: dict = {}
+        plan = AnalysisPlan(
+            target_path="/tmp", overall_description="d",
+            subsystems=[Subsystem(name="A", description="d", key_files=[], focus_areas=[])],
+        )
+
+        def fake_create_plan(models, target, *, usage=None):
+            seen["create_usage"] = usage
+            if usage is not None:
+                usage.record(LLMResponse(content="", prompt_tokens=500, completion_tokens=50))
+            return plan
+
+        def fake_run_analysis(**kwargs):
+            seen["planning_usage"] = kwargs.get("planning_usage")
+            return AnalysisReport(plan=plan, findings=[], metadata={})
+
+        monkeypatch.setattr("stride_gpt.agent.loop.create_analysis_plan", fake_create_plan)
+        monkeypatch.setattr("stride_gpt.agent.loop.run_analysis", fake_run_analysis)
+        monkeypatch.setattr("stride_gpt.agent.report.save_report", lambda *_a, **_k: None)
+        monkeypatch.setattr(cli, "console", MagicMock())
+
+        models = ModelPair(worker=LLMConfig(provider="OpenAI API", model_name="m", api_key="k"))
+        if entry == "repl":
+            monkeypatch.setattr(cli, "config_to_model_pair", lambda _c: models)
+            monkeypatch.setattr(cli, "_check_tier_api_keys", lambda *_a, **_k: True)
+            monkeypatch.setattr(cli, "_check_lm_studio_context_for", lambda *_a, **_k: None)
+            cli._handle_analyze({}, "/tmp -y")
+        else:
+            monkeypatch.setattr(cli, "_build_model_pair", lambda **_k: models)
+            monkeypatch.setattr(cli, "load_config", lambda: {})
+            monkeypatch.setattr(cli, "_check_lm_studio_context_for", lambda *_a, **_k: None)
+            cli.analyze(path=cli.Path("/tmp"), auto_approve=True)
+        return seen
+
+    @pytest.mark.parametrize("entry", ["analyze", "repl"])
+    def test_planning_usage_is_collected_and_passed_on(self, monkeypatch, entry):
+        seen = self._capture(monkeypatch, entry)
+        assert seen["create_usage"] is not None, (
+            f"{entry}: create_analysis_plan was called without usage="
+        )
+        assert seen["planning_usage"] is seen["create_usage"], (
+            f"{entry}: run_analysis did not receive the planning usage"
+        )
+        assert seen["planning_usage"].total_tokens == 550
