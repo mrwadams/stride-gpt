@@ -484,6 +484,24 @@ def load_report(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+# JSON siblings written alongside a saved report — the run manifest (#198
+# reads its token history from these), and the plan / findings / checkpoint
+# files a ``-o`` run emits. They share the reports directory but are not
+# reports, and listing them would show empty rows in /reports and let one be
+# opened as an analysis.
+_REPORT_SIBLING_SUFFIXES = (
+    ".run.json",
+    ".plan.json",
+    ".findings.json",
+    ".checkpoint.json",
+)
+
+
+def _is_report_file(path: Path) -> bool:
+    """Whether ``path`` is a saved report rather than one of its siblings."""
+    return not path.name.endswith(_REPORT_SIBLING_SUFFIXES)
+
+
 def list_reports(
     limit: int = 10,
     *,
@@ -521,13 +539,13 @@ def list_reports(
     legacy_files: list[Path] = []
     if REPORTS_DIR.is_dir():
         legacy_files = [
-            p for p in REPORTS_DIR.glob("*.json") if p.is_file()
+            p for p in REPORTS_DIR.glob("*.json") if p.is_file() and _is_report_file(p)
         ]
 
     candidates: list[tuple[Path, str]] = []
     for d, d_kind in dirs:
         if d.is_dir():
-            candidates.extend((p, d_kind) for p in d.glob("*.json"))
+            candidates.extend((p, d_kind) for p in d.glob("*.json") if _is_report_file(p))
     candidates.extend((p, "legacy") for p in legacy_files)
 
     candidates.sort(key=lambda pair: pair[0].stat().st_mtime, reverse=True)

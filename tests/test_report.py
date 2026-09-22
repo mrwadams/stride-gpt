@@ -1028,6 +1028,19 @@ class TestSplitReportFolders:
             both = list_reports(limit=10, kind="all")
             assert {r[2]["kind"] for r in both} == {"analyze", "quick"}
 
+    def test_run_manifest_siblings_are_not_listed_as_reports(
+        self, sample_report, tmp_path
+    ):
+        """A run manifest shares the reports directory (#198 reads its token
+        history from there) but is not a report — listing it would show an
+        empty row that opens as nothing."""
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("stride_gpt.config.REPORTS_DIR", tmp_path)
+            saved = save_report(sample_report)
+            saved.with_suffix(".run.json").write_text('{"mode": "analyze"}')
+            reports = list_reports(limit=10)
+            assert [r[1] for r in reports] == [saved]
+
     def test_legacy_root_reports_still_surfaced(self, sample_report, tmp_path):
         """Reports saved before the split (sitting in reports/ root) must
         still appear in the listing — tagged 'legacy' — so users can find

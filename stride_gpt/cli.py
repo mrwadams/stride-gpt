@@ -232,6 +232,81 @@ def _handle_config(config: dict) -> None:
             console.print("[dim]Keeping existing configuration.[/dim]")
 
 
+def _analyze_manifest(
+    *,
+    target: Path,
+    models: ModelPair,
+    plan: AnalysisPlan,
+    report: AnalysisReport,
+    started_at: datetime,
+    finished_at: datetime,
+    app_type_source: str,
+):
+    """Build the ``RunManifest`` describing a finished /analyze run."""
+    from stride_gpt.agent.persistence import build_analyze_manifest
+    from stride_gpt.core.prompts import base_system_prompt
+
+    refs = report.metadata.get("references_loaded", []) or []
+    token_usage = report.metadata.get("token_usage") or {}
+    return build_analyze_manifest(
+        models=models,
+        plan=plan,
+        target=target,
+        started_at=started_at,
+        finished_at=finished_at,
+        app_type_source=app_type_source,
+        system_prompt=base_system_prompt(),
+        references_loaded=refs,
+        llm_calls=report.metadata.get("llm_calls", 0),
+        tool_calls=report.metadata.get("tool_calls", 0),
+        findings=report.findings,
+        resumed_subsystems=report.metadata.get("resumed_subsystems", []),
+        rerun_subsystems=report.metadata.get("rerun_subsystems", []),
+        token_usage_by_phase=token_usage.get("by_phase"),
+    )
+
+
+def _archive_run_manifest(
+    saved_path: Path,
+    *,
+    target: Path,
+    models: ModelPair,
+    plan: AnalysisPlan,
+    report: AnalysisReport,
+    started_at: datetime,
+    finished_at: datetime,
+    app_type_source: str,
+) -> None:
+    """Write a ``<stem>.run.json`` beside an auto-saved /analyze report.
+
+    The manifest used to exist only next to a ``-o`` report, which meant the
+    per-subsystem token usage #217 records was kept only when the user asked
+    for a file. The cost estimate at plan approval (#198) reads this history
+    from ``~/.stride-gpt/reports/analyze/``, so every run has to leave one
+    there — otherwise the estimate falls back to its default forever.
+
+    Best-effort, like the HTML companion: the report is already safely saved
+    by the time this runs, and losing the accounting sibling must not turn
+    into a traceback at the end of a long run.
+    """
+    from stride_gpt.agent.persistence import run_manifest_path_for
+
+    try:
+        manifest = _analyze_manifest(
+            target=target,
+            models=models,
+            plan=plan,
+            report=report,
+            started_at=started_at,
+            finished_at=finished_at,
+            app_type_source=app_type_source,
+        )
+        path = run_manifest_path_for(saved_path)
+        path.write_text(manifest.model_dump_json(indent=2) + "\n")
+    except Exception as e:  # broad: accounting must never sink a finished run
+        console.print(f"[dim]Could not write run manifest: {e}[/dim]")
+
+
 def _persist_analyze_intermediates(
     *,
     output: Path,
@@ -250,29 +325,16 @@ def _persist_analyze_intermediates(
     if report.metadata.get("status") == "cancelled":
         return
 
-    from stride_gpt.agent.persistence import (
-        build_analyze_manifest,
-        write_intermediates,
-    )
-    from stride_gpt.core.prompts import base_system_prompt
+    from stride_gpt.agent.persistence import write_intermediates
 
-    refs = report.metadata.get("references_loaded", []) or []
-    token_usage = report.metadata.get("token_usage") or {}
-    manifest = build_analyze_manifest(
+    manifest = _analyze_manifest(
+        target=target,
         models=models,
         plan=plan,
-        target=target,
+        report=report,
         started_at=started_at,
         finished_at=finished_at,
         app_type_source=app_type_source,
-        system_prompt=base_system_prompt(),
-        references_loaded=refs,
-        llm_calls=report.metadata.get("llm_calls", 0),
-        tool_calls=report.metadata.get("tool_calls", 0),
-        findings=report.findings,
-        resumed_subsystems=report.metadata.get("resumed_subsystems", []),
-        rerun_subsystems=report.metadata.get("rerun_subsystems", []),
-        token_usage_by_phase=token_usage.get("by_phase"),
     )
     written = write_intermediates(
         output,
@@ -368,7 +430,6 @@ def _resolve_analysis_plan(
     planning belong to that run, not this one.
     """
     from stride_gpt.agent.loop import create_analysis_plan
-    from stride_gpt.agent.planner import format_plan_for_display
 
     if checkpoint is not None:
         return checkpoint.plan, checkpoint.app_type_source
@@ -391,14 +452,97 @@ def _resolve_analysis_plan(
             )
             plan = plan.model_copy(update={"detected_app_type": app_type.value})
 
-    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+    _print_plan(plan, target)
 
     if not auto_approve:
-        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
-        if response.lower() not in ("y", "yes"):
+        plan = _approve_plan_interactively(plan, target)
+        if plan is None:
             return None
 
     return plan, app_type_source
+
+
+def _print_plan(plan: AnalysisPlan, target: Path) -> None:
+    """Show the plan and what running it is likely to cost."""
+    from stride_gpt.agent.estimate import estimate_plan_cost, format_plan_estimate
+    from stride_gpt.agent.planner import format_plan_for_display
+
+    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+    estimate = estimate_plan_cost(subsystem_count=len(plan.subsystems), target=target)
+    console.print(f"[yellow]{format_plan_estimate(estimate)}[/yellow]\n")
+
+
+def _parse_subsystem_selection(text: str, count: int) -> tuple[set[int], list[str]]:
+    """Parse "2 4" / "2,4" into 1-based subsystem numbers.
+
+    Returns the valid numbers and the tokens that weren't any — the caller
+    reports those rather than silently dropping the wrong subsystem.
+    """
+    chosen: set[int] = set()
+    invalid: list[str] = []
+    for token in text.replace(",", " ").split():
+        try:
+            number = int(token)
+        except ValueError:
+            invalid.append(token)
+            continue
+        if 1 <= number <= count:
+            chosen.add(number)
+        else:
+            invalid.append(token)
+    return chosen, invalid
+
+
+def _drop_subsystems(plan: AnalysisPlan, target: Path) -> AnalysisPlan:
+    """Ask which subsystems to drop and return the plan without them.
+
+    The plan is only ever shrunk here, never reordered or rewritten, so what
+    the user approves afterwards is exactly what the run analyses.
+    """
+    selection = console.input(
+        "[bold yellow]Drop which subsystems? (numbers, e.g. [/bold yellow]"
+        "[cyan]2 4[/cyan][bold yellow]): [/bold yellow]"
+    )
+    chosen, invalid = _parse_subsystem_selection(selection, len(plan.subsystems))
+    if invalid:
+        console.print(f"[red]Not a subsystem number: {', '.join(invalid)}[/red]")
+    if not chosen:
+        return plan
+    if len(chosen) == len(plan.subsystems):
+        console.print(
+            "[red]That drops every subsystem — cancel the plan instead if "
+            "that's what you want. Nothing dropped.[/red]"
+        )
+        return plan
+
+    dropped = [s.name for i, s in enumerate(plan.subsystems, 1) if i in chosen]
+    kept = [s for i, s in enumerate(plan.subsystems, 1) if i not in chosen]
+    plan = plan.model_copy(update={"subsystems": kept})
+    console.print(f"[dim]Dropped: {', '.join(dropped)}[/dim]")
+    _print_plan(plan, target)
+    return plan
+
+
+def _approve_plan_interactively(plan: AnalysisPlan, target: Path) -> AnalysisPlan | None:
+    """Approve, shrink, or reject a freshly generated plan.
+
+    Returns the plan to run — the one shown, or a copy with subsystems
+    dropped — or ``None`` if the user declined. Dropping is offered because
+    the estimate is only actionable if the user can act on it: the cost of a
+    plan is set by how many subsystems it has, and a plan is otherwise a
+    take-it-or-leave-it.
+    """
+    while True:
+        response = console.input(
+            "[bold yellow]Approve this plan? "
+            "(y = run, n = cancel, d = drop subsystems): [/bold yellow]"
+        ).strip().lower()
+        if response in ("y", "yes"):
+            return plan
+        if response in ("d", "drop"):
+            plan = _drop_subsystems(plan, target)
+            continue
+        return None
 
 
 def _make_checkpoint_writer(
@@ -540,6 +684,16 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     saved_path = None
     if report.metadata.get("status") != "cancelled":
         saved_path = save_report(report)
+        _archive_run_manifest(
+            saved_path,
+            target=target_path,
+            models=models,
+            plan=plan,
+            report=report,
+            started_at=run_started_at,
+            finished_at=finished_at,
+            app_type_source=app_type_source,
+        )
 
     # Render
     if output_format == OutputFormat.markdown:
@@ -983,6 +1137,16 @@ def analyze(
     saved_path = None
     if report.metadata.get("status") != "cancelled":
         saved_path = save_report(report)
+        _archive_run_manifest(
+            saved_path,
+            target=target,
+            models=models,
+            plan=plan,
+            report=report,
+            started_at=run_started_at,
+            finished_at=finished_at,
+            app_type_source=app_type_source,
+        )
 
     if output_format == OutputFormat.markdown:
         rendered = render_markdown(report)

@@ -8,6 +8,8 @@ mocking the config layer.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import typer
 
@@ -242,3 +244,237 @@ class TestPlanningUsageIsThreaded:
             f"{entry}: run_analysis did not receive the planning usage"
         )
         assert seen["planning_usage"].total_tokens == 550
+
+
+# ---------------------------------------------------------------------------
+# Plan approval — cost estimate and dropping subsystems (issue #198)
+# ---------------------------------------------------------------------------
+
+
+class TestParseSubsystemSelection:
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("2", {2}),
+            ("2 4", {2, 4}),
+            ("2,4", {2, 4}),
+            (" 3 , 1 ", {1, 3}),
+            ("", set()),
+            ("2 2", {2}),
+        ],
+    )
+    def test_valid_selections(self, text, expected):
+        chosen, invalid = cli._parse_subsystem_selection(text, 5)
+        assert chosen == expected
+        assert invalid == []
+
+    @pytest.mark.parametrize("text", ["0", "6", "-1", "x", "two"])
+    def test_out_of_range_and_non_numbers_are_reported(self, text):
+        chosen, invalid = cli._parse_subsystem_selection(text, 5)
+        assert chosen == set()
+        assert invalid == [text]
+
+
+class TestPlanApproval:
+    """The approval prompt is where a run's cost becomes the user's choice:
+    it has to show what the plan will cost and let them shrink it."""
+
+    @staticmethod
+    def _plan():
+        from stride_gpt.core.schemas import AnalysisPlan, Subsystem
+
+        return AnalysisPlan(
+            target_path="/tmp/app",
+            overall_description="d",
+            subsystems=[
+                Subsystem(name=n, description="d", key_files=[], focus_areas=[])
+                for n in ("Auth", "API", "Storage")
+            ],
+        )
+
+    @staticmethod
+    def _console(monkeypatch, tmp_path, answers):
+        """Stub the console with scripted answers, and empty cost history."""
+        from unittest.mock import MagicMock
+
+        fake = MagicMock()
+        fake.input.side_effect = answers
+        monkeypatch.setattr(cli, "console", fake)
+        monkeypatch.setattr("stride_gpt.config.REPORTS_DIR", tmp_path / "no-reports")
+        return fake
+
+    @staticmethod
+    def _printed(fake) -> str:
+        return "\n".join(str(call.args[0]) for call in fake.print.call_args_list if call.args)
+
+    def test_print_plan_shows_an_estimate(self, monkeypatch, tmp_path):
+        fake = self._console(monkeypatch, tmp_path, [])
+        cli._print_plan(self._plan(), tmp_path)
+        printed = self._printed(fake)
+        assert "Estimated cost:" in printed
+        assert "3 subsystems" in printed
+
+    def test_yes_approves_the_plan_unchanged(self, monkeypatch, tmp_path):
+        self._console(monkeypatch, tmp_path, ["y"])
+        plan = self._plan()
+        assert cli._approve_plan_interactively(plan, tmp_path) is plan
+
+    @pytest.mark.parametrize("answer", ["n", "q", ""])
+    def test_anything_else_cancels(self, monkeypatch, tmp_path, answer):
+        self._console(monkeypatch, tmp_path, [answer])
+        assert cli._approve_plan_interactively(self._plan(), tmp_path) is None
+
+    def test_dropping_shrinks_the_plan_and_reprints_the_estimate(
+        self, monkeypatch, tmp_path
+    ):
+        fake = self._console(monkeypatch, tmp_path, ["d", "2", "y"])
+        approved = cli._approve_plan_interactively(self._plan(), tmp_path)
+        assert [s.name for s in approved.subsystems] == ["Auth", "Storage"]
+        printed = self._printed(fake)
+        assert "Dropped: API" in printed
+        # The estimate is re-shown for the smaller plan, or dropping tells the
+        # user nothing about what they saved.
+        assert "2 subsystems" in printed
+
+    def test_dropping_every_subsystem_is_refused(self, monkeypatch, tmp_path):
+        fake = self._console(monkeypatch, tmp_path, ["d", "1 2 3", "y"])
+        approved = cli._approve_plan_interactively(self._plan(), tmp_path)
+        assert len(approved.subsystems) == 3
+        assert "drops every subsystem" in self._printed(fake)
+
+    def test_unrecognised_numbers_are_reported_and_drop_nothing(
+        self, monkeypatch, tmp_path
+    ):
+        fake = self._console(monkeypatch, tmp_path, ["d", "9 banana", "y"])
+        approved = cli._approve_plan_interactively(self._plan(), tmp_path)
+        assert len(approved.subsystems) == 3
+        assert "Not a subsystem number" in self._printed(fake)
+
+    def test_auto_approve_never_prompts_and_runs_the_full_plan(
+        self, monkeypatch, tmp_path
+    ):
+        fake = self._console(monkeypatch, tmp_path, [])
+        plan = self._plan()
+        monkeypatch.setattr(
+            "stride_gpt.agent.loop.create_analysis_plan",
+            lambda *_a, **_k: plan,
+        )
+        from unittest.mock import MagicMock
+
+        resolved = cli._resolve_analysis_plan(
+            MagicMock(),
+            tmp_path,
+            checkpoint=None,
+            auto_approve=True,
+            progress=MagicMock(),
+        )
+        assert resolved == (plan, "planner")
+        fake.input.assert_not_called()
+
+    def test_the_approved_plan_is_what_reaches_the_run(self, monkeypatch, tmp_path):
+        """Dropping at the prompt has to change what gets analysed, not just
+        what the estimate says."""
+        from unittest.mock import MagicMock
+
+        fake = self._console(monkeypatch, tmp_path, ["d", "1", "y"])
+        monkeypatch.setattr(
+            "stride_gpt.agent.loop.create_analysis_plan",
+            lambda *_a, **_k: self._plan(),
+        )
+        plan, _ = cli._resolve_analysis_plan(
+            MagicMock(),
+            tmp_path,
+            checkpoint=None,
+            auto_approve=False,
+            progress=MagicMock(),
+        )
+        assert [s.name for s in plan.subsystems] == ["API", "Storage"]
+        assert fake.input.call_count == 3
+
+
+class TestArchiveRunManifest:
+    """Cost history has to accumulate on its own. A manifest was previously
+    written only next to a ``-o`` report, so a user who never passed ``-o``
+    would get the default estimate forever (#198)."""
+
+    @staticmethod
+    def _report(target: Path):
+        from stride_gpt.core.schemas import (
+            AnalysisPlan,
+            AnalysisReport,
+            Subsystem,
+            SubsystemFinding,
+            TokenUsage,
+        )
+
+        plan = AnalysisPlan(
+            target_path=str(target),
+            overall_description="d",
+            subsystems=[
+                Subsystem(name=n, description="d", key_files=[], focus_areas=[])
+                for n in ("Auth", "API")
+            ],
+        )
+        findings = [
+            SubsystemFinding(
+                subsystem="Auth",
+                threats=[],
+                token_usage=TokenUsage(prompt_tokens=100_000, completion_tokens=20_000),
+            ),
+            SubsystemFinding(
+                subsystem="API",
+                threats=[],
+                token_usage=TokenUsage(prompt_tokens=150_000, completion_tokens=30_000),
+            ),
+        ]
+        return plan, AnalysisReport(plan=plan, findings=findings, metadata={})
+
+    def _run_analyze(self, monkeypatch, tmp_path, reports_dir):
+        from unittest.mock import MagicMock
+
+        target = tmp_path / "project"
+        target.mkdir()
+        plan, report = self._report(target)
+
+        monkeypatch.setattr(
+            "stride_gpt.agent.loop.create_analysis_plan", lambda *_a, **_k: plan
+        )
+        monkeypatch.setattr(
+            "stride_gpt.agent.loop.run_analysis", lambda **_k: report
+        )
+        monkeypatch.setattr("stride_gpt.config.REPORTS_DIR", reports_dir)
+        monkeypatch.setattr(cli, "console", MagicMock())
+        models = ModelPair(
+            worker=LLMConfig(provider="OpenAI API", model_name="m", api_key="k")
+        )
+        monkeypatch.setattr(cli, "_build_model_pair", lambda **_k: models)
+        monkeypatch.setattr(cli, "load_config", lambda: {})
+        monkeypatch.setattr(cli, "_check_lm_studio_context_for", lambda *_a, **_k: None)
+        cli.analyze(path=target, auto_approve=True)
+        return target
+
+    def test_auto_save_writes_a_run_manifest(self, monkeypatch, tmp_path):
+        from stride_gpt.agent.persistence import load_run_manifests, target_identity
+
+        reports = tmp_path / "reports"
+        target = self._run_analyze(monkeypatch, tmp_path, reports)
+
+        manifests = load_run_manifests(reports / "analyze")
+        assert len(manifests) == 1
+        assert manifests[0].target_id == target_identity(target)
+        assert manifests[0].mode == "analyze"
+
+    def test_the_next_runs_estimate_uses_it(self, monkeypatch, tmp_path):
+        """End to end: a finished run's per-subsystem cost is what the next
+        run's approval prompt quotes."""
+        from stride_gpt.agent.estimate import estimate_plan_cost
+
+        reports = tmp_path / "reports"
+        target = self._run_analyze(monkeypatch, tmp_path, reports)
+
+        estimate = estimate_plan_cost(subsystem_count=3, target=target)
+        assert estimate.from_history
+        assert estimate.sample_size == 2
+        # mean(120_000, 180_000) x 3 subsystems
+        assert estimate.per_subsystem_tokens == 150_000
+        assert estimate.total_tokens == 450_000

@@ -136,6 +136,12 @@ class RunManifest(BaseModel):
     # or the literal ``"stdin"``.
     target_path: str
     target_git_sha: str | None
+    # Stable identifier for the analysed target — see :func:`target_identity`.
+    # ``target_path`` cannot serve as one: redaction collapses every target
+    # analysed from its own root to ``"./"``. ``None`` for /quick, which has
+    # no filesystem target, and for manifests written before this field
+    # existed.
+    target_id: str | None = None
     # sha256 hex over the prompt + model identities + reference catalogue.
     # Lets two runs be compared at-a-glance: same hash ⇒ same inputs.
     config_hash: str
@@ -150,6 +156,12 @@ class RunManifest(BaseModel):
 # ---------------------------------------------------------------------------
 # Path redaction
 # ---------------------------------------------------------------------------
+
+# What :func:`redact_path` returns for a target analysed from its own root.
+# Every repository analysed that way records this same string, so it
+# identifies no target in particular — history matching (#198) has to treat it
+# as "unknown target" rather than as a key.
+AMBIGUOUS_TARGET_PATH = "./"
 
 
 def redact_path(p: Path | str) -> str:
@@ -193,6 +205,29 @@ def redact_path(p: Path | str) -> str:
             pass
 
     return str(resolved)
+
+
+def target_identity(target: Path | str) -> str:
+    """Return a stable, non-revealing identifier for an /analyze target.
+
+    Cost history (#198) is keyed on the target, and ``target_path`` can't be
+    that key: it is redacted before it is written, and the redaction is lossy
+    — every repository analysed from its own root records ``"./"``, so two
+    unrelated projects share a value. This is a truncated sha256 over the
+    resolved absolute path instead: it distinguishes targets without putting a
+    filesystem layout into a file that ends up in git or attached to a ticket,
+    which is the same reason ``target_path`` is redacted in the first place.
+
+    Two checkouts of the same repository at different paths are different
+    targets here. That is the conservative answer — their costs may genuinely
+    differ, and the estimate says which commit it came from either way.
+    """
+    path = Path(target)
+    try:
+        resolved = str(path.resolve())
+    except OSError:
+        resolved = str(target)
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +392,41 @@ def write_intermediates(
         _write_json(findings_path, json.dumps(findings_payload, indent=2))
         written.append(findings_path)
 
-    run_path = stem.with_suffix(".run.json")
+    run_path = run_manifest_path_for(output)
     _write_json(run_path, manifest.model_dump_json(indent=2))
     written.append(run_path)
 
     return written
+
+
+def run_manifest_path_for(output: Path) -> Path:
+    """Where the run manifest sits, given a report path.
+
+    Same sibling-file convention as :func:`write_intermediates`, so the
+    manifest auto-saved beside an archived report is discoverable by the same
+    ``*.run.json`` glob as one written beside a ``-o`` report.
+    """
+    return _sibling_stem(output).with_suffix(".run.json")
+
+
+def load_run_manifests(directory: Path) -> list[RunManifest]:
+    """Parse every ``*.run.json`` in ``directory``, newest run first.
+
+    Files that can't be read, aren't JSON, or don't match this version's
+    schema are skipped rather than raised. These manifests are history read on
+    a best-effort basis (#198); one unreadable file must not stop a run from
+    starting.
+    """
+    if not directory.is_dir():
+        return []
+    manifests: list[RunManifest] = []
+    for path in sorted(directory.glob("*.run.json")):
+        try:
+            manifests.append(RunManifest(**json.loads(path.read_text())))
+        except (OSError, TypeError, ValueError, ValidationError):
+            continue
+    manifests.sort(key=lambda m: m.finished_at, reverse=True)
+    return manifests
 
 
 def checkpoint_path_for(output: Path) -> Path:
@@ -456,6 +521,7 @@ def build_analyze_manifest(
         app_type_source=app_type_source,
         target_path=redact_path(target),
         target_git_sha=discover_git_sha(target),
+        target_id=target_identity(target),
         config_hash=compute_config_hash(
             system_prompt=system_prompt,
             models=models,

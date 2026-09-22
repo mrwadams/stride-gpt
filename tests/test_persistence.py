@@ -14,6 +14,7 @@ from stride_gpt.agent.persistence import (
     build_quick_manifest,
     compute_config_hash,
     redact_path,
+    target_identity,
     write_intermediates,
 )
 from stride_gpt.core.schemas import (
@@ -398,6 +399,32 @@ def test_build_analyze_manifest_populates_expected_fields(
     # 64-char sha256 hex.
     assert len(manifest.config_hash) == 64
     int(manifest.config_hash, 16)
+
+
+def test_build_analyze_manifest_records_a_target_id(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    """``target_path`` redacts to ``"./"`` for a target analysed from its own
+    root, so every repository shares it. ``target_id`` is what lets #198's
+    cost history tell one target from another."""
+    monkeypatch.chdir(tmp_path)
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=5,
+        tool_calls=12,
+        findings=_findings_for(sample_plan),
+    )
+
+    assert manifest.target_path == "./"
+    assert manifest.target_id == target_identity(tmp_path)
+    assert tmp_path.name not in manifest.target_id
 
 
 def test_build_analyze_manifest_defaults_to_unavailable_usage(
