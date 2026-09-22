@@ -34,6 +34,7 @@ from stride_gpt.core.schemas import (
     Subsystem,
     SubsystemFinding,
     SubsystemOutcome,
+    TokenUsage,
     ToolCallResult,
     count_analysed,
     count_outcomes,
@@ -70,14 +71,33 @@ Respond with a JSON object:
 }"""
 
 
-def create_analysis_plan(models: ModelPair, target_path: Path) -> AnalysisPlan:
+def create_analysis_plan(
+    models: ModelPair, target_path: Path, *, usage: TokenUsage | None = None
+) -> AnalysisPlan:
     """Run Phase 1 only: scan the codebase and generate an analysis plan.
 
     This is separated from run_analysis() so callers can inspect/approve
     the plan before committing to the full analysis. Uses the architect
     tier — planning is reasoning-heavy.
+
+    ``usage``, if given, is filled in with this call's token usage. Pass it
+    to ``run_analysis`` as ``planning_usage`` so the run's totals include the
+    planning phase even though it ran outside ``run_analysis`` itself.
     """
-    return create_plan(models.for_architect(), target_path)
+    return create_plan(models.for_architect(), target_path, usage=usage)
+
+
+# Phases token usage is broken down by in the run manifest and console
+# summary. "planning" happens once, either inside run_analysis (when no plan
+# is supplied) or outside it via create_analysis_plan — see ``planning_usage``.
+TOKEN_PHASES = ("planning", "exploration", "compression", "synthesis", "dfd")
+
+
+def _sum_token_usage(phase_usage: dict[str, TokenUsage]) -> TokenUsage:
+    total = TokenUsage()
+    for usage in phase_usage.values():
+        total.merge(usage)
+    return total
 
 
 def run_analysis(
@@ -92,6 +112,7 @@ def run_analysis(
     console: Console | None = None,
     resume_findings: dict[str, SubsystemFinding] | None = None,
     on_checkpoint: Callable[[list[SubsystemFinding]], None] | None = None,
+    planning_usage: TokenUsage | None = None,
 ) -> AnalysisReport:
     """Run a full agentic threat model analysis on a codebase.
 
@@ -120,6 +141,10 @@ def run_analysis(
             changes (a subsystem finished, was skipped, or was reused), so
             the caller can persist a checkpoint. Not called for /quick-style
             callers that don't pass it.
+        planning_usage: Token usage already spent on planning, when ``plan``
+            was built externally via ``create_analysis_plan(usage=...)``.
+            Folded into the run's ``"planning"`` phase total so it isn't lost
+            just because planning happened outside this call.
 
     Returns:
         Complete AnalysisReport.
@@ -139,12 +164,15 @@ def run_analysis(
     # ``report.metadata["references_loaded"]`` so the run manifest can record
     # which cards actually shaped the output.
     loaded_refs: set[str] = set()
+    phase_usage: dict[str, TokenUsage] = {phase: TokenUsage() for phase in TOKEN_PHASES}
+    if planning_usage is not None:
+        phase_usage["planning"].merge(planning_usage)
 
     # --- Phase 1: Planning ---
     if plan is None:
         progress.phase_start("Phase 1", "Planning")
         progress.status("Scanning codebase and generating plan...")
-        plan = create_plan(models.for_architect(), target_path)
+        plan = create_plan(models.for_architect(), target_path, usage=phase_usage["planning"])
         llm_calls += 1
 
         progress.status(format_plan_for_display(plan))
@@ -162,6 +190,7 @@ def run_analysis(
                         findings=[], status="cancelled",
                     )
                     cancel_meta["references_loaded"] = sorted(loaded_refs)
+                    cancel_meta["token_usage"] = _token_usage_metadata(phase_usage)
                     return AnalysisReport(
                         plan=plan,
                         findings=[],
@@ -232,6 +261,7 @@ def run_analysis(
         # subsystems (or the synthesis pass). 0 still means unlimited.
         remaining_llm = max_llm_calls - llm_calls if max_llm_calls else 0
         remaining_tool = max_tool_calls - explore_calls if max_tool_calls else 0
+        sub_token_usage = TokenUsage()
 
         try:
             sub_counts: dict[str, int] = {"llm": 0, "tool": 0, "explore": 0}
@@ -248,6 +278,8 @@ def run_analysis(
                 progress=progress,
                 call_counts=sub_counts,
                 loaded_refs=loaded_refs,
+                token_usage=sub_token_usage,
+                phase_usage=phase_usage,
             )
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
@@ -282,6 +314,7 @@ def run_analysis(
                     files_analyzed=partial.files_analyzed if partial else [],
                     outcome="error",
                     error_class=error_class,
+                    token_usage=sub_token_usage,
                 )
             )
             if on_checkpoint:
@@ -296,7 +329,7 @@ def run_analysis(
     if len(analysed) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
-        cross_cutting = _synthesize(models, analysed)
+        cross_cutting = _synthesize(models, analysed, usage=phase_usage["synthesis"])
         llm_calls += 1
         progress.synthesis_done(len(cross_cutting))
 
@@ -308,7 +341,7 @@ def run_analysis(
     if analysed and (not max_llm_calls or llm_calls < max_llm_calls):
         progress.status("Generating system-level Data Flow Diagram...")
         try:
-            data_flow_diagram = _generate_system_dfd(models, plan, analysed)
+            data_flow_diagram = _generate_system_dfd(models, plan, analysed, usage=phase_usage["dfd"])
             llm_calls += 1
         except Exception:
             data_flow_diagram = None
@@ -318,6 +351,7 @@ def run_analysis(
         findings=findings, resumed_subsystems=resumed_names, rerun_subsystems=rerun_names,
     )
     metadata["references_loaded"] = sorted(loaded_refs)
+    metadata["token_usage"] = _token_usage_metadata(phase_usage)
 
     report = AnalysisReport(
         plan=plan,
@@ -327,8 +361,34 @@ def run_analysis(
         metadata=metadata,
     )
 
-    progress.complete(_run_summary_text(findings, cross_cutting, llm_calls, tool_calls))
+    total_usage = _sum_token_usage(phase_usage)
+    progress.complete(
+        _run_summary_text(findings, cross_cutting, llm_calls, tool_calls, total_usage)
+    )
     return report
+
+
+def _token_usage_metadata(phase_usage: dict[str, TokenUsage]) -> dict[str, Any]:
+    """JSON-safe token usage summary for ``report.metadata``.
+
+    Plain dicts rather than ``TokenUsage`` instances — ``metadata`` ends up in
+    ``json.dumps`` calls (JSON/SARIF report rendering), which a bare pydantic
+    model would break.
+    """
+    total = _sum_token_usage(phase_usage)
+    return {
+        "available": total.available,
+        "total": total.model_dump(),
+        "by_phase": {name: usage.model_dump() for name, usage in phase_usage.items()},
+    }
+
+
+def _format_token_usage_line(usage: TokenUsage) -> str:
+    if not usage.available:
+        return "Token usage: unavailable"
+    prompt = usage.prompt_tokens or 0
+    completion = usage.completion_tokens or 0
+    return f"Token usage: {usage.total_tokens:,} (prompt: {prompt:,} | completion: {completion:,})"
 
 
 def _run_summary_text(
@@ -336,6 +396,7 @@ def _run_summary_text(
     cross_cutting: list[dict[str, Any]],
     llm_calls: int,
     tool_calls: int,
+    token_usage: TokenUsage,
 ) -> str:
     """The end-of-run console summary, counted by outcome.
 
@@ -359,6 +420,7 @@ def _run_summary_text(
         )
     lines.append(f"Total threats found: {total_threats}")
     lines.append(f"LLM calls: {llm_calls} | Tool calls: {tool_calls}")
+    lines.append(_format_token_usage_line(token_usage))
     return "\n".join(lines)
 
 
@@ -509,12 +571,17 @@ class _SubsystemRun:
         progress: ProgressCallback,
         max_tool_calls: int,
         loaded_refs: set[str] | None,
+        token_usage: TokenUsage | None = None,
     ) -> None:
         self.target_path = target_path
         self.subsystem_name = subsystem_name
         self.progress = progress
         self.max_tool_calls = max_tool_calls
         self.loaded_refs = loaded_refs
+        # This subsystem's own token spend (exploration + compression + the
+        # grace round). A fresh accumulator when the caller doesn't need to
+        # read it back directly (e.g. the standalone _analyze_subsystem tests).
+        self.token_usage = token_usage if token_usage is not None else TokenUsage()
 
         self.threats: list[dict[str, Any]] = []
         self.suggestions: list[str] = []
@@ -739,6 +806,7 @@ class _SubsystemRun:
             improvement_suggestions=self.suggestions,
             files_analyzed=self.files_read,
             outcome=self.outcome(),
+            token_usage=self.token_usage,
         )
 
 
@@ -755,6 +823,8 @@ def _analyze_subsystem(
     progress: ProgressCallback,
     call_counts: dict[str, int],
     loaded_refs: set[str] | None = None,
+    token_usage: TokenUsage | None = None,
+    phase_usage: dict[str, TokenUsage] | None = None,
 ) -> SubsystemFinding:
     """Analyze a single subsystem using the agent loop.
 
@@ -783,6 +853,7 @@ Start by reading the key files. Use grep to find security-relevant patterns like
         progress=progress,
         max_tool_calls=max_tool_calls,
         loaded_refs=loaded_refs,
+        token_usage=token_usage,
     )
     nudged = False
 
@@ -791,6 +862,9 @@ Start by reading the key files. Use grep to find security-relevant patterns like
             progress.status(f"Thinking about {subsystem_name}...")
             response = call_llm_with_tools(models.worker, messages, SUBSYSTEM_TOOLS)
             run.llm_calls += 1
+            run.token_usage.record(response)
+            if phase_usage is not None:
+                phase_usage["exploration"].record(response)
 
             if not response.tool_calls:
                 if run.take_text_fallback(response.content) or run.threats or nudged:
@@ -829,16 +903,20 @@ Start by reading the key files. Use grep to find security-relevant patterns like
             if _explore_budget_spent(run, max_tool_calls):
                 break
             if ctx.needs_compression(messages):
-                compressed = ctx.compress(models.for_architect(), messages)
+                compress_usage = TokenUsage()
+                compressed = ctx.compress(models.for_architect(), messages, usage=compress_usage)
                 if compressed is not messages:
                     # The cache points the model at earlier tool responses,
                     # which the summary has just replaced.
                     run.clear_tool_cache()
                     messages = compressed
                 run.llm_calls += 1  # Compression uses an LLM call
+                run.token_usage.merge(compress_usage)
+                if phase_usage is not None:
+                    phase_usage["compression"].merge(compress_usage)
 
         if not run.finished and run.llm_calls:
-            _grace_round(models, messages, run, progress)
+            _grace_round(models, messages, run, progress, phase_usage=phase_usage)
         return run.finding()
     except Exception as e:
         raise SubsystemAbortedError(e, run.finding()) from e
@@ -860,6 +938,8 @@ def _grace_round(
     messages: list[dict],
     run: _SubsystemRun,
     progress: ProgressCallback,
+    *,
+    phase_usage: dict[str, TokenUsage] | None = None,
 ) -> None:
     """One last call on the real conversation, offering only the two reporting tools.
 
@@ -873,6 +953,9 @@ def _grace_round(
     grace_msgs = _append_user(messages, GRACE_ROUND_PROMPT)
     response = call_llm_with_tools(models.worker, grace_msgs, REPORTING_TOOLS)
     run.llm_calls += 1
+    run.token_usage.record(response)
+    if phase_usage is not None:
+        phase_usage["exploration"].record(response)
 
     if not response.tool_calls:
         run.take_text_fallback(response.content)
@@ -909,7 +992,9 @@ def _threats_without_evidence(threats: list[dict[str, Any]]) -> list[dict[str, A
     return [{k: v for k, v in t.items() if k != "evidence"} for t in threats]
 
 
-def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dict[str, Any]]:
+def _synthesize(
+    models: ModelPair, findings: list[SubsystemFinding], *, usage: TokenUsage | None = None
+) -> list[dict[str, Any]]:
     """Identify cross-cutting threats across all subsystem findings.
 
     Uses the architect tier — synthesis is a cross-cutting reasoning task.
@@ -939,6 +1024,8 @@ def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dic
         {"role": "user", "content": f"Per-subsystem findings:\n{findings_summary}"},
     ]
     response = call_llm(json_config, messages)
+    if usage is not None:
+        usage.record(response)
     data = extract_json_object(response.content)
 
     # Still failed — retry with explicit instruction
@@ -949,6 +1036,8 @@ def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dic
             "content": "Please respond with ONLY a valid JSON object in the format specified. No other text.",
         })
         response = call_llm(json_config, messages)
+        if usage is not None:
+            usage.record(response)
         data = extract_json_object(response.content)
 
     if data is None:
@@ -957,7 +1046,11 @@ def _synthesize(models: ModelPair, findings: list[SubsystemFinding]) -> list[dic
 
 
 def _generate_system_dfd(
-    models: ModelPair, plan: AnalysisPlan, findings: list[SubsystemFinding]
+    models: ModelPair,
+    plan: AnalysisPlan,
+    findings: list[SubsystemFinding],
+    *,
+    usage: TokenUsage | None = None,
 ) -> str | None:
     """Produce a system-level DFD in Mermaid form, or None on any failure.
 
@@ -994,7 +1087,9 @@ def _generate_system_dfd(
         app_input="\n".join(description_parts),
     )
 
-    mermaid, _ = generate_dfd(models.for_architect(), prompt)
+    mermaid, response = generate_dfd(models.for_architect(), prompt)
+    if usage is not None:
+        usage.record(response)
     return mermaid or None
 
 

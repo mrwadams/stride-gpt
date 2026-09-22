@@ -72,12 +72,36 @@ class Request:
     tools: frozenset[str] | None
 
 
-def reply(content: str, *, tools: frozenset[str] | None = None) -> Step:
-    return Step(LLMResponse(content=content, model="fake"), tools)
+def reply(
+    content: str,
+    *,
+    tools: frozenset[str] | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+) -> Step:
+    return Step(
+        LLMResponse(
+            content=content, model="fake",
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+        ),
+        tools,
+    )
 
 
-def call_tools(*calls: ToolCallResult, tools: frozenset[str], content: str = "") -> Step:
-    return Step(LLMResponse(content=content, model="fake", tool_calls=list(calls)), tools)
+def call_tools(
+    *calls: ToolCallResult,
+    tools: frozenset[str],
+    content: str = "",
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+) -> Step:
+    return Step(
+        LLMResponse(
+            content=content, model="fake", tool_calls=list(calls),
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+        ),
+        tools,
+    )
 
 
 def fail(exc: BaseException, *, tools: frozenset[str] | None = None) -> Step:

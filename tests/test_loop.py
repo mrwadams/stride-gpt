@@ -20,6 +20,7 @@ from stride_gpt.core.schemas import (
     AnalysisPlan,
     Subsystem,
     SubsystemFinding,
+    TokenUsage,
     ToolCallResult,
 )
 from tests.fakes import (
@@ -686,7 +687,7 @@ class TestAnalyzeSubsystemToolHandling:
         call must return the file again, not point at a message that's gone."""
         ctx = MagicMock()
         ctx.needs_compression.side_effect = [True, False]
-        ctx.compress.side_effect = lambda _cfg, msgs: [
+        ctx.compress.side_effect = lambda _cfg, msgs, **_kwargs: [
             msgs[0], {"role": "user", "content": "task + summary"},
         ]
 
@@ -701,7 +702,7 @@ class TestAnalyzeSubsystemToolHandling:
     def test_cache_kept_when_compression_is_a_noop(self, model_pair, sandbox_dir):
         ctx = MagicMock()
         ctx.needs_compression.side_effect = [True, False]
-        ctx.compress.side_effect = lambda _cfg, msgs: msgs
+        ctx.compress.side_effect = lambda _cfg, msgs, **_kwargs: msgs
 
         fake, _, _ = _run_subsystem(
             model_pair, sandbox_dir,
@@ -1146,6 +1147,129 @@ class TestSubsystemOutcomes:
             )
 
         mock_synth.assert_not_called()
+
+
+
+class TestTokenAccounting:
+    """Token usage is recorded per phase and per subsystem, and "the provider
+    didn't report usage" stays distinct from "the call was free"."""
+
+    def _plan(self, target, *names: str) -> AnalysisPlan:
+        return AnalysisPlan(
+            target_path=str(target),
+            overall_description="app",
+            subsystems=[
+                Subsystem(name=n, description="d", key_files=[], focus_areas=[])
+                for n in names
+            ],
+        )
+
+    def test_a_run_where_no_provider_reports_usage_records_unavailable(
+        self, model_pair, sandbox_dir
+    ):
+        """Not a single zero anywhere: a provider that never reports usage
+        must leave the totals unknown, so a later reader can't mistake the
+        run for a free one."""
+        plan = self._plan(sandbox_dir, "One", "Two", "Three")
+        steps = [
+            call_tools(_finish("f1"), tools=SUBSYSTEM_TOOL_NAMES),
+            call_tools(_finish("f2"), tools=SUBSYSTEM_TOOL_NAMES),
+            call_tools(_finish("f3"), tools=SUBSYSTEM_TOOL_NAMES),
+            reply('{"cross_cutting_threats": []}'),
+            _DFD,
+        ]
+        with ScriptedLLM(steps):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=MagicMock(),
+            )
+        assert report.metadata["token_usage"]["available"] is False
+        assert report.metadata["token_usage"]["total"] == {
+            "prompt_tokens": None, "completion_tokens": None,
+        }
+        assert all(not f.token_usage.available for f in report.findings)
+
+    def test_manifest_metadata_breaks_usage_down_by_phase_and_subsystem(
+        self, model_pair, sandbox_dir
+    ):
+        plan = self._plan(sandbox_dir, "A", "B")
+        steps = [
+            call_tools(_finish("fa"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=100, completion_tokens=10),
+            call_tools(_finish("fb"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=200, completion_tokens=20),
+            reply('{"cross_cutting_threats": []}', prompt_tokens=50, completion_tokens=5),
+            reply("```mermaid\nflowchart LR\n  A --> B\n```",
+                  prompt_tokens=60, completion_tokens=6),
+        ]
+        with ScriptedLLM(steps):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=MagicMock())
+
+        usage = report.metadata["token_usage"]
+        assert usage["available"] is True
+        assert usage["by_phase"]["exploration"] == {"prompt_tokens": 300, "completion_tokens": 30}
+        assert usage["by_phase"]["synthesis"] == {"prompt_tokens": 50, "completion_tokens": 5}
+        assert usage["by_phase"]["dfd"] == {"prompt_tokens": 60, "completion_tokens": 6}
+        assert usage["total"] == {"prompt_tokens": 410, "completion_tokens": 41}
+        assert report.findings[0].token_usage.total_tokens == 110
+        assert report.findings[1].token_usage.total_tokens == 220
+
+    def test_a_resumed_subsystem_keeps_its_original_cost_out_of_this_run_s_total(
+        self, model_pair, sandbox_dir
+    ):
+        """The run total is what this invocation spent, so a subsystem reused
+        from a checkpoint (which costs no LLM call now) doesn't add its
+        original cost to it. The finding keeps that cost, so the manifest can
+        still say what the subsystem cost to produce — which means the
+        per-subsystem figures deliberately don't sum to the total on a
+        resumed run."""
+        plan = self._plan(sandbox_dir, "Reused", "Fresh")
+        reused = SubsystemFinding(
+            subsystem="Reused",
+            threats=[{"Threat Type": "Spoofing"}],
+            outcome="completed",
+            token_usage=TokenUsage(prompt_tokens=9_000, completion_tokens=1_000),
+        )
+        steps = [
+            call_tools(_finish("f"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=100, completion_tokens=10),
+            reply('{"cross_cutting_threats": []}', prompt_tokens=20, completion_tokens=2),
+            reply("```mermaid\nflowchart LR\n  A --> B\n```",
+                  prompt_tokens=30, completion_tokens=3),
+        ]
+        with ScriptedLLM(steps):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=MagicMock(),
+                resume_findings={"Reused": reused},
+            )
+
+        # This run's total: the fresh subsystem, synthesis and the DFD only.
+        assert report.metadata["token_usage"]["total"] == {
+            "prompt_tokens": 150, "completion_tokens": 15,
+        }
+        # The reused finding still carries what it cost the run that made it.
+        assert report.findings[0].token_usage.total_tokens == 10_000
+        assert report.findings[1].token_usage.total_tokens == 110
+
+    def test_console_summary_shows_unavailable_with_no_usage(self, model_pair, sandbox_dir):
+        plan = self._plan(sandbox_dir, "A")
+        progress = MagicMock()
+        with ScriptedLLM([call_tools(_finish("f"), tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
+            run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+        summary = progress.complete.call_args.args[0]
+        assert "Token usage: unavailable" in summary
+
+    def test_console_summary_shows_totals_when_usage_is_available(
+        self, model_pair, sandbox_dir
+    ):
+        plan = self._plan(sandbox_dir, "A")
+        progress = MagicMock()
+        with ScriptedLLM([call_tools(_finish("f"), tools=SUBSYSTEM_TOOL_NAMES,
+                                      prompt_tokens=100, completion_tokens=25), _DFD]):
+            run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+        summary = progress.complete.call_args.args[0]
+        assert "Token usage: 125" in summary
+        assert "prompt: 100" in summary
+        assert "completion: 25" in summary
 
 
 class TestGraceRound:

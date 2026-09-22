@@ -42,6 +42,48 @@ class LLMResponse:
     reasoning: str | None = None  # <think> tag reasoning (Groq/DeepSeek)
     model: str = ""  # Model that actually responded
     tool_calls: list[ToolCallResult] | None = None
+    # Usage the provider reported for this call. ``None`` means the provider
+    # didn't report it — kept distinct from ``0`` so callers never mistake
+    # "unknown" for "free".
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
+class TokenUsage(BaseModel):
+    """Aggregated prompt/completion token usage across one or more LLM calls.
+
+    Both fields stay ``None`` until a response that actually reported usage
+    is folded in — a provider that never reports usage (some local Ollama
+    models via LM Studio) must read as "unknown", not "zero", or a token
+    budget would think nothing was spent and run unbounded.
+    """
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+    @property
+    def available(self) -> bool:
+        return self.prompt_tokens is not None or self.completion_tokens is not None
+
+    @property
+    def total_tokens(self) -> int | None:
+        if not self.available:
+            return None
+        return (self.prompt_tokens or 0) + (self.completion_tokens or 0)
+
+    def record(self, response: LLMResponse) -> None:
+        """Fold one LLM response's usage into this total, in place."""
+        if response.prompt_tokens is None and response.completion_tokens is None:
+            return
+        self.prompt_tokens = (self.prompt_tokens or 0) + (response.prompt_tokens or 0)
+        self.completion_tokens = (self.completion_tokens or 0) + (response.completion_tokens or 0)
+
+    def merge(self, other: TokenUsage) -> None:
+        """Fold another aggregate's totals into this one, in place."""
+        if not other.available:
+            return
+        self.prompt_tokens = (self.prompt_tokens or 0) + (other.prompt_tokens or 0)
+        self.completion_tokens = (self.completion_tokens or 0) + (other.completion_tokens or 0)
 
 
 @dataclass
@@ -120,6 +162,11 @@ class SubsystemFinding(BaseModel):
     # the subsystem.
     outcome: SubsystemOutcome = "completed"
     error_class: ErrorClass | None = None
+    # Token usage this subsystem's own LLM calls incurred (exploration,
+    # compression, and the grace round). ``TokenUsage()`` (unavailable) for
+    # findings recorded before this existed, and for a ``skipped`` subsystem
+    # that never made a call.
+    token_usage: TokenUsage = TokenUsage()
 
 
 def count_outcomes(findings: list[SubsystemFinding]) -> dict[str, int]:

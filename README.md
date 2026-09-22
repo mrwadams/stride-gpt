@@ -451,7 +451,7 @@ Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-
 |------|----------|
 | `<stem>.plan.json` | The `AnalysisPlan` the architect produced — subsystems, focus areas, detected app type (analyze only). |
 | `<stem>.findings.json` | Per-subsystem `SubsystemFinding` list, cross-cutting threats, and the system-level data flow diagram (analyze only). Every planned subsystem appears, each with an `outcome` saying why it stopped. |
-| `<stem>.run.json` | A `RunManifest` — models, prompt + config hash, references the agent actually loaded, git SHA, version, timing, and a `run_summary` whose `status` is `partial` when any subsystem crashed, returned nothing readable, or was never started. Emitted for both `analyze` and `quick`. |
+| `<stem>.run.json` | A `RunManifest` — models, prompt + config hash, references the agent actually loaded, git SHA, version, timing, and a `run_summary` whose `status` is `partial` when any subsystem crashed, returned nothing readable, or was never started. The summary also carries token usage for the run, broken down by phase (planning, exploration, compression, synthesis, DFD) and by subsystem; totals are `null` rather than `0` when a provider doesn't report usage. Emitted for both `analyze` and `quick`. |
 
 A subsystem's `outcome` is one of `completed`, `budget_exhausted` (the call or tool budget ran out and it reported in a final round), `parse_failed` (its closing answer couldn't be read), `error` (it raised — see `error_class`), or `skipped` (the run budget ran out before it started). The first two count as analysed; the rest make the run `partial`, and the markdown and HTML reports say so under the affected subsystem.
 
