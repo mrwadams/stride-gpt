@@ -362,23 +362,6 @@ def _run_summary_text(
     return "\n".join(lines)
 
 
-def _skip_remaining(
-    subsystems: list[Subsystem], kind: str, progress: ProgressCallback
-) -> list[SubsystemFinding]:
-    """Record every subsystem the run budget stopped it from starting."""
-    note = f"Analysis skipped — the run's {kind} budget ran out before this subsystem."
-    progress.subsystems_skipped([s.name for s in subsystems])
-    return [
-        SubsystemFinding(
-            subsystem=s.name,
-            threats=[],
-            improvement_suggestions=[note],
-            outcome="skipped",
-        )
-        for s in subsystems
-    ]
-
-
 def _stop_remaining(
     subsystems: list[Subsystem],
     kind: str,
