@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from stride_gpt import cli
@@ -16,6 +17,18 @@ from tests.fakes import SUBSYSTEM_TOOL_NAMES, ScriptedLLM, reply
 runner = CliRunner()
 
 _DFD = reply("```mermaid\nflowchart LR\n  A --> B\n```")
+
+
+@pytest.fixture(autouse=True)
+def no_saved_config(monkeypatch):
+    """Ignore the developer's own ~/.stride-gpt/config.json.
+
+    Every test here passes its models on the command line. A saved config
+    would add an architect tier the checkpoint was never built with, so the
+    run refuses on ``config_hash changed`` before reaching the branch under
+    test — passing in CI and failing on any machine with a saved config.
+    """
+    monkeypatch.setattr(cli, "load_config", lambda: None)
 
 
 def _plan(target: Path) -> AnalysisPlan:
