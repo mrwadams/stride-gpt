@@ -301,6 +301,130 @@ class TestRunAnalysis:
 
 
 # ---------------------------------------------------------------------------
+# Resuming from a checkpoint (#197)
+# ---------------------------------------------------------------------------
+
+
+class TestResume:
+    def test_reused_subsystem_skips_llm_call_and_checkpoints_grow(self, model_pair, tmp_path):
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name="Auth", description="Auth", key_files=[], focus_areas=[]),
+                Subsystem(name="API", description="API", key_files=[], focus_areas=[]),
+            ],
+        )
+        reused_finding = SubsystemFinding(
+            subsystem="Auth", threats=[{"Threat Type": "Spoofing"}], outcome="completed",
+        )
+        api_finding_json = json.dumps({
+            "threats": [{"Threat Type": "Tampering", "Scenario": "s", "Potential Impact": "i"}],
+            "improvement_suggestions": [], "files_analyzed": [],
+        })
+
+        checkpoints: list[list[SubsystemFinding]] = []
+        progress = MagicMock()
+        synthesis_reply = reply(json.dumps({"cross_cutting_threats": []}))
+        with ScriptedLLM([reply(api_finding_json, tools=SUBSYSTEM_TOOL_NAMES), synthesis_reply, _DFD]):
+            report = run_analysis(
+                model_pair, tmp_path, plan=plan, progress=progress,
+                resume_findings={"Auth": reused_finding},
+                on_checkpoint=lambda fs: checkpoints.append(list(fs)),
+            )
+
+        assert [f.subsystem for f in report.findings] == ["Auth", "API"]
+        # The reused finding is the exact object passed in — no re-analysis.
+        assert report.findings[0] is reused_finding
+        assert report.findings[1].threats[0]["Threat Type"] == "Tampering"
+
+        assert report.metadata["resumed_subsystems"] == ["Auth"]
+        assert report.metadata["rerun_subsystems"] == ["API"]
+
+        # Checkpointed once for the free reuse, once for the fresh finding.
+        assert [len(c) for c in checkpoints] == [1, 2]
+        assert checkpoints[0][0] is reused_finding
+
+    def test_reuse_bypasses_an_exhausted_budget(self, model_pair, tmp_path):
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[Subsystem(name="Auth", description="Auth", key_files=[], focus_areas=[])],
+        )
+        reused_finding = SubsystemFinding(
+            subsystem="Auth", threats=[{"Threat Type": "Spoofing"}], outcome="completed",
+        )
+
+        progress = MagicMock()
+        # A budget this small would normally make a fresh subsystem get
+        # skipped outright — reuse must not be gated on it at all.
+        with ScriptedLLM([_DFD]):
+            report = run_analysis(
+                model_pair, tmp_path, plan=plan, progress=progress,
+                max_llm_calls=1,
+                resume_findings={"Auth": reused_finding},
+            )
+
+        assert report.findings == [reused_finding]
+        assert report.metadata["resumed_subsystems"] == ["Auth"]
+        progress.limit_reached.assert_not_called()
+
+    def test_reuse_survives_a_budget_spent_on_an_earlier_subsystem(self, model_pair, tmp_path):
+        """A checkpointed subsystem *after* the one that hit the limit used to
+        be recorded as ``skipped`` and checkpointed as such, destroying the
+        findings the resume existed to keep. Reuse is free, so the budget has
+        no say in it wherever it sits in the plan."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name="Auth", description="Auth", key_files=[], focus_areas=[]),
+                Subsystem(name="API", description="API", key_files=[], focus_areas=[]),
+            ],
+        )
+        reused_finding = SubsystemFinding(
+            subsystem="API", threats=[{"Threat Type": "Tampering"}], outcome="completed",
+        )
+
+        checkpoints: list[list[SubsystemFinding]] = []
+        progress = MagicMock()
+        with ScriptedLLM([_DFD]):
+            report = run_analysis(
+                model_pair, tmp_path, plan=plan, progress=progress,
+                max_llm_calls=1,
+                resume_findings={"API": reused_finding},
+                on_checkpoint=lambda fs: checkpoints.append(list(fs)),
+            )
+
+        # Auth had no checkpointed result and no budget left, so it is skipped;
+        # API is handed back untouched, in plan order.
+        assert [f.subsystem for f in report.findings] == ["Auth", "API"]
+        assert report.findings[0].outcome == "skipped"
+        assert report.findings[1] is reused_finding
+        assert report.metadata["resumed_subsystems"] == ["API"]
+        # Only the genuinely lost subsystem is announced as skipped.
+        progress.subsystems_skipped.assert_called_once_with(["Auth"])
+        # And what got written back to the checkpoint kept API's findings.
+        assert checkpoints[-1][1] is reused_finding
+
+    def test_non_resumed_run_has_empty_resumed_list_and_full_rerun_list(self, model_pair, tmp_path):
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[Subsystem(name="Auth", description="Auth", key_files=[], focus_areas=[])],
+        )
+        finding_json = json.dumps({
+            "threats": [], "improvement_suggestions": [], "files_analyzed": [],
+        })
+
+        with ScriptedLLM([reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
+            report = run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
+
+        assert report.metadata["resumed_subsystems"] == []
+        assert report.metadata["rerun_subsystems"] == ["Auth"]
+
+
+# ---------------------------------------------------------------------------
 # App-type propagation (planner hint → agent prompt → metadata)
 # ---------------------------------------------------------------------------
 

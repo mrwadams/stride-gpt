@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,8 @@ def run_analysis(
     auto_approve: bool = False,
     progress: ProgressCallback | None = None,
     console: Console | None = None,
+    resume_findings: dict[str, SubsystemFinding] | None = None,
+    on_checkpoint: Callable[[list[SubsystemFinding]], None] | None = None,
 ) -> AnalysisReport:
     """Run a full agentic threat model analysis on a codebase.
 
@@ -109,6 +112,14 @@ def run_analysis(
         auto_approve: Skip interactive plan approval (only used when plan is None).
         progress: Progress callback for UI updates. Falls back to Rich console.
         console: Deprecated — use progress instead. Kept for backward compat.
+        resume_findings: Subsystem name -> its checkpointed finding, from a
+            ``--resume`` run. A subsystem present here is reused verbatim
+            (no LLM call) instead of being analysed; every other subsystem
+            in the plan runs as normal.
+        on_checkpoint: Called with the findings list so far every time it
+            changes (a subsystem finished, was skipped, or was reused), so
+            the caller can persist a checkpoint. Not called for /quick-style
+            callers that don't pass it.
 
     Returns:
         Complete AnalysisReport.
@@ -173,22 +184,49 @@ def run_analysis(
     # --- Phase 2: Per-subsystem analysis ---
     progress.phase_start("Phase 2", "Analyzing Subsystems")
     findings: list[SubsystemFinding] = []
+    resumed_names: list[str] = []
+    rerun_names: list[str] = []
 
     for i, subsystem in enumerate(plan.subsystems, 1):
+        # A subsystem the checkpoint already completed costs nothing to
+        # reuse, so it bypasses the budget checks below entirely — a spent
+        # budget shouldn't stop a free reuse.
+        if resume_findings and subsystem.name in resume_findings:
+            finding = resume_findings[subsystem.name]
+            findings.append(finding)
+            resumed_names.append(subsystem.name)
+            progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
+            progress.status(f"Reusing checkpointed result for {subsystem.name}.")
+            progress.subsystem_done(subsystem.name, len(finding.threats), finding.outcome)
+            if on_checkpoint:
+                on_checkpoint(findings)
+            continue
+
         # A budget that runs out mid-plan used to drop the remaining
         # subsystems entirely, so the run's own N/M counts couldn't see them.
         # Each one is recorded as ``skipped`` instead: findings always match
         # the plan.
         if max_llm_calls and llm_calls >= max_llm_calls - 1:
             progress.limit_reached("LLM call", llm_calls, max_llm_calls)
-            findings.extend(_skip_remaining(plan.subsystems[i - 1:], "LLM call", progress))
+            findings.extend(_stop_remaining(
+                plan.subsystems[i - 1:], "LLM call", progress,
+                resume_findings=resume_findings, resumed_names=resumed_names,
+            ))
+            if on_checkpoint:
+                on_checkpoint(findings)
             break
         if max_tool_calls and explore_calls >= max_tool_calls:
             progress.limit_reached("tool call", explore_calls, max_tool_calls)
-            findings.extend(_skip_remaining(plan.subsystems[i - 1:], "tool call", progress))
+            findings.extend(_stop_remaining(
+                plan.subsystems[i - 1:], "tool call", progress,
+                resume_findings=resume_findings, resumed_names=resumed_names,
+            ))
+            if on_checkpoint:
+                on_checkpoint(findings)
             break
 
         progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
+        rerun_names.append(subsystem.name)
 
         # Pass remaining budget so a single subsystem can't starve later
         # subsystems (or the synthesis pass). 0 still means unlimited.
@@ -220,6 +258,8 @@ def run_analysis(
             if sub_counts.get("explore", 0) == 0:
                 progress.no_tool_use_warning(subsystem.name)
             progress.subsystem_done(subsystem.name, len(finding.threats), finding.outcome)
+            if on_checkpoint:
+                on_checkpoint(findings)
         except Exception as e:
             partial = e.finding if isinstance(e, SubsystemAbortedError) else None
             # The counts were recorded before the exception escaped.
@@ -244,6 +284,8 @@ def run_analysis(
                     error_class=error_class,
                 )
             )
+            if on_checkpoint:
+                on_checkpoint(findings)
 
     # Skipped subsystems are placeholders, not findings — synthesis and the
     # DFD must reason about what was actually looked at.
@@ -273,7 +315,7 @@ def run_analysis(
 
     metadata = _build_metadata(
         models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
-        findings=findings,
+        findings=findings, resumed_subsystems=resumed_names, rerun_subsystems=rerun_names,
     )
     metadata["references_loaded"] = sorted(loaded_refs)
 
@@ -320,21 +362,44 @@ def _run_summary_text(
     return "\n".join(lines)
 
 
-def _skip_remaining(
-    subsystems: list[Subsystem], kind: str, progress: ProgressCallback
+def _stop_remaining(
+    subsystems: list[Subsystem],
+    kind: str,
+    progress: ProgressCallback,
+    *,
+    resume_findings: dict[str, SubsystemFinding] | None,
+    resumed_names: list[str],
 ) -> list[SubsystemFinding]:
-    """Record every subsystem the run budget stopped it from starting."""
+    """Close out the subsystems a spent budget stopped, keeping the free ones.
+
+    A subsystem the checkpoint already completed costs nothing to reuse, which
+    is why the loop's reuse branch sits above the budget checks. The budget
+    checks break out of the loop, though, so any reusable subsystem *after*
+    the one that hit the limit never reached that branch: it was recorded as
+    ``skipped`` and the checkpoint was rewritten with the placeholder, which
+    destroyed the very findings ``--resume`` exists to keep. They are reused
+    here instead, in plan order, and only the rest are skipped.
+    """
     note = f"Analysis skipped — the run's {kind} budget ran out before this subsystem."
-    progress.subsystems_skipped([s.name for s in subsystems])
-    return [
-        SubsystemFinding(
-            subsystem=s.name,
-            threats=[],
-            improvement_suggestions=[note],
-            outcome="skipped",
+    out: list[SubsystemFinding] = []
+    skipped: list[str] = []
+    for sub in subsystems:
+        if resume_findings and sub.name in resume_findings:
+            out.append(resume_findings[sub.name])
+            resumed_names.append(sub.name)
+            continue
+        out.append(
+            SubsystemFinding(
+                subsystem=sub.name,
+                threats=[],
+                improvement_suggestions=[note],
+                outcome="skipped",
+            )
         )
-        for s in subsystems
-    ]
+        skipped.append(sub.name)
+    if skipped:
+        progress.subsystems_skipped(skipped)
+    return out
 
 
 def _build_metadata(
@@ -345,6 +410,8 @@ def _build_metadata(
     tool_calls: int,
     findings: list[SubsystemFinding],
     status: str | None = None,
+    resumed_subsystems: list[str] | None = None,
+    rerun_subsystems: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the metadata block stored on an AnalysisReport.
 
@@ -363,6 +430,8 @@ def _build_metadata(
         "tool_calls": tool_calls,
         "subsystems_analyzed": count_analysed(findings),
         "subsystem_outcomes": counts,
+        "resumed_subsystems": resumed_subsystems or [],
+        "rerun_subsystems": rerun_subsystems or [],
     }
     if status:
         meta["status"] = status

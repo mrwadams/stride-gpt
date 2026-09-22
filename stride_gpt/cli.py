@@ -79,12 +79,17 @@ HELP_TEXT = """
   [cyan]-f, --format[/cyan] <fmt>     Output format: markdown (default), json, sarif, html
   [cyan]-y, --yes[/cyan]              Auto-approve the analysis plan
 
+[bold]Flags[/bold] (for /analyze only):
+  [cyan]--resume[/cyan] <checkpoint>  Resume an interrupted run (written next to -o as <stem>.checkpoint.json)
+  [cyan]--force[/cyan]                With --resume, proceed despite a dirty tree or missing git SHA
+
 [bold]Examples:[/bold]
   [cyan]/analyze .[/cyan]                          Analyze current directory
   [cyan]/analyze ./my-app[/cyan]                   Analyze a specific path
   [cyan]/analyze . -o report.md[/cyan]             Save report to file
   [cyan]/analyze . -o report.json -f json[/cyan]   Export as JSON (pairs report.html)
   [cyan]/analyze . -o report.html -f html[/cyan]   Export browser-viewable HTML
+  [cyan]/analyze . -o report.md --resume report.checkpoint.json[/cyan]  Resume a killed run
   [cyan]/quick -i desc.txt -f html -o r.html[/cyan]  Quick model as HTML
   [cyan]/reports[/cyan]                            List recent reports
   [cyan]/reports 1[/cyan]                          View report #1
@@ -264,6 +269,8 @@ def _persist_analyze_intermediates(
         llm_calls=report.metadata.get("llm_calls", 0),
         tool_calls=report.metadata.get("tool_calls", 0),
         findings=report.findings,
+        resumed_subsystems=report.metadata.get("resumed_subsystems", []),
+        rerun_subsystems=report.metadata.get("rerun_subsystems", []),
     )
     written = write_intermediates(
         output,
@@ -313,11 +320,104 @@ def _persist_quick_intermediates(
         console.print(f"[green]Intermediate written to {path}[/green]")
 
 
+def _load_and_validate_checkpoint(resume_path: Path, *, target: Path, models: ModelPair, force: bool):
+    """Load a checkpoint and confirm it's safe to resume against ``target``/``models``.
+
+    Raises ``FileNotFoundError`` if ``resume_path`` doesn't exist, or
+    ``stride_gpt.agent.persistence.CheckpointValidationError`` if resuming
+    from it would be unsound. Callers decide how to report each.
+    """
+    from stride_gpt.agent.persistence import (
+        load_checkpoint,
+        restore_checkpoint_paths,
+        validate_checkpoint_for_resume,
+    )
+
+    if not resume_path.is_file():
+        raise FileNotFoundError(resume_path)
+    checkpoint = load_checkpoint(resume_path)
+    validate_checkpoint_for_resume(
+        checkpoint, target=target, models=models, force=force,
+        checkpoint_path=resume_path,
+    )
+    # The plan and findings come back redacted; the run reports from them, so
+    # they have to be live paths again before anything downstream sees them.
+    return restore_checkpoint_paths(checkpoint, target=target)
+
+
+def _resolve_analysis_plan(
+    models: ModelPair,
+    target: Path,
+    *,
+    checkpoint,
+    auto_approve: bool,
+    progress,
+    app_type: AppTypeOverride | None = None,
+):
+    """Get the plan + its app_type_source, from a checkpoint or a fresh Phase 1.
+
+    Returns ``None`` if the user declined to approve a freshly generated
+    plan — a resumed checkpoint's plan was already approved, so it's never
+    re-prompted.
+    """
+    from stride_gpt.agent.loop import create_analysis_plan
+    from stride_gpt.agent.planner import format_plan_for_display
+
+    if checkpoint is not None:
+        return checkpoint.plan, checkpoint.app_type_source
+
+    progress.phase_start("Phase 1", "Planning")
+    progress.status("Scanning codebase and generating plan...")
+    plan = create_analysis_plan(models, target)
+
+    # Provenance follows the flag, not whether the flag changed anything: a
+    # classification the user pinned with --app-type is a user's choice even
+    # when the planner reached the same answer on its own.
+    app_type_source = "planner"
+    if app_type is not None and app_type != AppTypeOverride.auto:
+        app_type_source = f"override:{app_type.value}"
+        if app_type.value != plan.detected_app_type:
+            console.print(
+                f"[dim]Overriding detected type "
+                f"[yellow]{plan.detected_app_type}[/yellow] → "
+                f"[yellow]{app_type.value}[/yellow] (--app-type).[/dim]"
+            )
+            plan = plan.model_copy(update={"detected_app_type": app_type.value})
+
+    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+
+    if not auto_approve:
+        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
+        if response.lower() not in ("y", "yes"):
+            return None
+
+    return plan, app_type_source
+
+
+def _make_checkpoint_writer(
+    checkpoint_path: Path, *, plan: AnalysisPlan, target: Path, models: ModelPair,
+    app_type_source: str, started_at: datetime,
+):
+    """Build a callback that atomically checkpoints the findings so far."""
+    from stride_gpt.agent.persistence import build_checkpoint, write_checkpoint
+
+    def _write(findings) -> None:
+        write_checkpoint(
+            checkpoint_path,
+            build_checkpoint(
+                plan=plan, findings=findings, target=target, models=models,
+                app_type_source=app_type_source, started_at=started_at,
+            ),
+        )
+
+    return _write
+
+
 def _handle_analyze(config: dict, args_str: str) -> None:
     """Run agentic analysis from interactive session."""
     from stride_gpt.agent.html_report import render_html
-    from stride_gpt.agent.loop import create_analysis_plan, run_analysis
-    from stride_gpt.agent.planner import format_plan_for_display
+    from stride_gpt.agent.loop import run_analysis
+    from stride_gpt.agent.persistence import CheckpointValidationError, checkpoint_path_for
     from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
 
@@ -332,6 +432,8 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     # Check for -o / --output flag
     output_path = None
     output_format = OutputFormat.markdown
+    resume_path = None
+    force = False
     i = 1
     while i < len(parts):
         if parts[i] in ("-o", "--output") and i + 1 < len(parts):
@@ -346,6 +448,12 @@ def _handle_analyze(config: dict, args_str: str) -> None:
             i += 2
         elif parts[i] in ("-y", "--yes"):
             i += 1  # auto_approve handled below
+        elif parts[i] == "--resume" and i + 1 < len(parts):
+            resume_path = Path(parts[i + 1])
+            i += 2
+        elif parts[i] == "--force":
+            force = True
+            i += 1
         else:
             i += 1
 
@@ -360,22 +468,51 @@ def _handle_analyze(config: dict, args_str: str) -> None:
 
     _check_lm_studio_context_for(config, models, console)
 
+    checkpoint = None
+    if resume_path is not None:
+        try:
+            checkpoint = _load_and_validate_checkpoint(
+                resume_path, target=target_path, models=models, force=force
+            )
+        except FileNotFoundError:
+            console.print(f"[red]Checkpoint not found: {resume_path}[/red]")
+            return
+        except CheckpointValidationError as e:
+            console.print(f"[red]Cannot resume: {e}[/red]")
+            return
+
     console.print(Panel(_panel_target_body(target_path, models), title="[bold]Agentic Analysis[/bold]", style="blue"))
 
     progress = RichProgress(console)
 
-    # Phase 1: Plan
+    # Phase 1: Plan (or reuse a checkpointed one)
     started_at = datetime.now(UTC)
-    progress.phase_start("Phase 1", "Planning")
-    progress.status("Scanning codebase and generating plan...")
-    plan = create_analysis_plan(models, target_path)
-    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+    resolved = _resolve_analysis_plan(
+        models, target_path, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
+    )
+    if resolved is None:
+        console.print("[red]Analysis cancelled.[/red]")
+        return
+    plan, app_type_source = resolved
+    run_started_at = checkpoint.started_at if checkpoint is not None else started_at
 
-    if not auto_approve:
-        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
-        if response.lower() not in ("y", "yes"):
-            console.print("[red]Analysis cancelled.[/red]")
-            return
+    resume_findings = None
+    if checkpoint is not None:
+        resume_findings = {f.subsystem: f for f in checkpoint.findings if f.outcome == "completed"}
+        console.print(
+            f"[dim]Resuming from {resume_path} — {len(resume_findings)} subsystem(s) "
+            "already completed.[/dim]"
+        )
+
+    on_checkpoint = None
+    if output_path is not None:
+        checkpoint_path = resume_path if checkpoint is not None else checkpoint_path_for(output_path)
+        on_checkpoint = _make_checkpoint_writer(
+            checkpoint_path, plan=plan, target=target_path, models=models,
+            app_type_source=app_type_source, started_at=run_started_at,
+        )
+        if checkpoint is None:
+            on_checkpoint([])
 
     # Phases 2+3: Analyze with pre-approved plan
     report = run_analysis(
@@ -383,6 +520,8 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         target_path=target_path,
         plan=plan,
         progress=progress,
+        resume_findings=resume_findings,
+        on_checkpoint=on_checkpoint,
     )
     finished_at = datetime.now(UTC)
 
@@ -416,9 +555,9 @@ def _handle_analyze(config: dict, args_str: str) -> None:
             models=models,
             plan=plan,
             report=report,
-            started_at=started_at,
+            started_at=run_started_at,
             finished_at=finished_at,
-            app_type_source="planner",
+            app_type_source=app_type_source,
         )
     else:
         console.print()
@@ -731,11 +870,13 @@ def analyze(
     max_tool_calls: Annotated[int, typer.Option(help="Max code-exploration calls; reporting a threat doesn't spend it (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
+    resume: Annotated[Path | None, typer.Option("--resume", help="Resume an interrupted run from a checkpoint file (written next to -o as <stem>.checkpoint.json).")] = None,
+    force: Annotated[bool, typer.Option("--force", help="Resume even if the target has uncommitted changes or no discoverable git SHA.")] = False,
 ) -> None:
     """Deep agentic analysis of a codebase for STRIDE threats."""
     from stride_gpt.agent.html_report import render_html
-    from stride_gpt.agent.loop import create_analysis_plan, run_analysis
-    from stride_gpt.agent.planner import format_plan_for_display
+    from stride_gpt.agent.loop import run_analysis
+    from stride_gpt.agent.persistence import CheckpointValidationError, checkpoint_path_for
     from stride_gpt.agent.progress import RichProgress
     from stride_gpt.agent.report import render_json, render_markdown, render_sarif, save_report
 
@@ -758,6 +899,17 @@ def analyze(
 
     _check_lm_studio_context_for(load_config() or {}, models, console, exit_on_fail=True)
 
+    checkpoint = None
+    if resume is not None:
+        try:
+            checkpoint = _load_and_validate_checkpoint(resume, target=target, models=models, force=force)
+        except FileNotFoundError:
+            console.print(f"[red]Checkpoint not found: {resume}[/red]")
+            raise typer.Exit(1) from None
+        except CheckpointValidationError as e:
+            console.print(f"[red]Cannot resume: {e}[/red]")
+            raise typer.Exit(1) from e
+
     console.print(
         Panel(
             f"[bold]STRIDE-GPT[/bold] Agentic Threat Modeling\n\n"
@@ -770,28 +922,35 @@ def analyze(
 
     progress = RichProgress(console)
 
-    # Phase 1: Plan
+    # Phase 1: Plan (or reuse a checkpointed one)
     started_at = datetime.now(UTC)
-    progress.phase_start("Phase 1", "Planning")
-    progress.status("Scanning codebase and generating plan...")
-    plan = create_analysis_plan(models, target)
+    resolved = _resolve_analysis_plan(
+        models, target, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
+        app_type=app_type,
+    )
+    if resolved is None:
+        console.print("[red]Analysis cancelled.[/red]")
+        raise typer.Exit(0)
+    plan, app_type_source = resolved
+    run_started_at = checkpoint.started_at if checkpoint is not None else started_at
 
-    # Apply --app-type override, if any.
-    if app_type != AppTypeOverride.auto and app_type.value != plan.detected_app_type:
+    resume_findings = None
+    if checkpoint is not None:
+        resume_findings = {f.subsystem: f for f in checkpoint.findings if f.outcome == "completed"}
         console.print(
-            f"[dim]Overriding detected type "
-            f"[yellow]{plan.detected_app_type}[/yellow] → "
-            f"[yellow]{app_type.value}[/yellow] (--app-type).[/dim]"
+            f"[dim]Resuming from {resume} — {len(resume_findings)} subsystem(s) "
+            "already completed.[/dim]"
         )
-        plan = plan.model_copy(update={"detected_app_type": app_type.value})
 
-    console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
-
-    if not auto_approve:
-        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
-        if response.lower() not in ("y", "yes"):
-            console.print("[red]Analysis cancelled.[/red]")
-            raise typer.Exit(0)
+    on_checkpoint = None
+    if output is not None:
+        checkpoint_path = resume if checkpoint is not None else checkpoint_path_for(output)
+        on_checkpoint = _make_checkpoint_writer(
+            checkpoint_path, plan=plan, target=target, models=models,
+            app_type_source=app_type_source, started_at=run_started_at,
+        )
+        if checkpoint is None:
+            on_checkpoint([])
 
     # Phases 2+3: Analyze with pre-approved plan
     report = run_analysis(
@@ -801,6 +960,8 @@ def analyze(
         max_llm_calls=max_llm_calls,
         max_tool_calls=max_tool_calls,
         progress=progress,
+        resume_findings=resume_findings,
+        on_checkpoint=on_checkpoint,
     )
     finished_at = datetime.now(UTC)
 
@@ -825,18 +986,13 @@ def analyze(
             html_path = output.with_suffix(".html")
             html_path.write_text(render_html(report))
             console.print(f"[green]HTML view written to {html_path}[/green]")
-        app_type_source = (
-            f"override:{app_type.value}"
-            if app_type != AppTypeOverride.auto
-            else "planner"
-        )
         _persist_analyze_intermediates(
             output=output,
             target=target,
             models=models,
             plan=plan,
             report=report,
-            started_at=started_at,
+            started_at=run_started_at,
             finished_at=finished_at,
             app_type_source=app_type_source,
         )
