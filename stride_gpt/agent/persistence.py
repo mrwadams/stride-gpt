@@ -168,9 +168,10 @@ def redact_path(p: Path | str) -> str:
     path = Path(p) if not isinstance(p, Path) else p
     try:
         resolved = path.resolve()
-    except OSError:
-        # An unresolvable path (e.g. ``"stdin"``) is returned untouched —
-        # /quick uses this with non-filesystem identifiers.
+    except Exception:
+        # An unresolvable path (e.g. ``"stdin"``, or one containing a null
+        # byte from model output) is returned untouched — this must never
+        # raise, so any resolution failure falls back to the original string.
         return str(p)
 
     cwd = Path.cwd().resolve()

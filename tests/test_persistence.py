@@ -65,6 +65,14 @@ def test_redact_path_outside_cwd_and_home(tmp_path, monkeypatch):
     assert redact_path(other) == str(other.resolve())
 
 
+def test_redact_path_null_byte_does_not_raise():
+    # Path.resolve() raises ValueError (not OSError) on an embedded null
+    # byte, e.g. one decoded from model output, so redact_path must catch
+    # broadly rather than propagate it (issue #208).
+    malformed = "a" + chr(0) + "b.py"
+    assert redact_path(malformed) == malformed
+
+
 # ---------------------------------------------------------------------------
 # compute_config_hash
 # ---------------------------------------------------------------------------
