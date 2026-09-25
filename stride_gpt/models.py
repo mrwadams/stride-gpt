@@ -128,6 +128,19 @@ PROVIDERS: dict[str, ProviderInfo] = {
             "3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀"
         ),
     ),
+    "OpenRouter": ProviderInfo(
+        name="OpenRouter",
+        provider_key="OpenRouter API",
+        litellm_prefix="openrouter/",
+        env_var="OPENROUTER_API_KEY",
+        api_key_url="https://openrouter.ai/settings/keys",
+        setup_instructions=(
+            "1. Enter your [OpenRouter API key](https://openrouter.ai/settings/keys) "
+            "and chosen model below 🔑\n"
+            "2. Provide details of the application that you would like to threat model  📝\n"
+            "3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀"
+        ),
+    ),
     "LM Studio": ProviderInfo(
         name="LM Studio",
         provider_key="LM Studio Server",
@@ -336,6 +349,52 @@ MODELS: list[ModelInfo] = [
         default_tokens=64000,
         max_tokens=128000,
         help_text="DeepSeek V4 Flash is the fast, cost-efficient tier.",
+    ),
+    # --- OpenRouter ---
+    # A shortlist of tool-capable models; the wizard's "Custom" option takes any
+    # other slug from https://openrouter.ai/models. Context lengths are
+    # OpenRouter's, which can differ from the upstream provider's.
+    ModelInfo(
+        model_id="anthropic/claude-opus-5",
+        provider_key="OpenRouter API",
+        default_tokens=64000,
+        max_tokens=1000000,
+        help_text="Claude Opus 5 routed via OpenRouter.",
+    ),
+    ModelInfo(
+        model_id="anthropic/claude-sonnet-5",
+        provider_key="OpenRouter API",
+        default_tokens=64000,
+        max_tokens=1000000,
+        help_text="Claude Sonnet 5 routed via OpenRouter.",
+    ),
+    ModelInfo(
+        model_id="openai/gpt-5.5",
+        provider_key="OpenRouter API",
+        default_tokens=128000,
+        max_tokens=1050000,
+        help_text="GPT-5.5 routed via OpenRouter.",
+    ),
+    ModelInfo(
+        model_id="google/gemini-3.5-flash",
+        provider_key="OpenRouter API",
+        default_tokens=64000,
+        max_tokens=1048576,
+        help_text="Gemini 3.5 Flash routed via OpenRouter: fast and cheap.",
+    ),
+    ModelInfo(
+        model_id="deepseek/deepseek-v4-pro",
+        provider_key="OpenRouter API",
+        default_tokens=64000,
+        max_tokens=1048576,
+        help_text="DeepSeek V4 Pro routed via OpenRouter.",
+    ),
+    ModelInfo(
+        model_id="moonshotai/kimi-k3",
+        provider_key="OpenRouter API",
+        default_tokens=64000,
+        max_tokens=1048576,
+        help_text="Kimi K3 routed via OpenRouter.",
     ),
     # --- LM Studio (no static models — discovered at runtime) ---
 ]
