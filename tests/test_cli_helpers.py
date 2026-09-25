@@ -29,11 +29,27 @@ class TestResolveProvider:
             ("openai/gpt-x", "OpenAI API", "gpt-x"),
             ("google/gemini-x", "Google AI API", "gemini-x"),
             ("deepseek/deepseek-v4-pro", "DeepSeek API", "deepseek-v4-pro"),
+            ("openrouter/qwen3-max", "OpenRouter API", "qwen3-max"),
         ],
     )
     def test_known_prefixes(self, model, expected_provider, expected_name):
         provider, name = cli._resolve_provider(model)
         assert provider == expected_provider
+        assert name == expected_name
+
+    @pytest.mark.parametrize(
+        "model, expected_name",
+        [
+            ("openrouter/anthropic/claude-opus-5", "anthropic/claude-opus-5"),
+            ("openrouter/openai/gpt-5.5", "openai/gpt-5.5"),
+            ("openrouter/google/gemini-3.5-flash", "google/gemini-3.5-flash"),
+        ],
+    )
+    def test_openrouter_keeps_inner_vendor_prefix(self, model, expected_name):
+        """Only the outer prefix is ours: OpenRouter slugs carry a vendor prefix
+        of their own, and stripping it would route to the vendor direct."""
+        provider, name = cli._resolve_provider(model)
+        assert provider == "OpenRouter API"
         assert name == expected_name
 
     def test_unprefixed_defaults_to_openai(self):

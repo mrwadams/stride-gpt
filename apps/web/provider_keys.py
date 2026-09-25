@@ -20,4 +20,5 @@ PROVIDER_API_KEY_STATE: dict[str, str] = {
     "Mistral API": "mistral_api_key",
     "Groq API": "groq_api_key",
     "DeepSeek API": "deepseek_api_key",
+    "OpenRouter API": "openrouter_api_key",
 }

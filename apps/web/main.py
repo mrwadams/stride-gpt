@@ -959,7 +959,11 @@ st.sidebar.header("How to use STRIDE GPT")
 with st.sidebar:
     # Add model selection input field to the sidebar
     # Build provider list from registry (use provider_key as selectbox values)
-    _provider_keys = [p.provider_key for p in _PROVIDERS.values()]
+    # OpenRouter is CLI-only for now: the generation paths below dispatch per
+    # provider and have no OpenRouter branch yet.
+    _provider_keys = [
+        p.provider_key for p in _PROVIDERS.values() if p.provider_key != "OpenRouter API"
+    ]
     model_provider = st.selectbox(
         "Select your preferred model provider:",
         _provider_keys,

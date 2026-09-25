@@ -850,6 +850,9 @@ def _handle_quick(config: dict, args_str: str) -> None:
 def _resolve_provider(model: str) -> tuple[str, str]:
     """Infer provider and bare model name from a prefixed model string."""
     prefixes = {
+        # Checked first: an OpenRouter slug carries its own vendor prefix
+        # (openrouter/anthropic/claude-opus-5), and only the outer one is ours.
+        "openrouter/": "OpenRouter API",
         "anthropic/": "Anthropic API",
         "mistral/": "Mistral API",
         "groq/": "Groq API",
