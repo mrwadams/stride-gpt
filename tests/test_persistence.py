@@ -73,6 +73,58 @@ def test_redact_path_null_byte_does_not_raise():
     assert redact_path(malformed) == malformed
 
 
+def test_redact_path_unresolvable_under_home_is_still_redacted(tmp_path, monkeypatch):
+    # Catching broadly must not turn a crash into a leak: an unresolvable
+    # path under $HOME would otherwise be serialised verbatim, putting
+    # /Users/<name>/... into a manifest that goes to git and tickets.
+    home = tmp_path / "home"
+    cwd = tmp_path / "elsewhere"
+    (home / "proj").mkdir(parents=True)
+    cwd.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(cwd)
+    malformed = f"{home}/proj/a" + chr(0) + "b.py"
+    # The malformed tail survives — it is evidence of what the model
+    # emitted — but the home prefix does not.
+    assert redact_path(malformed) == "~/proj/a" + chr(0) + "b.py"
+    assert str(home) not in redact_path(malformed)
+
+
+def test_redact_path_unresolvable_under_cwd_is_still_redacted(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    cwd = tmp_path / "work"
+    home.mkdir()
+    cwd.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(cwd)
+    malformed = f"{cwd}/services/a" + chr(0) + "b.py"
+    assert redact_path(malformed) == "./services/a" + chr(0) + "b.py"
+
+
+def test_redact_path_unresolvable_cwd_wins_over_home(tmp_path, monkeypatch):
+    # A cwd nested inside $HOME must anchor to "./" on the textual path as
+    # well, matching the rule order applied to a resolved path.
+    home = tmp_path / "home"
+    cwd = home / "code" / "acme"
+    cwd.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(cwd)
+    malformed = f"{cwd}/a" + chr(0) + "b.py"
+    assert redact_path(malformed) == "./a" + chr(0) + "b.py"
+
+
+def test_redact_path_unresolvable_outside_both_anchors_is_verbatim(tmp_path, monkeypatch):
+    # Rule 3 on a string that could not be resolved: nothing to redact.
+    home = tmp_path / "home"
+    cwd = tmp_path / "cwd"
+    home.mkdir()
+    cwd.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(cwd)
+    malformed = "/etc/a" + chr(0) + "b.py"
+    assert redact_path(malformed) == malformed
+
+
 # ---------------------------------------------------------------------------
 # compute_config_hash
 # ---------------------------------------------------------------------------
