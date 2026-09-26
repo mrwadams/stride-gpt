@@ -1,14 +1,16 @@
 """Unified model registry — single source of truth for providers and models.
 
 To add or update a model, edit the MODELS list below. No other files need to change.
-Last reviewed: 2026-04-17
+Last reviewed: 2026-09-26
 
 Provider model listing pages:
-  - Anthropic: https://docs.anthropic.com/en/docs/about-claude/models
-  - OpenAI:    https://platform.openai.com/docs/models
-  - Google AI: https://ai.google.dev/gemini-api/docs/models
-  - Mistral:   https://docs.mistral.ai/getting-started/models
-  - Groq:      https://console.groq.com/docs/models
+  - Anthropic:  https://platform.claude.com/docs/en/about-claude/models/overview
+  - OpenAI:     https://developers.openai.com/api/docs/models
+  - Google AI:  https://ai.google.dev/gemini-api/docs/models
+  - Mistral:    https://docs.mistral.ai/getting-started/models/models_overview
+  - Groq:       https://console.groq.com/docs/models
+  - DeepSeek:   https://api-docs.deepseek.com/quick_start/models
+  - OpenRouter: https://openrouter.ai/models
 """
 
 from __future__ import annotations
@@ -166,78 +168,79 @@ PROVIDERS: dict[str, ProviderInfo] = {
 MODELS: list[ModelInfo] = [
     # --- OpenAI ---
     ModelInfo(
-        model_id="gpt-5.5",
+        model_id="gpt-6-astra",
         provider_key="OpenAI API",
         default_tokens=128000,
         max_tokens=1050000,
         uses_max_completion_tokens=True,
-        help_text="GPT-5.5 is OpenAI's latest flagship model.",
+        help_text="GPT-6 Astra is OpenAI's most capable model, built for the hardest end-to-end work.",
     ),
     ModelInfo(
-        model_id="gpt-5.4",
+        model_id="gpt-6-sol",
         provider_key="OpenAI API",
         default_tokens=128000,
         max_tokens=1050000,
         uses_max_completion_tokens=True,
-        help_text="GPT-5.4 is OpenAI's previous flagship model with 1M+ context.",
+        help_text="GPT-6 Sol balances intelligence and cost for complex coding and agentic workflows.",
     ),
     ModelInfo(
-        model_id="gpt-5.4-pro",
+        model_id="gpt-6-luna",
         provider_key="OpenAI API",
         default_tokens=128000,
         max_tokens=1050000,
         uses_max_completion_tokens=True,
-        help_text="GPT-5.4 Pro produces smarter, more precise responses.",
-    ),
-    ModelInfo(
-        model_id="gpt-5.4-mini",
-        provider_key="OpenAI API",
-        default_tokens=64000,
-        max_tokens=400000,
-        uses_max_completion_tokens=True,
-        help_text="GPT-5.4 Mini is a fast, cost-efficient version.",
-    ),
-    ModelInfo(
-        model_id="gpt-5.4-nano",
-        provider_key="OpenAI API",
-        default_tokens=64000,
-        max_tokens=400000,
-        uses_max_completion_tokens=True,
-        help_text="GPT-5.4 Nano is the fastest and most affordable option.",
+        help_text="GPT-6 Luna is the most efficient option for focused, high-volume tasks.",
     ),
     # --- Anthropic ---
+    # supports_thinking marks models that accept the legacy extended-thinking
+    # kwarg, thinking={"type": "enabled", "budget_tokens": N}. Claude 4.7 and
+    # later reject it with a 400; those models think adaptively by default and
+    # are steered with the `effort` parameter instead, so the flag stays False.
     ModelInfo(
-        model_id="claude-sonnet-4-6",
+        model_id="claude-sonnet-5",
         provider_key="Anthropic API",
         default_tokens=64000,
-        max_tokens=200000,
-        supports_thinking=True,
-        help_text="Claude Sonnet 4.6 offers the best balance of performance and efficiency.",
+        max_tokens=1000000,
+        help_text="Claude Sonnet 5 offers the best balance of speed and intelligence.",
+    ),
+    ModelInfo(
+        model_id="claude-opus-5-5",
+        provider_key="Anthropic API",
+        default_tokens=64000,
+        max_tokens=1000000,
+        help_text="Claude Opus 5.5 is the current Opus model, built for long-running agentic work.",
+    ),
+    ModelInfo(
+        model_id="claude-fable-5-1",
+        provider_key="Anthropic API",
+        default_tokens=64000,
+        max_tokens=1000000,
+        help_text="Claude Fable 5.1 targets demanding reasoning and long-horizon agentic work.",
     ),
     ModelInfo(
         model_id="claude-opus-4-8",
         provider_key="Anthropic API",
         default_tokens=64000,
-        max_tokens=200000,
-        supports_thinking=True,
-        help_text="Claude Opus 4.8 is the most capable Claude model.",
-    ),
-    ModelInfo(
-        model_id="claude-opus-4-7",
-        provider_key="Anthropic API",
-        default_tokens=64000,
-        max_tokens=200000,
-        supports_thinking=True,
-        help_text="Claude Opus 4.7 is the previous-generation Opus, still available for users mid-engagement.",
+        max_tokens=1000000,
+        help_text="Claude Opus 4.8 is the previous-generation Opus, still available for users mid-engagement.",
     ),
     ModelInfo(
         model_id="claude-haiku-4-5-20251001",
         provider_key="Anthropic API",
         default_tokens=64000,
         max_tokens=200000,
+        supports_thinking=True,
         help_text="Claude Haiku 4.5 is the fastest and most cost-effective Claude model.",
     ),
     # --- Google AI ---
+    ModelInfo(
+        model_id="gemini-3.8-flash",
+        provider_key="Google AI API",
+        default_tokens=200000,
+        max_tokens=1000000,
+        supports_thinking=True,
+        help_text="Gemini 3.8 Flash is Google's latest model, tuned for long-horizon agentic work.",
+    ),
     ModelInfo(
         model_id="gemini-3.1-pro-preview",
         provider_key="Google AI API",
@@ -252,7 +255,7 @@ MODELS: list[ModelInfo] = [
         default_tokens=200000,
         max_tokens=1000000,
         supports_thinking=True,
-        help_text="Gemini 3.5 Flash is Google's latest fast model with 1M context.",
+        help_text="Gemini 3.5 Flash is a fast model with 1M context.",
     ),
     ModelInfo(
         model_id="gemini-3.1-flash-lite",
@@ -289,22 +292,8 @@ MODELS: list[ModelInfo] = [
         model_id="mistral-medium-3-5",
         provider_key="Mistral API",
         default_tokens=64000,
-        max_tokens=128000,
-        help_text="Mistral Medium 3.5 provides balanced performance.",
-    ),
-    ModelInfo(
-        model_id="mistral-medium-2508",
-        provider_key="Mistral API",
-        default_tokens=64000,
-        max_tokens=128000,
-        help_text="Mistral Medium 3.1 provides balanced performance.",
-    ),
-    ModelInfo(
-        model_id="magistral-medium-2509",
-        provider_key="Mistral API",
-        default_tokens=32000,
-        max_tokens=40000,
-        help_text="Magistral Medium is a reasoning-focused model.",
+        max_tokens=256000,
+        help_text="Mistral Medium 3.5 is a frontier-class multimodal model for agentic and coding work.",
     ),
     # --- Groq ---
     ModelInfo(
@@ -329,37 +318,37 @@ MODELS: list[ModelInfo] = [
         help_text="Llama 3.3 70B excels at general-purpose tasks.",
     ),
     ModelInfo(
-        model_id="qwen/qwen3-32b",
+        model_id="qwen/qwen3.8-27b",
         provider_key="Groq API",
         default_tokens=64000,
         max_tokens=131072,
-        help_text="Qwen3 32B delivers balanced performance.",
+        help_text="Qwen3.8 27B is a multimodal model on Groq's preview tier.",
     ),
     # --- DeepSeek ---
+    ModelInfo(
+        model_id="deepseek-flash",
+        provider_key="DeepSeek API",
+        default_tokens=64000,
+        max_tokens=1000000,
+        help_text="DeepSeek Flash (V4.1) is DeepSeek's recommended default: fast, cheap, 1M context.",
+    ),
     ModelInfo(
         model_id="deepseek-v4-pro",
         provider_key="DeepSeek API",
         default_tokens=64000,
-        max_tokens=128000,
-        help_text="DeepSeek V4 Pro is a large MoE model with strong reasoning, coding, and long-context performance.",
-    ),
-    ModelInfo(
-        model_id="deepseek-v4-flash",
-        provider_key="DeepSeek API",
-        default_tokens=64000,
-        max_tokens=128000,
-        help_text="DeepSeek V4 Flash is the fast, cost-efficient tier.",
+        max_tokens=1000000,
+        help_text="DeepSeek V4 Pro is the larger tier, with stronger reasoning and coding.",
     ),
     # --- OpenRouter ---
     # A shortlist of tool-capable models; the wizard's "Custom" option takes any
     # other slug from https://openrouter.ai/models. Context lengths are
     # OpenRouter's, which can differ from the upstream provider's.
     ModelInfo(
-        model_id="anthropic/claude-opus-5",
+        model_id="anthropic/claude-opus-5.5",
         provider_key="OpenRouter API",
         default_tokens=64000,
         max_tokens=1000000,
-        help_text="Claude Opus 5 routed via OpenRouter.",
+        help_text="Claude Opus 5.5 routed via OpenRouter.",
     ),
     ModelInfo(
         model_id="anthropic/claude-sonnet-5",
@@ -369,25 +358,25 @@ MODELS: list[ModelInfo] = [
         help_text="Claude Sonnet 5 routed via OpenRouter.",
     ),
     ModelInfo(
-        model_id="openai/gpt-5.5",
+        model_id="openai/gpt-6-astra",
         provider_key="OpenRouter API",
         default_tokens=128000,
         max_tokens=1050000,
-        help_text="GPT-5.5 routed via OpenRouter.",
+        help_text="GPT-6 Astra routed via OpenRouter.",
     ),
     ModelInfo(
-        model_id="google/gemini-3.5-flash",
+        model_id="google/gemini-3.8-flash",
         provider_key="OpenRouter API",
         default_tokens=64000,
         max_tokens=1048576,
-        help_text="Gemini 3.5 Flash routed via OpenRouter: fast and cheap.",
+        help_text="Gemini 3.8 Flash routed via OpenRouter: fast and cheap.",
     ),
     ModelInfo(
-        model_id="deepseek/deepseek-v4-pro",
+        model_id="deepseek/deepseek-v4.1-flash",
         provider_key="OpenRouter API",
         default_tokens=64000,
         max_tokens=1048576,
-        help_text="DeepSeek V4 Pro routed via OpenRouter.",
+        help_text="DeepSeek V4.1 Flash routed via OpenRouter.",
     ),
     ModelInfo(
         model_id="moonshotai/kimi-k3",

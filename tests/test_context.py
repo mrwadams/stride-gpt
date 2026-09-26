@@ -68,8 +68,8 @@ class TestResolveLimit:
     def test_registered_claude_model(self):
         from stride_gpt.models import get_model
 
-        ctx = ContextManager(config=_make_config("claude-sonnet-4-6"))
-        expected = get_model("Anthropic API", "claude-sonnet-4-6").max_tokens
+        ctx = ContextManager(config=_make_config("claude-sonnet-5"))
+        expected = get_model("Anthropic API", "claude-sonnet-5").max_tokens
         assert ctx.context_window == expected
 
     def test_registered_gemini_model(self):
