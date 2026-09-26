@@ -905,7 +905,7 @@ load_env_variables()
 # ------------------ Model Registry ------------------ #
 
 from stride_gpt.models import PROVIDERS as _PROVIDERS
-from stride_gpt.models import get_model, get_models_for_provider
+from stride_gpt.models import get_model, get_models_for_provider, model_supports_thinking
 
 st.set_page_config(
     page_title="STRIDE GPT",
@@ -1046,8 +1046,13 @@ with st.sidebar:
             help=_model_help or None,
         )
 
-        # Anthropic-specific: Extended Thinking checkbox
-        if model_provider == "Anthropic API":
+        # Anthropic-specific: Extended Thinking checkbox. Only models flagged in
+        # the registry accept the kwarg; Claude 4.7 and later reject it with a
+        # 400 and think adaptively by default, so hide the checkbox for them and
+        # clear any value carried over from an earlier selection.
+        if model_provider == "Anthropic API" and model_supports_thinking(
+            model_provider, st.session_state.get("selected_model", "")
+        ):
             # Not assigned: `key` writes to st.session_state, which is where
             # the value is read back from further down.
             st.checkbox(
@@ -1056,6 +1061,8 @@ with st.sidebar:
                 key="use_thinking",
                 help="Extended thinking gives Claude enhanced reasoning capabilities for complex tasks. This may increase response time and token usage.",
             )
+        elif st.session_state.get("use_thinking"):
+            st.session_state["use_thinking"] = False
 
     # Add GitHub API key input field to the sidebar
     github_api_key = st.text_input(
