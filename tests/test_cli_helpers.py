@@ -8,6 +8,8 @@ mocking the config layer.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 import typer
 
@@ -100,10 +102,23 @@ class TestBuildModelPair:
 
     def test_missing_worker_key_exits_1(self, monkeypatch):
         monkeypatch.setattr(cli, "load_config", lambda: None)
-        monkeypatch.setattr("stride_gpt.config.get_api_key", lambda *a, **k: "")
+        # cli.py loads ~/.stride-gpt/.env at import, so the developer's own
+        # keys are in os.environ during tests. Clear the one this looks up.
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         with pytest.raises(typer.Exit) as exc:
             cli._build_model_pair(worker_model="anthropic/claude-x")
         assert exc.value.exit_code == 1
+
+    def test_missing_worker_key_names_the_variable_to_set(self, monkeypatch, capsys):
+        """'Set the appropriate env var (e.g. ANTHROPIC_API_KEY)' sent people
+        to the wrong variable whenever the provider wasn't Anthropic."""
+        monkeypatch.setattr(cli, "load_config", lambda: None)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        with pytest.raises(typer.Exit):
+            cli._build_model_pair(worker_model="deepseek/deepseek-v4-pro")
+        printed = capsys.readouterr().out
+        assert "DEEPSEEK_API_KEY" in printed
+        assert "ANTHROPIC_API_KEY" not in printed
 
     def test_explicit_worker_key_builds_single_tier_pair(self, monkeypatch):
         monkeypatch.setattr(cli, "load_config", lambda: None)
@@ -139,6 +154,73 @@ class TestBuildModelPair:
         pair = cli._build_model_pair()
         assert pair.worker.model_name == "saved-sonnet"
         assert pair.worker.api_key == "sk-saved"
+
+
+class TestWorkerKeyMatchesWorkerProvider:
+    """--worker-model can name a provider the saved config doesn't.
+
+    The key must follow the provider the flag names. Resolving it from
+    config.json instead sent one provider's endpoint another provider's
+    secret, which the fallback chain in ``get_api_key`` could widen to a key
+    for a service the command never mentioned.
+    """
+
+    SAVED: ClassVar[dict[str, str]] = {
+        "worker_provider": "DeepSeek",
+        "worker_provider_key": "DeepSeek API",
+        "worker_model": "deepseek-v4-pro",
+    }
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        for var in (
+            "STRIDE_GPT_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+            "GOOGLE_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY",
+            "MISTRAL_API_KEY", "GROQ_API_KEY",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(cli, "load_config", lambda: dict(self.SAVED))
+
+    def test_flag_provider_key_is_used_not_the_saved_one(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-saved")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-openrouter")
+        pair = cli._build_model_pair(worker_model="openrouter/deepseek/deepseek-v4-pro")
+        assert pair.worker.provider == "OpenRouter API"
+        assert pair.worker.api_key == "sk-openrouter"
+
+    def test_another_providers_key_is_never_substituted(self, monkeypatch):
+        """With no key for the named provider, exit — never reach for
+        ANTHROPIC_API_KEY and send it somewhere it doesn't belong."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+        with pytest.raises(typer.Exit) as exc:
+            cli._build_model_pair(worker_model="openrouter/deepseek/deepseek-v4-pro")
+        assert exc.value.exit_code == 1
+
+    def test_explicit_key_still_wins(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-openrouter")
+        pair = cli._build_model_pair(
+            worker_model="openrouter/deepseek/deepseek-v4-pro", worker_api_key="sk-explicit"
+        )
+        assert pair.worker.api_key == "sk-explicit"
+
+    def test_saved_config_path_keeps_its_fallback_chain(self, monkeypatch):
+        """Without --worker-model nothing changes: the saved provider's key,
+        and the legacy generic vars behind it, resolve as they always did."""
+        monkeypatch.setenv("STRIDE_GPT_API_KEY", "sk-generic")
+        pair = cli._build_model_pair()
+        assert pair.worker.provider == "DeepSeek API"
+        assert pair.worker.api_key == "sk-generic"
+
+    def test_lm_studio_by_flag_needs_no_key(self, monkeypatch):
+        """An unprefixed model is the OpenAI-compatible catch-all, but a saved
+        LM Studio tier must still build with an empty key."""
+        monkeypatch.setattr(
+            cli, "load_config",
+            lambda: {"worker_provider_key": "LM Studio Server", "worker_model": "local"},
+        )
+        pair = cli._build_model_pair()
+        assert pair.worker.provider == "LM Studio Server"
+        assert pair.worker.api_key == ""
 
 
 # ---------------------------------------------------------------------------

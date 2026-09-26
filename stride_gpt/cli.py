@@ -1277,16 +1277,20 @@ def _build_model_pair(
     # ---- Worker tier ----
     if worker_model:
         worker_provider, worker_model_name = _resolve_provider(worker_model)
+        # --worker-model can name a provider the saved config knows nothing
+        # about, so the key has to come from that provider, not from whatever
+        # is in config.json. Same rule the architect tier already follows.
+        worker_key = worker_api_key or _resolve_explicit_api_key(worker_provider)
     elif saved:
         worker_provider = saved["worker_provider_key"]
         worker_model_name = saved["worker_model"]
+        worker_key = worker_api_key or get_api_key(saved, tier="worker")
     else:
         console.print("[red]No --worker-model specified and no saved config. Run stride-gpt to set up.[/red]")
         raise typer.Exit(1)
 
-    worker_key = worker_api_key or get_api_key(saved or {}, tier="worker")
     if not worker_key and worker_provider != "LM Studio Server":
-        console.print("[red]No worker API key found. Set the appropriate env var (e.g. ANTHROPIC_API_KEY) or pass --worker-api-key.[/red]")
+        console.print(_no_worker_key_message(worker_provider))
         raise typer.Exit(1)
 
     if worker_api_base is None and saved:
@@ -1364,6 +1368,25 @@ def _resolve_explicit_api_key(provider: str) -> str:
         if info.provider_key == provider and info.env_var:
             return os.environ.get(info.env_var, "")
     return ""
+
+
+def _no_worker_key_message(provider: str) -> str:
+    """Name the variable the user actually needs, not a generic example."""
+    from stride_gpt.config import PROVIDERS
+
+    env_var = next(
+        (i.env_var for i in PROVIDERS.values() if i.provider_key == provider and i.env_var),
+        None,
+    )
+    if env_var:
+        return (
+            f"[red]No worker API key found for {provider}.[/red] "
+            f"Set {env_var}, or pass --worker-api-key."
+        )
+    return (
+        "[red]No worker API key found.[/red] "
+        "Set the provider's env var, or pass --worker-api-key."
+    )
 
 
 def _check_tier_api_keys(saved: dict, models) -> bool:
