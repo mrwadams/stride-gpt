@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,46 @@ from stride_gpt.core.schemas import (
     Subsystem,
     SubsystemFinding,
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cli_dotenv_loaded_up_front():
+    """Trigger ``stride_gpt.cli``'s import-time ``load_dotenv`` before any test.
+
+    The CLI calls ``load_dotenv(~/.stride-gpt/.env)`` at module scope, which puts
+    the developer's real API keys into os.environ. A test that imports the CLI
+    inside its own body would run that *after* ``_hermetic_api_keys`` had cleared
+    the keys, putting them straight back. Importing the module here means it is
+    already in ``sys.modules``, so a later import is a no-op and the clearing
+    holds.
+
+    Session-scoped so it is set up before the function-scoped fixture below, and
+    written as an explicit call rather than a bare ``import`` for its side effect,
+    which reads as dead code to both ruff and CodeQL.
+    """
+    importlib.import_module("stride_gpt.cli")
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_api_keys(monkeypatch):
+    """Run every test as if no provider credentials were configured.
+
+    Without this the suite reads whatever is in the developer's own
+    ``~/.stride-gpt/.env``, so a key-resolution test can pass locally and fail
+    in CI, or pass for the wrong reason because a real key happened to be
+    present. Tests that need a key set it themselves.
+
+    Derived from ``PROVIDERS`` rather than hardcoded so a newly added provider
+    is covered without anyone remembering to update this list.
+    """
+    from stride_gpt.config import PROVIDERS
+
+    names = {info.env_var for info in PROVIDERS.values() if getattr(info, "env_var", None)}
+    # Not a provider's own variable, but the worker tier's last-resort fallback
+    # reads it, so a stale value here reaches the same code paths.
+    names.add("STRIDE_GPT_API_KEY")
+    for name in sorted(names):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
