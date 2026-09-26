@@ -6,6 +6,12 @@ from pathlib import Path
 
 import pytest
 
+# Imported for its side effect: the module runs ``load_dotenv(~/.stride-gpt/.env)``
+# at import scope, which puts the developer's real API keys into os.environ for
+# the whole session. Doing it here means that happens before any fixture runs, so
+# a test that imports the CLI inside its own body cannot re-populate the keys
+# *after* ``_hermetic_api_keys`` cleared them and silently undo it.
+import stride_gpt.cli  # noqa: F401
 from stride_gpt.core.schemas import (
     AnalysisPlan,
     AnalysisReport,
@@ -14,6 +20,28 @@ from stride_gpt.core.schemas import (
     Subsystem,
     SubsystemFinding,
 )
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_api_keys(monkeypatch):
+    """Run every test as if no provider credentials were configured.
+
+    Without this the suite reads whatever is in the developer's own
+    ``~/.stride-gpt/.env``, so a key-resolution test can pass locally and fail
+    in CI, or pass for the wrong reason because a real key happened to be
+    present. Tests that need a key set it themselves.
+
+    Derived from ``PROVIDERS`` rather than hardcoded so a newly added provider
+    is covered without anyone remembering to update this list.
+    """
+    from stride_gpt.config import PROVIDERS
+
+    names = {info.env_var for info in PROVIDERS.values() if getattr(info, "env_var", None)}
+    # Not a provider's own variable, but the worker tier's last-resort fallback
+    # reads it, so a stale value here reaches the same code paths.
+    names.add("STRIDE_GPT_API_KEY")
+    for name in sorted(names):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
