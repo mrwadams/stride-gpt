@@ -364,7 +364,7 @@ The `apps/` directory is the slot for additional deployable frontends — for ex
 stride-gpt analyze .
 
 # Specify a model and auto-approve the analysis plan
-stride-gpt analyze ./my-app --worker-model anthropic/claude-sonnet-4-6 -y
+stride-gpt analyze ./my-app --worker-model anthropic/claude-sonnet-5 -y
 
 # Export as JSON, SARIF, or browser-viewable HTML
 stride-gpt analyze . -o report.json -f json    # also writes report.html alongside
@@ -436,8 +436,8 @@ stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
 | `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
 | `-i`, `--input` | Read the app description from a file (`quick` only) |
 | `-y`, `--yes` | Auto-approve the analysis plan (`analyze` only) |
-| `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-4-6`). Uses saved config if omitted. |
-| `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-5.4`). Uses saved config if omitted. |
+| `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-5`). Uses saved config if omitted. |
+| `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-6-sol`). Uses saved config if omitted. |
 | `--no-architect` | Skip the architect tier for this run; the worker handles every call. |
 | `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |
 | `--max-llm-calls` | Cap total LLM calls across both tiers (`analyze` only; `0` = unlimited). A subsystem that reaches the cap gets one final round to report what it found, so a run can exceed it by one call per such subsystem. |
@@ -562,8 +562,8 @@ flowchart LR
 - **Cross-cutting threats**: 1
 - **LLM calls**: 34
 - **Tool calls**: 58
-- **Architect model**: OpenAI API/gpt-5.4
-- **Worker model**: Anthropic API/claude-sonnet-4-6
+- **Architect model**: OpenAI API/gpt-6-sol
+- **Worker model**: Anthropic API/claude-sonnet-5
 ````
 
 </details>
