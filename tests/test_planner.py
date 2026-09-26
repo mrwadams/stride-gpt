@@ -71,6 +71,54 @@ class TestBuildPlan:
         )
         assert plan.detected_app_type == "web"
 
+# ---------------------------------------------------------------------------
+# key-file discovery — truncation marker filtering (#180)
+# ---------------------------------------------------------------------------
+
+
+class TestKeyFileDiscovery:
+    """search_files appends a truncation marker to its JSON results array once a
+    pattern hits MAX_SEARCH_RESULTS. create_plan's discovery loop must not admit
+    that marker as if it were a real path.
+    """
+
+    @patch("stride_gpt.agent.planner.call_llm")
+    def test_truncation_marker_is_excluded_from_key_files(
+        self, mock_call_llm, llm_config, tmp_path
+    ):
+        from stride_gpt.agent.tools import MAX_SEARCH_RESULTS, search_files
+
+        for i in range(MAX_SEARCH_RESULTS + 1):
+            (tmp_path / f"module_{i}.py").write_text("pass\n")
+
+        results = json.loads(search_files(tmp_path, "*.py"))
+        assert {"truncated": True, "total_limit": MAX_SEARCH_RESULTS} in results, (
+            "fixture must actually trigger the truncation path being tested"
+        )
+
+        captured: dict = {}
+
+        def _record_prompt(config, messages):
+            # create_plan sends the discovery prompt (which embeds key_files)
+            # as the last user message.
+            captured["prompt"] = messages[-1]["content"]
+            return LLMResponse(
+                content=json.dumps(
+                    {
+                        "overall_description": "Test",
+                        "subsystems": [
+                            {"name": "App", "description": "Main", "key_files": ["module_0.py"]}
+                        ],
+                    }
+                ),
+            )
+
+        mock_call_llm.side_effect = _record_prompt
+        create_plan(llm_config, tmp_path)
+
+        assert "... (truncated" not in captured["prompt"]
+        assert f"## Key Files Found ({MAX_SEARCH_RESULTS} files)" in captured["prompt"]
+
 
 # ---------------------------------------------------------------------------
 # create_plan retry behavior

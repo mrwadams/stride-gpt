@@ -225,7 +225,7 @@ def search_files(root: Path, pattern: str, path: str = ".") -> str:
                 rel = str(full.relative_to(root_resolved))
                 matches.append(rel)
                 if len(matches) >= MAX_SEARCH_RESULTS:
-                    return json.dumps([*matches, f"... (truncated at {MAX_SEARCH_RESULTS})"])
+                    return json.dumps([*matches, {"truncated": True, "total_limit": MAX_SEARCH_RESULTS}])
     return json.dumps(matches)
 
 
