@@ -152,6 +152,69 @@ class RunManifest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _anchor_forms() -> list[tuple[str, str]]:
+    """``(anchor, prefix)`` pairs for redacting a path textually.
+
+    Both the raw and resolved spelling of each anchor is included, since an
+    unresolvable path may carry either (``$HOME`` is a symlink on some
+    setups). Longest anchor first, so a cwd nested inside ``$HOME`` wins
+    the same way it does on the resolved path.
+    """
+    forms: set[tuple[str, str]] = set()
+    for base, prefix in ((_safe_cwd(), "./"), (_safe_home(), "~/")):
+        for spelling in base:
+            forms.add((spelling.rstrip(os.sep), prefix))
+    return sorted(forms, key=lambda f: -len(f[0]))
+
+
+def _safe_cwd() -> list[str]:
+    """Spellings of the working directory. Empty if it can't be read."""
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        return []
+    return _spellings(cwd)
+
+
+def _safe_home() -> list[str]:
+    """Spellings of ``$HOME``. Empty if it isn't set and can't be inferred."""
+    try:
+        home_str = os.environ.get("HOME") or str(Path.home())
+    except (OSError, RuntimeError):
+        return []
+    return _spellings(Path(home_str)) if home_str else []
+
+
+def _spellings(base: Path) -> list[str]:
+    """``base`` as written and as resolved, deduplicated."""
+    out = [str(base)]
+    try:
+        resolved = str(base.resolve())
+    except OSError:
+        return out
+    if resolved != out[0]:
+        out.append(resolved)
+    return out
+
+
+def _redact_textually(raw: str) -> str:
+    """Apply redact_path's anchors to a path that could not be resolved.
+
+    Resolution failing is no reason to let ``/Users/<name>/...`` reach a
+    manifest, so the same anchors are matched against the string itself.
+    Whatever follows the anchor is kept as-is, malformed bytes included:
+    that part is evidence of what the model emitted, and it carries no
+    identity. A path matching neither anchor is returned unchanged, which
+    is rule 3 on a string rather than on a resolved path.
+    """
+    for anchor, prefix in _anchor_forms():
+        if raw == anchor:
+            return prefix
+        if raw.startswith(anchor + os.sep):
+            return prefix + raw[len(anchor) + 1 :]
+    return raw
+
+
 def redact_path(p: Path | str) -> str:
     """Return a serialisation-safe form of ``p``.
 
@@ -164,14 +227,19 @@ def redact_path(p: Path | str) -> str:
     2. Else if ``p`` resolves under ``$HOME``, return ``"~/..."``.
     3. Else return the absolute path verbatim — rare; the user explicitly
        pointed outside both anchors.
+
+    A path that cannot be resolved at all gets the same three rules applied
+    textually, so it is redacted rather than serialised verbatim.
     """
     path = Path(p) if not isinstance(p, Path) else p
     try:
         resolved = path.resolve()
-    except OSError:
-        # An unresolvable path (e.g. ``"stdin"``) is returned untouched —
-        # /quick uses this with non-filesystem identifiers.
-        return str(p)
+    except Exception:
+        # An unresolvable path (e.g. ``"stdin"``, or one containing a null
+        # byte from model output) still has to be redacted, and this must
+        # never raise, so any resolution failure falls back to matching the
+        # anchors against the original string.
+        return _redact_textually(str(p))
 
     cwd = Path.cwd().resolve()
     try:
