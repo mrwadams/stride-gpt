@@ -9,6 +9,7 @@ have configured, which is how a green local run can hide a CI failure.
 from __future__ import annotations
 
 import os
+import sys
 
 from stride_gpt.config import PROVIDERS
 
@@ -39,3 +40,18 @@ def test_every_provider_env_var_is_covered():
 def test_a_test_can_still_set_a_key():
     """Clearing is per-test, so setting one is unaffected."""
     assert os.environ.get("ANTHROPIC_API_KEY") in (None, "")
+
+
+def test_the_cli_is_imported_before_any_test_runs():
+    """The session fixture must win the ordering, or the clearing is defeated."""
+    assert "stride_gpt.cli" in sys.modules
+
+
+def test_importing_the_cli_mid_test_cannot_reinstate_keys():
+    """The exact pattern that broke before: a test-body import of the CLI re-ran
+    ``load_dotenv`` after the fixture had cleared the keys and put them back."""
+    from stride_gpt import cli
+
+    assert cli is not None
+    leaked = sorted(name for name in _credential_vars() if os.environ.get(name))
+    assert not leaked, f"an in-test import of the CLI reinstated: {leaked}"

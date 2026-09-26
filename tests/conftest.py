@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
 
-# Imported for its side effect: the module runs ``load_dotenv(~/.stride-gpt/.env)``
-# at import scope, which puts the developer's real API keys into os.environ for
-# the whole session. Doing it here means that happens before any fixture runs, so
-# a test that imports the CLI inside its own body cannot re-populate the keys
-# *after* ``_hermetic_api_keys`` cleared them and silently undo it.
-import stride_gpt.cli  # noqa: F401
 from stride_gpt.core.schemas import (
     AnalysisPlan,
     AnalysisReport,
@@ -20,6 +15,24 @@ from stride_gpt.core.schemas import (
     Subsystem,
     SubsystemFinding,
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cli_dotenv_loaded_up_front():
+    """Trigger ``stride_gpt.cli``'s import-time ``load_dotenv`` before any test.
+
+    The CLI calls ``load_dotenv(~/.stride-gpt/.env)`` at module scope, which puts
+    the developer's real API keys into os.environ. A test that imports the CLI
+    inside its own body would run that *after* ``_hermetic_api_keys`` had cleared
+    the keys, putting them straight back. Importing the module here means it is
+    already in ``sys.modules``, so a later import is a no-op and the clearing
+    holds.
+
+    Session-scoped so it is set up before the function-scoped fixture below, and
+    written as an explicit call rather than a bare ``import`` for its side effect,
+    which reads as dead code to both ruff and CodeQL.
+    """
+    importlib.import_module("stride_gpt.cli")
 
 
 @pytest.fixture(autouse=True)
