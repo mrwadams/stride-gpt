@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -52,23 +53,33 @@ AGENT_SYSTEM_PROMPT = base_system_prompt()
 
 SYNTHESIS_PROMPT = """You are a security architect reviewing threat model findings from multiple subsystems.
 
-Below are the per-subsystem STRIDE threat findings. Identify cross-cutting threats that span multiple subsystems — for example:
-- Inconsistent authentication across subsystems
-- Missing encryption for data flowing between components
-- Shared secrets or credentials
-- Common input validation gaps
+Below are the per-subsystem STRIDE threat findings. Each threat has an "id", and its "evidence" (if any) is code that was checked against the repository.
+
+Report what spans subsystems. Every item you output is one of two kinds, and you must say which:
+
+1. "aggregation" — the same weakness, or the same kind of weakness, that subsystems have already reported, restated as a systemic pattern. Example: three subsystems each report missing authentication, so you note that the system has no authentication anywhere. An aggregation adds no new finding; it tells the reader the existing ones are systemic. It must list the ids of the subsystem threats it summarises in "Related Threats". It carries no evidence.
+
+2. "emergent" — a threat that exists only in the interaction between subsystems and that no single subsystem could have found alone. Example: data flows between two components without encryption, although each component looks fine on its own. It must cite "evidence": code that shows the weakness, copied exactly from the evidence in the findings below. Do not invent snippets or cite code you were not shown. If you cannot cite evidence for it, do not report it.
+
+Do not report an emergent threat that merely restates a subsystem threat. If a subsystem already found it, it is an aggregation. When in doubt, choose aggregation.
 
 Respond with a JSON object:
 {
     "cross_cutting_threats": [
         {
+            "Classification": "aggregation" or "emergent",
             "Threat Type": "STRIDE category",
-            "Scenario": "Cross-cutting threat scenario spanning multiple subsystems",
+            "Scenario": "What is systemic (aggregation) or what emerges from the interaction (emergent)",
             "Potential Impact": "Systemic impact",
-            "Affected Subsystems": ["subsystem1", "subsystem2"]
+            "Affected Subsystems": ["subsystem1", "subsystem2"],
+            "Related Threats": ["ids of the subsystem threats summarised — required for an aggregation, optional for an emergent threat"],
+            "evidence": [{"path": "relative/path.py", "snippet": "code copied from the findings — required for an emergent threat, omit for an aggregation"}]
         }
     ]
 }"""
+
+AGGREGATION = "aggregation"
+EMERGENT = "emergent"
 
 
 def create_analysis_plan(
@@ -323,14 +334,21 @@ def run_analysis(
     # Skipped subsystems are placeholders, not findings — synthesis and the
     # DFD must reason about what was actually looked at.
     analysed = [f for f in findings if f.outcome != "skipped"]
+    # Ids go on before synthesis so the architect can link to them, and before
+    # anything is written so a saved report always carries them.
+    assign_threat_ids(findings)
 
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
+    systemic: list[dict[str, Any]] = []
     if len(analysed) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
-        cross_cutting = _synthesize(models, analysed, usage=phase_usage["synthesis"])
+        raw_synthesis = _synthesize(models, analysed, usage=phase_usage["synthesis"])
         llm_calls += 1
+        cross_cutting, systemic = classify_synthesis(raw_synthesis, analysed, target_path)
+        if systemic:
+            progress.status(f"Noted {len(systemic)} systemic observations (not counted as threats)")
         progress.synthesis_done(len(cross_cutting))
 
     # --- Phase 4: System-level DFD ---
@@ -357,6 +375,7 @@ def run_analysis(
         plan=plan,
         findings=findings,
         cross_cutting_threats=cross_cutting,
+        systemic_observations=systemic,
         data_flow_diagram=data_flow_diagram,
         metadata=metadata,
     )
@@ -985,31 +1004,129 @@ def _grace_round(
 def _threats_without_evidence(threats: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop evidence snippets before sending threats to another model.
 
-    Cross-cutting synthesis and the system DFD reason about what the threats
-    are, not the code behind them, and snippets would be the largest thing in
-    a payload that already has to be trimmed to fit.
+    Synthesis sends them in full so the architect can cite what it is
+    generalising; this is the last resort when even that would overflow the
+    architect's context window, since snippets are the largest thing in the
+    payload.
     """
     return [{k: v for k, v in t.items() if k != "evidence"} for t in threats]
 
 
-def _synthesize(
-    models: ModelPair, findings: list[SubsystemFinding], *, usage: TokenUsage | None = None
-) -> list[dict[str, Any]]:
-    """Identify cross-cutting threats across all subsystem findings.
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "subsystem"
 
-    Uses the architect tier — synthesis is a cross-cutting reasoning task.
+
+def assign_threat_ids(findings: list[SubsystemFinding]) -> None:
+    """Give every threat a stable ``id``, in place, leaving existing ids alone.
+
+    ``<subsystem-slug>-T<n>``, numbered in the order the subsystem reported
+    them. Synthesis links to threats by these ids, and they survive a
+    ``--resume`` because a checkpointed threat keeps the id it was saved with.
+    The slug is lowercase and the ``T`` is not, so two subsystems can never
+    produce the same id.
     """
-    findings_summary = json.dumps(
+    used_slugs: set[str] = set()
+    for finding in findings:
+        slug = base = _slug(finding.subsystem)
+        suffix = 2
+        while slug in used_slugs:
+            slug = f"{base}-{suffix}"
+            suffix += 1
+        used_slugs.add(slug)
+        for n, threat in enumerate(finding.threats, 1):
+            existing = threat.get("id")
+            if not (isinstance(existing, str) and existing.strip()):
+                threat["id"] = f"{slug}-T{n}"
+
+
+def classify_synthesis(
+    raw: list[dict[str, Any]],
+    findings: list[SubsystemFinding],
+    target_path: Path,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split synthesis output into ``(emergent threats, aggregations)``.
+
+    The architect classifies each item, but the classification is only
+    honoured when the item backs it up:
+
+    * an aggregation must link to at least one threat that exists, and
+      carries no evidence of its own;
+    * an emergent threat must cite evidence, which is checked against the code
+      by ``verify_evidence`` exactly as a subsystem threat's is.
+
+    Anything else is dropped and logged. An aggregation linking to nothing is
+    a claim with no support, and an emergent threat citing nothing is the
+    unverifiable restatement this split exists to stop counting as a threat.
+    """
+    known_ids = {t["id"] for f in findings for t in f.threats if t.get("id")}
+    emergent: list[dict[str, Any]] = []
+    aggregations: list[dict[str, Any]] = []
+
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("Classification") or "").strip().lower()
+        label = f"{item.get('Threat Type', 'Unknown')!r}"
+        entry = {k: v for k, v in item.items() if k != "evidence"}
+        entry["Classification"] = kind
+
+        if kind == AGGREGATION:
+            related = item.get("Related Threats")
+            if isinstance(related, str):
+                related = [related]
+            linked = [r for r in related if r in known_ids] if isinstance(related, list) else []
+            if not linked:
+                logger.warning("Dropped aggregation %s: it links to no known threat id", label)
+                continue
+            entry["Related Threats"] = list(dict.fromkeys(linked))
+            aggregations.append(entry)
+        elif kind == EMERGENT:
+            checks = verify_evidence(target_path, item.get("evidence"))
+            if not checks:
+                logger.warning("Dropped emergent threat %s: it cites no evidence", label)
+                continue
+            entry["evidence"] = [c.to_dict() for c in checks]
+            related = entry.get("Related Threats")
+            if isinstance(related, list):
+                entry["Related Threats"] = [r for r in related if r in known_ids]
+            else:
+                entry.pop("Related Threats", None)
+            emergent.append(entry)
+        else:
+            logger.warning(
+                "Dropped synthesis item %s: classification %r is neither %r nor %r",
+                label, item.get("Classification"), AGGREGATION, EMERGENT,
+            )
+    return emergent, aggregations
+
+
+def _findings_summary(
+    findings: list[SubsystemFinding], *, max_files: int | None = None, evidence: bool = True
+) -> str:
+    """The per-subsystem findings as the JSON the architect reads."""
+    return json.dumps(
         [
             {
                 "subsystem": f.subsystem,
-                "threats": _threats_without_evidence(f.threats),
-                "files_analyzed": f.files_analyzed,
+                "threats": f.threats if evidence else _threats_without_evidence(f.threats),
+                "files_analyzed": f.files_analyzed[:max_files],
             }
             for f in findings
         ],
         indent=2,
     )
+
+
+def _synthesize(
+    models: ModelPair, findings: list[SubsystemFinding], *, usage: TokenUsage | None = None
+) -> list[dict[str, Any]]:
+    """Ask the architect for cross-cutting output across all subsystem findings.
+
+    Returns the raw items, each classified as an aggregation or an emergent
+    threat; ``classify_synthesis`` validates them and splits the two kinds.
+    Uses the architect tier — synthesis is a cross-cutting reasoning task.
+    """
+    findings_summary = _findings_summary(findings)
 
     architect = models.for_architect()
 
@@ -1099,29 +1216,27 @@ def _truncate_findings_to_fit(
     rendered: str,
 ) -> str:
     """If the rendered findings JSON exceeds the architect's context window,
-    trim per-finding `files_analyzed` lists (cheapest content) until it fits.
-    Falls through unchanged on any sizing error — better to send too much
-    and let the provider error than crash mid-synthesis here.
+    trim it until it fits: first the per-finding `files_analyzed` lists
+    (cheapest content), then the evidence snippets, which costs the architect
+    the ability to cite them. Falls through unchanged on any sizing error —
+    better to send too much and let the provider error than crash
+    mid-synthesis here.
     """
     try:
         import litellm
         ctx = ContextManager(config=architect)
         budget = int(ctx.context_window * COMPRESSION_BUDGET)
-        messages = [{"role": "user", "content": rendered}]
-        if litellm.token_counter(model=architect.model_name, messages=messages) <= budget:
-            return rendered
 
-        return json.dumps(
-            [
-                {
-                    "subsystem": f.subsystem,
-                    "threats": _threats_without_evidence(f.threats),
-                    "files_analyzed": f.files_analyzed[:5],
-                }
-                for f in findings
-            ],
-            indent=2,
-        )
+        def fits(text: str) -> bool:
+            messages = [{"role": "user", "content": text}]
+            return litellm.token_counter(model=architect.model_name, messages=messages) <= budget
+
+        if fits(rendered):
+            return rendered
+        trimmed = _findings_summary(findings, max_files=5)
+        if fits(trimmed):
+            return trimmed
+        return _findings_summary(findings, max_files=5, evidence=False)
     except Exception:
         return rendered
 

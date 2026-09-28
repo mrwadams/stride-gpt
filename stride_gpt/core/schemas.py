@@ -187,7 +187,13 @@ class AnalysisReport(BaseModel):
 
     plan: AnalysisPlan
     findings: list[SubsystemFinding]
+    # Emergent threats only: ones that exist in the interaction between
+    # subsystems and carry their own evidence. They count as threats.
     cross_cutting_threats: list[dict[str, Any]] = []
+    # Aggregations: systemic restatements of subsystem threats, each linking to
+    # what it summarises by threat id. Observations, not threats — never
+    # counted in totals and never emitted as SARIF results.
+    systemic_observations: list[dict[str, Any]] = []
     # System-level Data Flow Diagram in Mermaid `flowchart` form. Generated
     # during synthesis from the full set of subsystem findings. None when
     # generation was skipped or failed — DFD is auxiliary, not load-bearing.
