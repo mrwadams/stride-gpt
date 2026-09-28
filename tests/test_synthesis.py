@@ -164,6 +164,55 @@ class TestClassifySynthesis:
         assert aggregations[0]["Classification"] == "aggregation"
         assert "evidence" not in aggregations[0]
 
+    def test_object_shaped_links_are_dropped_not_fatal(self, tmp_path):
+        """An unhashable link used to raise out of the `in known_ids` test."""
+        raw = [{
+            "Classification": "aggregation", "Threat Type": "Spoofing", "Scenario": "s",
+            "Related Threats": [{"id": "auth-T1"}, "auth-T1", 7],
+        }]
+        emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
+        assert emergent == []
+        assert aggregations[0]["Related Threats"] == ["auth-T1"]
+
+    def test_object_shaped_links_alone_drop_the_aggregation(self, tmp_path):
+        raw = [{
+            "Classification": "aggregation", "Threat Type": "Spoofing", "Scenario": "s",
+            "Related Threats": [{"id": "auth-T1"}],
+        }]
+        assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
+
+    def test_emergent_keeps_a_link_given_as_a_bare_string(self, tmp_path):
+        raw = [{
+            "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
+            "Related Threats": "auth-T1",
+            "evidence": [{"path": "app.py", "snippet": "x"}],
+        }]
+        emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
+        assert aggregations == []
+        assert emergent[0]["Related Threats"] == ["auth-T1"]
+
+    def test_emergent_drops_links_that_name_nothing(self, tmp_path):
+        raw = [{
+            "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
+            "Related Threats": ["nope-T9", {"id": "auth-T1"}],
+            "evidence": [{"path": "app.py", "snippet": "x"}],
+        }]
+        emergent, _ = classify_synthesis(raw, self._findings(), tmp_path)
+        assert "Related Threats" not in emergent[0]
+
+    def test_output_that_is_not_a_list_is_dropped_not_fatal(self, tmp_path):
+        """Phase 3 must not throw away the subsystem findings it just collected."""
+        for raw in (5, "cross-cutting threats: none", {"Classification": "aggregation"}, None):
+            assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
+
+    def test_unhashable_threat_id_on_a_finding_is_ignored(self, tmp_path):
+        findings = [SubsystemFinding(subsystem="Auth", threats=[{"id": ["auth-T1"]}])]
+        assert classify_synthesis(
+            [{"Classification": "aggregation", "Threat Type": "Spoofing",
+              "Scenario": "s", "Related Threats": ["auth-T1"]}],
+            findings, tmp_path,
+        ) == ([], [])
+
     def test_unclassified_and_malformed_items_are_dropped(self, tmp_path):
         raw = [
             {"Threat Type": "Spoofing", "Scenario": "no classification"},

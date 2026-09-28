@@ -1039,6 +1039,23 @@ def assign_threat_ids(findings: list[SubsystemFinding]) -> None:
                 threat["id"] = f"{slug}-T{n}"
 
 
+def _known_links(related: Any, known_ids: set[str]) -> list[str]:
+    """The ids in ``related`` that name a real threat, deduplicated, order kept.
+
+    ``related`` is whatever the architect emitted: the list of id strings the
+    prompt asks for, a single bare string, or — it is model output — anything
+    at all. A non-string entry is dropped rather than tested against
+    ``known_ids``, because an unhashable one raises out of the ``in`` test;
+    ``[{"id": "auth-T1"}]`` is the shape a model reaches for when told to list
+    ids, and it used to take the whole run down at the end of phase 3.
+    """
+    if isinstance(related, str):
+        related = [related]
+    if not isinstance(related, list):
+        return []
+    return list(dict.fromkeys(r for r in related if isinstance(r, str) and r in known_ids))
+
+
 def classify_synthesis(
     raw: list[dict[str, Any]],
     findings: list[SubsystemFinding],
@@ -1058,9 +1075,19 @@ def classify_synthesis(
     a claim with no support, and an emergent threat citing nothing is the
     unverifiable restatement this split exists to stop counting as a threat.
     """
-    known_ids = {t["id"] for f in findings for t in f.threats if t.get("id")}
+    known_ids = {t["id"] for f in findings for t in f.threats if isinstance(t.get("id"), str)}
     emergent: list[dict[str, Any]] = []
     aggregations: list[dict[str, Any]] = []
+
+    if not isinstance(raw, list):
+        # `_synthesize` hands back whatever sat under "cross_cutting_threats",
+        # which a model can make a string or a number. Phase 3 is the last
+        # thing before the report, so iterating that would throw away every
+        # subsystem finding the run just paid for.
+        logger.warning(
+            "Dropped synthesis output: expected a list of items, got %s", type(raw).__name__
+        )
+        return emergent, aggregations
 
     for item in raw:
         if not isinstance(item, dict):
@@ -1071,14 +1098,11 @@ def classify_synthesis(
         entry["Classification"] = kind
 
         if kind == AGGREGATION:
-            related = item.get("Related Threats")
-            if isinstance(related, str):
-                related = [related]
-            linked = [r for r in related if r in known_ids] if isinstance(related, list) else []
+            linked = _known_links(item.get("Related Threats"), known_ids)
             if not linked:
                 logger.warning("Dropped aggregation %s: it links to no known threat id", label)
                 continue
-            entry["Related Threats"] = list(dict.fromkeys(linked))
+            entry["Related Threats"] = linked
             aggregations.append(entry)
         elif kind == EMERGENT:
             checks = verify_evidence(target_path, item.get("evidence"))
@@ -1086,9 +1110,13 @@ def classify_synthesis(
                 logger.warning("Dropped emergent threat %s: it cites no evidence", label)
                 continue
             entry["evidence"] = [c.to_dict() for c in checks]
-            related = entry.get("Related Threats")
-            if isinstance(related, list):
-                entry["Related Threats"] = [r for r in related if r in known_ids]
+            # Optional here, so an emergent threat that links to nothing real
+            # loses the key rather than the threat. Same reader as the
+            # aggregation branch: a lone id arrives as a bare string often
+            # enough that dropping it would silently lose a valid link.
+            linked = _known_links(entry.get("Related Threats"), known_ids)
+            if linked:
+                entry["Related Threats"] = linked
             else:
                 entry.pop("Related Threats", None)
             emergent.append(entry)
