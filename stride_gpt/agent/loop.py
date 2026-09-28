@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections.abc import Callable
@@ -353,6 +354,7 @@ def run_analysis(
     metadata["references_loaded"] = sorted(loaded_refs)
     metadata["token_usage"] = _token_usage_metadata(phase_usage)
 
+    assign_threat_ids(findings, cross_cutting)
     report = AnalysisReport(
         plan=plan,
         findings=findings,
@@ -366,6 +368,52 @@ def run_analysis(
         _run_summary_text(findings, cross_cutting, llm_calls, tool_calls, total_usage)
     )
     return report
+
+
+_THREAT_ID_LENGTH = 10
+# Cross-cutting threats belong to no subsystem. The NUL keeps this scope from
+# ever equalling a real subsystem name.
+_CROSS_CUTTING_SCOPE = "\x00cross-cutting"
+
+
+def make_threat_id(subsystem: str, threat_type: str, scenario: str) -> str:
+    """Content-derived threat id: a short hex hash of scope, type and scenario.
+
+    Depends on threat text only, never position or file paths, so it is stable
+    under reordering and safe to write into a redacted ``findings.json``.
+    """
+    normalised = " ".join(str(scenario).split())
+    payload = "\x00".join([str(subsystem), " ".join(str(threat_type).lower().split()), normalised])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:_THREAT_ID_LENGTH]
+
+
+def assign_threat_ids(
+    findings: list[SubsystemFinding], cross_cutting: list[dict[str, Any]]
+) -> None:
+    """Set a run-unique ``id`` on every threat in place.
+
+    Colliding ids get a ``-2``, ``-3``... suffix. Colliding threats are
+    ordered by their full content first so the suffixes do not depend on the
+    order the findings or threats arrived in.
+    """
+    by_base: dict[str, list[dict[str, Any]]] = {}
+    scoped = [(f.subsystem, f.threats) for f in findings]
+    scoped.append((_CROSS_CUTTING_SCOPE, cross_cutting))
+    for scope, threats in scoped:
+        for threat in threats:
+            base = make_threat_id(
+                scope, threat.get("Threat Type", ""), threat.get("Scenario", "")
+            )
+            by_base.setdefault(base, []).append(threat)
+
+    for base, threats in by_base.items():
+        threats.sort(
+            key=lambda t: json.dumps(
+                {k: v for k, v in t.items() if k != "id"}, sort_keys=True, default=str
+            )
+        )
+        for n, threat in enumerate(threats, start=1):
+            threat["id"] = base if n == 1 else f"{base}-{n}"
 
 
 def _token_usage_metadata(phase_usage: dict[str, TokenUsage]) -> dict[str, Any]:
