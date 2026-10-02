@@ -15,9 +15,11 @@ constraints = [
     { name = "aiohttp", specifier = ">=3.14.3" },
     { name = "anyio", specifier = ">=4.14.2" },
     { name = "cryptography", specifier = ">=50.0.1" },
-    { name = "gitpython", specifier = ">=3.1.60" },
+    { name = "gitpython", specifier = ">=3.1.62" },
     { name = "h11", specifier = ">=0.16.0" },
-    { name = "urllib3", specifier = ">=2.7.0" },
+    { name = "litellm", specifier = ">=1.91.5" },
+    { name = "pyjwt", specifier = ">=2.15.0" },
+    { name = "urllib3", specifier = ">=2.8.0" },
     { name = "zipp", specifier = ">=4.1.0" },
 ]
 
@@ -651,14 +653,14 @@ wheels = [
 
 [[package]]
 name = "gitpython"
-version = "3.1.60"
+version = "3.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "gitdb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/84/14/e6b1a48d831755a53c2029351fcef82e70db4a08f338daefe29d8d0cf31c/gitpython-3.1.60.tar.gz", hash = "sha256:e936431879fa85581b4311fa63492ea52251909e2d655b6529c704c904ddcc24", size = 230793, upload-time = "2026-08-25T18:33:46.102Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/2d/6f6e649818da44d4499604802c89329b8d9799687a124e3a5e467a643336/gitpython-3.2.0.tar.gz", hash = "sha256:fb92310af6844d96adc95ca066ed2e617c00e1dbd146a326626c81e72e18cc2e", size = 238091, upload-time = "2026-09-30T09:10:32.65Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/71/63/ba28697918b7c190af9f3f21940d03e8814e25dd4ddd39d6929f3a553995/gitpython-3.1.60-py3-none-any.whl", hash = "sha256:39548bffb8fa0f3a548133348868bb4838e79d73283052207dc97781a569b6b4", size = 221893, upload-time = "2026-08-25T18:33:44.75Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/48/f36d233ce749d1bb880cb5e6f8bb171dc2effabc7435c31da604d831b3ec/gitpython-3.2.0-py3-none-any.whl", hash = "sha256:bd70c5ec05cd2b797423e7eb312147d2458d3cca92085888fba2213f85905537", size = 228537, upload-time = "2026-09-30T09:10:31.159Z" },
 ]
 
 [[package]]
@@ -951,7 +953,7 @@ wheels = [
 
 [[package]]
 name = "litellm"
-version = "1.91.1"
+version = "1.91.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -967,9 +969,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "tokenizers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a7/70/1b419158085e0cc1615642dd62c7a5d4c3254db3de77df65dade3b25165b/litellm-1.91.1.tar.gz", hash = "sha256:49a24593df7e37262c52243a8e07572d451d37c100aa1b1f347d80d501d2e386", size = 14872532, upload-time = "2026-07-08T23:07:04.559Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/97/e68511e3dff7d18c99faf39258096cd2fc0b59540b2523e9eef43d33922a/litellm-1.91.5.tar.gz", hash = "sha256:f3a69ce82f61216903ca5e08aabe76a535862d4b935d7a7863953cbc8947e2f7", size = 14877642, upload-time = "2026-08-09T02:01:45.825Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/52/166a934d194afcff2a7ec4e1928f1865504ade2e26f62e24d49aaec400d1/litellm-1.91.1-py3-none-any.whl", hash = "sha256:bf8e3d23cddf0eb4c05714dffcaafd8a944adf0f9c9b01c6c863b2637309de2e", size = 16670790, upload-time = "2026-07-08T23:07:01.151Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/21/268c8febd55265d9bbb611c06496356186bdea37b64e1142eb92e9d48b7e/litellm-1.91.5-py3-none-any.whl", hash = "sha256:db09c6ea0b7c7de034b6c8b628208b000b54e02ef557468f84c2e63fbd7c8560", size = 16675846, upload-time = "2026-08-09T02:01:43.257Z" },
 ]
 
 [[package]]
@@ -1671,11 +1673,11 @@ wheels = [
 
 [[package]]
 name = "pyjwt"
-version = "2.13.0"
+version = "2.15.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3b/81/58d0ac84e1ef3a3843791d6954d94c0b33d526c75eeb1efbce9d0a4c4077/pyjwt-2.13.0.tar.gz", hash = "sha256:41571c89ca91598c79e8ef18a2d07367d4810fbbd6f637794879baf1b7703423", size = 107515, upload-time = "2026-05-21T19:54:36.618Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/ea/5194e52748b0da83d71e082d75496eaec6e58f419f5e184786ded517e6a9/pyjwt-2.15.1.tar.gz", hash = "sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8", size = 121252, upload-time = "2026-09-28T18:40:42.598Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/5e/ecf12fdb62546d64385c158514e9b2b671f7832108ef2ecd2020ce0af2d1/pyjwt-2.13.0-py3-none-any.whl", hash = "sha256:66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728", size = 31274, upload-time = "2026-05-21T19:54:35.362Z" },
+    { url = "https://files.pythonhosted.org/packages/50/ca/44de4e75f8aadc457f0634be3b542815078ded46dca30efb960edeecad6e/pyjwt-2.15.1-py3-none-any.whl", hash = "sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193", size = 33860, upload-time = "2026-09-28T18:40:41.429Z" },
 ]
 
 [package.optional-dependencies]
@@ -2353,11 +2355,11 @@ wheels = [
 
 [[package]]
 name = "urllib3"
-version = "2.7.0"
+version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/53/0c/06f8b233b8fd13b9e5ee11424ef85419ba0d8ba0b3138bf360be2ff56953/urllib3-2.7.0.tar.gz", hash = "sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c", size = 433602, upload-time = "2026-05-07T16:13:18.596Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/05/b17359e1cefb4f909b5e40b1b90a496d987258916dbbf88e842c729f510e/urllib3-2.8.0.tar.gz", hash = "sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63", size = 458972, upload-time = "2026-09-15T19:29:36.253Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/3e/5db95bcf282c52709639744ca2a8b149baccf648e39c8cc87553df9eae0c/urllib3-2.7.0-py3-none-any.whl", hash = "sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897", size = 131087, upload-time = "2026-05-07T16:13:17.151Z" },
+    { url = "https://files.pythonhosted.org/packages/92/9d/c4e665119135114480843e7ab388fa94d8480650450e6f8e26b70d323a4c/urllib3-2.8.0-py3-none-any.whl", hash = "sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3", size = 135717, upload-time = "2026-09-15T19:29:34.577Z" },
 ]
 
 [[package]]

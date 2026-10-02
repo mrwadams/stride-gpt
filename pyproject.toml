@@ -66,20 +66,29 @@ default-groups = ["dev", "web"]
 # pins (the old requirements.txt duplication has been retired).
 # (No tornado floor: Streamlit >=1.59 runs on Starlette/Uvicorn, not Tornado.)
 constraint-dependencies = [
-    "urllib3>=2.7.0",
+    # urllib3: unbounded chunk-size line buffering, HTTPS proxy TLS config
+    # ignored, chunked deflate infinite loop (<2.8.0).
+    "urllib3>=2.8.0",
     "anyio>=4.14.2",
     "zipp>=4.1.0",
     "h11>=0.16.0",
     # gitpython via streamlit: long run of git-option-injection advisories
     # through 3.1.57 (arbitrary file overwrite, env-var exfiltration,
-    # git-config injection).
-    "gitpython>=3.1.60",
+    # git-config injection), then submodule update path traversal (<=3.1.61).
+    "gitpython>=3.1.62",
     # aiohttp via litellm: out-of-bounds heap read in the C response parser
     # (<=3.14.2), request smuggling and unnegotiated compressed frames (<=3.14.1).
     "aiohttp>=3.14.3",
     # cryptography via pyjwt: Bleichenbacher oracle in PKCS#7 EnvelopedData
     # decryption (<50.0.0).
     "cryptography>=50.0.1",
+    # pyjwt via pygithub: HMAC/asymmetric key-confusion bypasses, JWKS redirect
+    # following, RecursionError DoS (<=2.14.0).
+    "pyjwt>=2.15.0",
+    # litellm: authenticated SSRF and provider-credential exfiltration via
+    # request-body routing params (1.91.0-1.91.4). Floor kept lock-only so the
+    # published wheel's litellm>=1.40 range is unchanged.
+    "litellm>=1.91.5",
 ]
 
 [build-system]
