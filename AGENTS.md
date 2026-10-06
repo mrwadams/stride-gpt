@@ -54,7 +54,7 @@ Three phases, all driven from `cli.py:analyze` (the subcommand) or `_handle_anal
 
 1. **Planning** (`agent/planner.py:create_plan`) — single LLM call. Scans the codebase, classifies the application type (`web` / `genai` / `agentic`), proposes 3–7 subsystems. User approves the plan interactively (or `--yes`).
 2. **Per-subsystem analysis** (`agent/loop.py:_analyze_subsystem`) — for each subsystem, a tool-using agent loop. The model reads files, greps, lists directories, and loads OWASP reference cards on demand, then emits a JSON finding. Token budget is shared across subsystems (remaining-budget arithmetic in `run_analysis`).
-3. **Synthesis** (`agent/loop.py:_synthesize`) — one LLM call. Reviews all per-subsystem findings and surfaces cross-cutting threats.
+3. **Synthesis** (`agent/loop.py:_synthesize`) — one LLM call. Reviews all per-subsystem findings (threat ids and evidence included) and classifies each output as an **aggregation** (a systemic restatement linking to subsystem threats by `Related Threats` ids; rendered as a systemic observation, not counted, not in SARIF) or an **emergent** threat (cites evidence, checked by `verify_evidence`, counted like any threat). `classify_synthesis` enforces both rules.
 
 Reports auto-save under `~/.stride-gpt/reports/`, split by kind: `/analyze` runs land in `reports/analyze/<target>_<timestamp>.json` and `/quick` runs in `reports/quick/<name>_<timestamp>.json` (see `config.py:analyze_reports_dir` / `quick_reports_dir`). The `/reports` slash command lists and re-renders saved reports (`--quick` / `--all` switch which kind it shows).
 
