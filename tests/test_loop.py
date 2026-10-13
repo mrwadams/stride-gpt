@@ -1468,3 +1468,169 @@ class TestAgentLoopProtocol:
         fake, _, _ = _run_subsystem(model_pair, sandbox_dir, steps, ctx)
 
         assert "summary of the first turn" in _last_tools_messages(fake)[1]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Threat ids (#212)
+# ---------------------------------------------------------------------------
+
+
+def _threat(scenario="Weak auth", threat_type="Spoofing", **extra) -> dict:
+    return {
+        "Threat Type": threat_type,
+        "Scenario": scenario,
+        "Potential Impact": "Takeover",
+        **extra,
+    }
+
+
+class TestMakeThreatId:
+    def test_is_deterministic(self):
+        from stride_gpt.agent.loop import make_threat_id
+
+        assert make_threat_id("Auth", "Spoofing", "Weak auth") == make_threat_id(
+            "Auth", "Spoofing", "Weak auth"
+        )
+
+    def test_differs_when_the_subsystem_differs(self):
+        from stride_gpt.agent.loop import make_threat_id
+
+        assert make_threat_id("Auth", "Spoofing", "Weak auth") != make_threat_id(
+            "API", "Spoofing", "Weak auth"
+        )
+
+    def test_ignores_scenario_whitespace(self):
+        from stride_gpt.agent.loop import make_threat_id
+
+        assert make_threat_id("Auth", "Spoofing", "Weak  auth\n") == make_threat_id(
+            "Auth", "Spoofing", " Weak auth"
+        )
+
+
+class TestAssignThreatIds:
+    def test_every_threat_gets_an_id_including_cross_cutting(self):
+        from stride_gpt.agent.loop import assign_threat_ids
+
+        findings = [
+            SubsystemFinding(subsystem="Auth", threats=[_threat("a"), _threat("b")]),
+            SubsystemFinding(subsystem="API", threats=[_threat("c")]),
+        ]
+        cross = [_threat("d")]
+        assign_threat_ids(findings, cross)
+        ids = [t["id"] for f in findings for t in f.threats] + [t["id"] for t in cross]
+        assert len(ids) == 4
+        assert len(set(ids)) == 4
+
+    def test_identical_threat_in_two_subsystems_gets_distinct_ids(self):
+        from stride_gpt.agent.loop import assign_threat_ids
+
+        findings = [
+            SubsystemFinding(subsystem="Auth", threats=[_threat()]),
+            SubsystemFinding(subsystem="API", threats=[_threat()]),
+        ]
+        assign_threat_ids(findings, [_threat()])
+        ids = [t["id"] for f in findings for t in f.threats]
+        assert ids[0] != ids[1]
+
+    def test_collision_gets_a_counter_suffix(self):
+        from stride_gpt.agent.loop import assign_threat_ids
+
+        # Same subsystem name twice, identical type and scenario: a true collision.
+        findings = [
+            SubsystemFinding(subsystem="Auth", threats=[_threat(**{"Potential Impact": "x"})]),
+            SubsystemFinding(subsystem="Auth", threats=[_threat(**{"Potential Impact": "y"})]),
+        ]
+        assign_threat_ids(findings, [])
+        a, b = (f.threats[0]["id"] for f in findings)
+        assert a != b
+        assert a.split("-")[0] == b.split("-")[0]
+        assert {a.count("-"), b.count("-")} == {0, 1}
+
+    def test_ids_do_not_depend_on_order(self):
+        from stride_gpt.agent.loop import assign_threat_ids
+
+        def build(reverse: bool):
+            auth = [_threat("a"), _threat("b"), _threat("b", **{"Potential Impact": "z"})]
+            api = [_threat("a")]
+            cross = [_threat("x"), _threat("y")]
+            if reverse:
+                auth.reverse()
+                cross.reverse()
+            findings = [
+                SubsystemFinding(subsystem="Auth", threats=auth),
+                SubsystemFinding(subsystem="API", threats=api),
+            ]
+            if reverse:
+                findings.reverse()
+            assign_threat_ids(findings, cross)
+            return {
+                (f.subsystem, t["Scenario"], t["Potential Impact"]): t["id"]
+                for f in findings
+                for t in f.threats
+            } | {("cross", t["Scenario"], ""): t["id"] for t in cross}
+
+        assert build(False) == build(True)
+
+    def test_run_analysis_assigns_ids_before_returning(self, model_pair, sandbox_dir):
+        plan = AnalysisPlan(
+            target_path=str(sandbox_dir), overall_description="app",
+            subsystems=[Subsystem(name="App", description="d", key_files=[], focus_areas=[])],
+        )
+        with ScriptedLLM([_tool_turn(_report("r"), _finish("f")), _DFD]):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=MagicMock())
+
+        (threat,) = report.findings[0].threats
+        assert threat["id"]
+
+    def test_ids_round_trip_through_findings_json_and_redaction(self, tmp_path, monkeypatch):
+        from datetime import UTC, datetime
+
+        from stride_gpt.agent.loop import assign_threat_ids
+        from stride_gpt.agent.persistence import (
+            ModelDescriptor,
+            RunManifest,
+            RunSummary,
+            write_intermediates,
+        )
+
+        monkeypatch.chdir(tmp_path)
+        abs_path = str(tmp_path / "src" / "auth.py")
+        finding = SubsystemFinding(
+            subsystem="Auth",
+            threats=[_threat(evidence=[{"path": abs_path, "snippet": "x = 1"}])],
+        )
+        cross = [_threat("shared", threat_type="Tampering")]
+        assign_threat_ids([finding], cross)
+        expected = (finding.threats[0]["id"], cross[0]["id"])
+
+        manifest = RunManifest(
+            stride_gpt_version="0.0.0-test",
+            python_version="3.12.0",
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            architect=ModelDescriptor(provider="A", model_name="m1"),
+            worker=ModelDescriptor(provider="A", model_name="m2"),
+            detected_app_type="web",
+            app_type_source="planner",
+            target_path="./",
+            target_git_sha=None,
+            config_hash="0" * 64,
+            references_loaded=[],
+            run_summary=RunSummary(
+                status="completed", subsystems_planned=1, subsystems_analyzed=1,
+                llm_calls=1, tool_calls=1,
+            ),
+            mode="analyze",
+        )
+        output = tmp_path / "report.md"
+        write_intermediates(
+            output, manifest=manifest, findings=[finding], cross_cutting=cross,
+        )
+
+        saved = json.loads((tmp_path / "report.findings.json").read_text())
+        saved_threat = saved["findings"][0]["threats"][0]
+        assert saved_threat["evidence"][0]["path"] == "./src/auth.py"
+        assert (saved_threat["id"], saved["cross_cutting_threats"][0]["id"]) == expected
+        # The in-memory threat keeps its verbatim path and its id.
+        assert finding.threats[0]["evidence"][0]["path"] == abs_path
+        assert finding.threats[0]["id"] == expected[0]
