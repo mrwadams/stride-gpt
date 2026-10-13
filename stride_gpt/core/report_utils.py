@@ -174,6 +174,65 @@ def threat_table_row(
     return "| " + " | ".join(cells) + " |"
 
 
+SYSTEMIC_OBSERVATIONS_NOTE = (
+    "These summarise weaknesses already reported in the subsystem sections. "
+    "They are not separate threats and are not counted in the totals."
+)
+
+
+def related_threat_labels(
+    observation: dict[str, Any],
+    subsystems: Iterable[tuple[str, Iterable[dict[str, Any]]]],
+) -> list[tuple[str, str]]:
+    """``(id, description)`` for each threat a systemic observation links to.
+
+    ``subsystems`` is ``(name, threats)`` pairs. The description says where the
+    threat lives — ``Streamlit Frontend: Spoofing`` — because threat ids are not
+    shown in the tables. An id that matches no threat (a hand-edited or
+    truncated saved report) is kept with an empty description rather than
+    dropped, so the link stays visible.
+    """
+    known: dict[str, str] = {}
+    for name, threats in subsystems:
+        for threat in threats:
+            tid = threat.get("id")
+            if isinstance(tid, str) and tid:
+                known[tid] = f"{name}: {threat.get('Threat Type', 'Unknown')}"
+    related = observation.get("Related Threats")
+    if not isinstance(related, list):
+        return []
+    return [(str(tid), known.get(str(tid), "")) for tid in related]
+
+
+def systemic_observation_lines(
+    observation: dict[str, Any],
+    subsystems: Iterable[tuple[str, Iterable[dict[str, Any]]]],
+) -> list[str]:
+    """One systemic observation as a markdown bullet with its links.
+
+    A list rather than a table row: an observation is prose plus a set of
+    links, and none of the threat table's columns describe it. Values go
+    through :func:`_escape_md_cell` so LLM text can't start a new block.
+    """
+    lines = [
+        f"- **{_escape_md_cell(observation.get('Threat Type', 'Unknown'))}**: "
+        f"{_escape_md_cell(observation.get('Scenario', ''))}"
+    ]
+    if observation.get("Potential Impact"):
+        lines.append(f"  - Impact: {_escape_md_cell(observation['Potential Impact'])}")
+    affected = observation.get("Affected Subsystems")
+    if isinstance(affected, list) and affected:
+        lines.append(f"  - Affects: {_escape_md_cell(', '.join(str(a) for a in affected))}")
+    links = related_threat_labels(observation, subsystems)
+    if links:
+        rendered = "; ".join(
+            f"`{_escape_md_cell(tid)}`" + (f" ({_escape_md_cell(label)})" if label else "")
+            for tid, label in links
+        )
+        lines.append(f"  - Summarises: {rendered}")
+    return lines
+
+
 def evidence_items(threat: Any) -> list[dict[str, Any]]:
     """Evidence entries on a threat, or none for a report written before it existed.
 

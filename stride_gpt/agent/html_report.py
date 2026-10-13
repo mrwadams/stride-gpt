@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from stride_gpt.core.report_utils import (
+    SYSTEMIC_OBSERVATIONS_NOTE,
     evidence_items,
     evidence_location,
     mitre_url,
     normalize_mitre_techniques,
     outcome_note,
+    related_threat_labels,
 )
 from stride_gpt.core.schemas import AnalysisReport
 
@@ -80,6 +82,7 @@ def render_html(report: AnalysisReport) -> str:
             for f in report.findings
         ],
         "cross_cutting_threats": report.cross_cutting_threats,
+        "systemic_observations": report.systemic_observations,
         "metadata": report.metadata,
     }
     return render_html_from_json(data)
@@ -98,6 +101,7 @@ def render_html_from_json(data: dict[str, Any]) -> str:
     dfd_mermaid = (data.get("data_flow_diagram") or "").strip()
     subsystems = data.get("subsystems") or []
     cross_cutting = data.get("cross_cutting_threats") or []
+    systemic = data.get("systemic_observations") or []
     metadata = data.get("metadata") or {}
 
     total_threats = sum(len(s.get("threats") or []) for s in subsystems)
@@ -111,6 +115,7 @@ def render_html_from_json(data: dict[str, Any]) -> str:
         total_threats=total_threats,
         subsystem_count=len(subsystems),
         cross_cutting_count=len(cross_cutting),
+        systemic_count=len(systemic),
     ))
 
     if overview:
@@ -123,6 +128,9 @@ def render_html_from_json(data: dict[str, Any]) -> str:
 
     if cross_cutting:
         parts.append(_render_cross_cutting(cross_cutting))
+
+    if systemic:
+        parts.append(_render_systemic_observations(systemic, subsystems))
 
     parts.append(_render_footer(metadata))
 
@@ -166,6 +174,7 @@ def _render_header(
     total_threats: int,
     subsystem_count: int,
     cross_cutting_count: int,
+    systemic_count: int = 0,
 ) -> str:
     model_line = _format_model_line(metadata)
     chip = (
@@ -183,6 +192,10 @@ def _render_header(
     if cross_cutting_count:
         summary_chips.append(
             f'<span class="{chip}">{cross_cutting_count} cross-cutting</span>'
+        )
+    if systemic_count:
+        summary_chips.append(
+            f'<span class="{chip}">{systemic_count} systemic observations</span>'
         )
 
     meta_line_parts: list[str] = []
@@ -331,6 +344,56 @@ def _render_cross_cutting(threats: list[dict[str, Any]]) -> str:
 {cards}
         </div>
       </section>"""
+
+
+def _render_systemic_observations(
+    observations: list[dict[str, Any]], subsystems: list[dict[str, Any]]
+) -> str:
+    pairs = [(sub.get("name") or "", sub.get("threats") or []) for sub in subsystems]
+    cards = "\n".join(_render_observation_card(o, pairs) for o in observations)
+    return f"""      <section id="systemic-observations" class="space-y-5">
+        <header class="space-y-1">
+          <h2 class="text-xl font-semibold tracking-tight text-slate-900">Systemic observations</h2>
+          <p class="text-sm text-slate-600">{html.escape(SYSTEMIC_OBSERVATIONS_NOTE)}</p>
+        </header>
+        <div class="space-y-4">
+{cards}
+        </div>
+      </section>"""
+
+
+def _render_observation_card(
+    observation: dict[str, Any], subsystems: list[tuple[str, list[dict[str, Any]]]]
+) -> str:
+    threat_type = observation.get("Threat Type") or "Unknown"
+    badge_classes = _STRIDE_BADGE_CLASSES.get(threat_type, _DEFAULT_BADGE)
+    rows: list[str] = []
+    if observation.get("Scenario"):
+        rows.append(_dl_row("Observation", html.escape(str(observation["Scenario"]))))
+    if observation.get("Potential Impact"):
+        rows.append(_dl_row("Potential impact", html.escape(str(observation["Potential Impact"]))))
+    affected = observation.get("Affected Subsystems") or []
+    if affected:
+        pills = "".join(
+            f'<span class="{_PILL_BASE}">{html.escape(str(a))}</span> ' for a in affected
+        )
+        rows.append(_dl_row("Affects", f'<div class="flex flex-wrap gap-1">{pills}</div>'))
+    links = related_threat_labels(observation, subsystems)
+    if links:
+        items = "".join(
+            f'<li><span class="font-mono text-xs">{html.escape(tid)}</span>'
+            + (f" &mdash; {html.escape(label)}" if label else "")
+            + "</li>"
+            for tid, label in links
+        )
+        rows.append(_dl_row("Summarises", f'<ul class="list-disc pl-5 space-y-1">{items}</ul>'))
+    body = "\n".join(rows)
+    return f"""          <article class="rounded-lg border border-dashed border-slate-300 bg-white p-5 space-y-3">
+            <div class="flex flex-wrap gap-2"><span class="{_BADGE_BASE} {badge_classes}">{html.escape(str(threat_type))}</span></div>
+            <dl class="space-y-3">
+{body}
+            </dl>
+          </article>"""
 
 
 def _render_files_analyzed(files: list[str]) -> str:
