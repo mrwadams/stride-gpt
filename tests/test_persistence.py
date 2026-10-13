@@ -531,6 +531,52 @@ def test_build_analyze_manifest_records_token_usage_by_phase_and_subsystem(
     assert summary.token_usage_by_subsystem[sample_plan.subsystems[1].name].total_tokens == 220
 
 
+def test_build_analyze_manifest_carries_the_cache_split(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    monkeypatch.chdir(tmp_path)
+    findings = [
+        SubsystemFinding(
+            subsystem=sample_plan.subsystems[0].name, threats=[],
+            token_usage=TokenUsage(
+                prompt_tokens=100, completion_tokens=10,
+                cached_prompt_tokens=70, uncached_prompt_tokens=30,
+            ),
+        ),
+    ]
+
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=sample_plan,
+        target=tmp_path,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=2,
+        tool_calls=0,
+        findings=findings,
+        token_usage_by_phase={
+            "exploration": {
+                "prompt_tokens": 100, "completion_tokens": 10,
+                "cached_prompt_tokens": 70, "uncached_prompt_tokens": 30,
+            },
+            # A run.json written before the split existed has no cache keys.
+            "dfd": {"prompt_tokens": 20, "completion_tokens": 2},
+        },
+    )
+
+    dumped = json.loads(manifest.model_dump_json())["run_summary"]
+    assert dumped["token_usage_by_phase"]["exploration"]["cached_prompt_tokens"] == 70
+    assert dumped["token_usage_by_phase"]["dfd"]["cached_prompt_tokens"] is None
+    assert dumped["token_usage_by_subsystem"][sample_plan.subsystems[0].name][
+        "uncached_prompt_tokens"
+    ] == 30
+    assert dumped["token_usage_total"]["cached_prompt_tokens"] == 70
+    assert dumped["token_usage_total"]["prompt_tokens"] == 120
+
+
 def test_build_analyze_manifest_status_completed_when_all_subsystems_analyzed(
     tmp_path, monkeypatch, sample_plan, model_pair,
 ):

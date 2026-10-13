@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import queue
 
 import pytest
+from rich.console import Console
 
-from stride_gpt.agent.progress import QueueProgress
+from stride_gpt.agent.progress import QueueProgress, RichProgress
 
 
 class TestQueueProgress:
@@ -73,3 +75,13 @@ class TestQueueProgress:
         assert event["summary"] == "Analysis complete!"
 
 
+
+
+class TestRichProgress:
+    def test_complete_keeps_bracketed_cache_split(self):
+        # Rendered through a real Console: Rich parses "[cached: ...]" as a
+        # markup tag and silently drops it unless the summary is escaped.
+        out = io.StringIO()
+        p = RichProgress(Console(file=out, width=120))
+        p.complete("Token usage: 105 (prompt: 100 [cached: 60, uncached: 40] | completion: 5)")
+        assert "(prompt: 100 [cached: 60, uncached: 40] | completion: 5)" in out.getvalue()

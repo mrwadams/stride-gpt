@@ -9,6 +9,7 @@ import queue
 from typing import Any, Protocol, runtime_checkable
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 
@@ -130,7 +131,10 @@ class RichProgress:
         self.console.print(f"  [green]Found {count} cross-cutting threats[/green]")
 
     def complete(self, summary: str) -> None:
-        self.console.print(Panel(summary, title="Summary", style="green"))
+        # The summary is plain text, and its token line brackets the cache
+        # split — unescaped, Rich reads "[cached: ...]" as a markup tag and
+        # drops it.
+        self.console.print(Panel(escape(summary), title="Summary", style="green"))
 
 
 class QueueProgress:
