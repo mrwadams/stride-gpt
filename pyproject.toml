@@ -92,6 +92,10 @@ constraint-dependencies = [
     # request-body routing params (1.91.0-1.91.4). Floor kept lock-only so the
     # published wheel's litellm>=1.40 range is unchanged.
     "litellm>=1.91.5",
+    # certifi via httpx/requests: bundled emSign ECC Root CA - G3 chains to
+    # eMudhra intermediates with compromised keys (GHSA-6q48-6c7w-9gw2, <2026.10.18).
+    # 2026.10.18 dropped all emSign roots; 2026.10.19 restored the unaffected ones.
+    "certifi>=2026.10.19",
 ]
 
 [build-system]
