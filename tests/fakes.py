@@ -78,11 +78,15 @@ def reply(
     tools: frozenset[str] | None = None,
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
+    cached_prompt_tokens: int | None = None,
+    uncached_prompt_tokens: int | None = None,
 ) -> Step:
     return Step(
         LLMResponse(
             content=content, model="fake",
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            cached_prompt_tokens=cached_prompt_tokens,
+            uncached_prompt_tokens=uncached_prompt_tokens,
         ),
         tools,
     )
@@ -94,11 +98,15 @@ def call_tools(
     content: str = "",
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
+    cached_prompt_tokens: int | None = None,
+    uncached_prompt_tokens: int | None = None,
 ) -> Step:
     return Step(
         LLMResponse(
             content=content, model="fake", tool_calls=list(calls),
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            cached_prompt_tokens=cached_prompt_tokens,
+            uncached_prompt_tokens=uncached_prompt_tokens,
         ),
         tools,
     )

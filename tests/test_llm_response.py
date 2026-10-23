@@ -225,3 +225,87 @@ class TestUsageExtraction:
 
         assert response.prompt_tokens == 42
         assert response.completion_tokens is None
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_no_cache_report_leaves_the_split_none(self, mock_completion, llm_config):
+        message = SimpleNamespace(content="hello", tool_calls=None)
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(prompt_tokens=120, completion_tokens=30),
+        )
+
+        response = _call_litellm(llm_config, [])
+
+        assert response.cached_prompt_tokens is None
+        assert response.uncached_prompt_tokens is None
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_litellm_usage_without_cache_details_leaves_the_split_none(
+        self, mock_completion, llm_config
+    ):
+        from litellm.types.utils import Usage
+
+        message = SimpleNamespace(content="hello", tool_calls=None)
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=Usage(prompt_tokens=120, completion_tokens=30),
+        )
+
+        response = _call_litellm(llm_config, [])
+
+        assert response.prompt_tokens == 120
+        assert response.cached_prompt_tokens is None
+        assert response.uncached_prompt_tokens is None
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_deepseek_cache_hit_split_is_recorded(self, mock_completion, llm_config):
+        """DeepSeek reports ``prompt_cache_hit_tokens``/``prompt_cache_miss_tokens``,
+        which litellm's ``Usage`` normalises into ``prompt_tokens_details``."""
+        from litellm.types.utils import Usage
+
+        message = SimpleNamespace(content="", tool_calls=None)
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=Usage(
+                prompt_tokens=1000, completion_tokens=50,
+                prompt_cache_hit_tokens=900, prompt_cache_miss_tokens=100,
+            ),
+        )
+
+        response = _call_litellm_with_tools(llm_config, [], [])
+
+        assert response.prompt_tokens == 1000
+        assert response.cached_prompt_tokens == 900
+        assert response.uncached_prompt_tokens == 100
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_openai_style_cached_tokens_are_recorded(self, mock_completion, llm_config):
+        message = SimpleNamespace(content="hello", tool_calls=None)
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(
+                prompt_tokens=500, completion_tokens=20,
+                prompt_tokens_details=SimpleNamespace(cached_tokens=0),
+            ),
+        )
+
+        response = _call_litellm(llm_config, [])
+
+        # A reported zero is a real "no cache hits", not "unknown".
+        assert response.cached_prompt_tokens == 0
+        assert response.uncached_prompt_tokens == 500
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_raw_cache_read_field_is_used_without_details(self, mock_completion, llm_config):
+        message = SimpleNamespace(content="hello", tool_calls=None)
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(
+                prompt_tokens=300, completion_tokens=20, cache_read_input_tokens=200,
+            ),
+        )
+
+        response = _call_litellm(llm_config, [])
+
+        assert response.cached_prompt_tokens == 200
+        assert response.uncached_prompt_tokens == 100

@@ -148,8 +148,11 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
     return kwargs
 
 
-def _extract_usage(response) -> tuple[int | None, int | None]:
-    """Pull ``(prompt_tokens, completion_tokens)`` off a raw provider response.
+def _extract_usage(response) -> dict[str, int | None]:
+    """Pull token usage off a raw provider response, as ``LLMResponse`` fields.
+
+    Returns ``prompt_tokens``, ``completion_tokens``, ``cached_prompt_tokens``
+    and ``uncached_prompt_tokens``; any the provider didn't report are ``None``.
 
     Some providers/backends (local Ollama models via LM Studio, for example)
     omit ``usage`` entirely. That must read as unknown, not zero — a caller
@@ -164,14 +167,52 @@ def _extract_usage(response) -> tuple[int | None, int | None]:
     actually happened always consumed prompt tokens, so an all-zero usage is
     "the provider didn't say", not "the call was free".
     """
+    unknown: dict[str, int | None] = {
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "cached_prompt_tokens": None,
+        "uncached_prompt_tokens": None,
+    }
     usage = getattr(response, "usage", None)
     if usage is None:
-        return None, None
+        return unknown
     prompt_tokens = getattr(usage, "prompt_tokens", None)
     completion_tokens = getattr(usage, "completion_tokens", None)
     if not prompt_tokens and not completion_tokens:
+        return unknown
+    cached, uncached = _extract_cache_split(usage, prompt_tokens)
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cached_prompt_tokens": cached,
+        "uncached_prompt_tokens": uncached,
+    }
+
+
+def _extract_cache_split(usage, prompt_tokens: int | None) -> tuple[int | None, int | None]:
+    """Split ``prompt_tokens`` into ``(cached, uncached)`` prompt-cache tokens.
+
+    LiteLLM normalises every provider's cache-hit count (OpenAI and Gemini's
+    ``cached_tokens``, DeepSeek's ``prompt_cache_hit_tokens``, Anthropic's
+    ``cache_read_input_tokens``) into ``prompt_tokens_details.cached_tokens``;
+    the raw provider fields are checked too in case a response bypassed that.
+    The uncached side is derived from ``prompt_tokens`` so the two always
+    reconcile with it. Returns ``(None, None)`` when the provider reported
+    nothing about caching.
+    """
+    details = getattr(usage, "prompt_tokens_details", None)
+    cached = getattr(details, "cached_tokens", None) if details is not None else None
+    if not isinstance(cached, int):
+        cached = None
+        for name in ("prompt_cache_hit_tokens", "cache_read_input_tokens"):
+            value = getattr(usage, name, None)
+            if isinstance(value, int):
+                cached = value
+                break
+    if cached is None or not isinstance(prompt_tokens, int):
         return None, None
-    return prompt_tokens, completion_tokens
+    cached = min(cached, prompt_tokens)
+    return cached, prompt_tokens - cached
 
 
 def _extract_thinking(config: LLMConfig, response) -> tuple[str | None, str | None]:
@@ -243,7 +284,7 @@ def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
             content = fallback
 
     thinking, reasoning = _extract_thinking(config, response)
-    prompt_tokens, completion_tokens = _extract_usage(response)
+    usage = _extract_usage(response)
 
     if config.provider == "Groq API":
         reasoning, content = extract_deepseek_reasoning(content)
@@ -253,8 +294,7 @@ def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
         thinking=thinking,
         reasoning=reasoning,
         model=config.model_name,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
+        **usage,
     )
 
 
@@ -305,15 +345,14 @@ def _call_litellm_with_tools(
             )
 
     thinking, _ = _extract_thinking(config, response)
-    prompt_tokens, completion_tokens = _extract_usage(response)
+    usage = _extract_usage(response)
 
     return LLMResponse(
         content=content,
         thinking=thinking,
         model=config.model_name,
         tool_calls=tool_calls,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
+        **usage,
     )
 
 
@@ -360,13 +399,12 @@ def _call_litellm_with_image(
     response = litellm.completion(messages=messages, **kwargs)
     content = response.choices[0].message.content or ""
     thinking, _ = _extract_thinking(config, response)
-    prompt_tokens, completion_tokens = _extract_usage(response)
+    usage = _extract_usage(response)
     return LLMResponse(
         content=content,
         thinking=thinking,
         model=config.model_name,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
+        **usage,
     )
 
 

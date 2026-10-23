@@ -62,8 +62,42 @@ class TestTokenUsage:
         assert a.available is True
         assert a.total_tokens == 10
 
+    def test_cache_split_stays_none_when_never_reported(self):
+        usage = TokenUsage()
+        usage.record(LLMResponse(content="", prompt_tokens=100, completion_tokens=50))
+        usage.merge(TokenUsage(prompt_tokens=10, completion_tokens=5))
+        assert usage.cached_prompt_tokens is None
+        assert usage.uncached_prompt_tokens is None
+
+    def test_record_and_merge_accumulate_the_cache_split(self):
+        usage = TokenUsage()
+        usage.record(LLMResponse(
+            content="", prompt_tokens=100, completion_tokens=5,
+            cached_prompt_tokens=90, uncached_prompt_tokens=10,
+        ))
+        usage.merge(TokenUsage(
+            prompt_tokens=50, completion_tokens=5,
+            cached_prompt_tokens=0, uncached_prompt_tokens=50,
+        ))
+        assert usage.cached_prompt_tokens == 90
+        assert usage.uncached_prompt_tokens == 60
+        assert usage.cached_prompt_tokens + usage.uncached_prompt_tokens == usage.prompt_tokens
+
+    def test_a_call_without_a_cache_split_leaves_the_split_alone(self):
+        usage = TokenUsage()
+        usage.record(LLMResponse(
+            content="", prompt_tokens=100, completion_tokens=5,
+            cached_prompt_tokens=90, uncached_prompt_tokens=10,
+        ))
+        usage.record(LLMResponse(content="", prompt_tokens=20, completion_tokens=5))
+        assert usage.prompt_tokens == 120
+        assert (usage.cached_prompt_tokens, usage.uncached_prompt_tokens) == (90, 10)
+
     def test_model_dump_round_trips(self):
-        usage = TokenUsage(prompt_tokens=42, completion_tokens=8)
+        usage = TokenUsage(
+            prompt_tokens=42, completion_tokens=8,
+            cached_prompt_tokens=40, uncached_prompt_tokens=2,
+        )
         dumped = usage.model_dump()
         assert TokenUsage(**dumped) == usage
 
