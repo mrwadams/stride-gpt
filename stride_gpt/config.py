@@ -253,11 +253,33 @@ def _setup_tier(console: Console, tier: str) -> dict[str, Any] | None:
     model_name = ""
     if not provider.needs_api_base:
         models = [m.model_id for m in get_models_for_provider(provider.provider_key)]
+        allow_custom_model = True
+        catalog_note: str | None = None
+        if provider.provider_key == "OrcaRouter Cyber Inference":
+            # OrcaRouter's picker is driven by its live catalogue. The static
+            # entries in the model registry are a verified cold-start seed,
+            # not a hand-written stand-in for the full live list.
+            from stride_gpt.core.orcarouter import load_catalog, seed_model_ids
+
+            catalog = load_catalog(os.environ.get(provider.env_var or ""))
+            models = [m.model_id for m in catalog.chat_models]
+            allow_custom_model = False
+            if catalog.degraded:
+                catalog_note = (
+                    f"Live catalogue unavailable ({catalog.error}). "
+                    "Showing the verified seed catalogue."
+                )
+                models = models or seed_model_ids()
+            else:
+                catalog_note = f"Loaded {len(models)} chat model(s) from the live catalogue."
         if models:
+            if catalog_note:
+                console.print(f"  [dim]{catalog_note}[/dim]")
             console.print("[bold]Select a model:[/bold]")
             for i, model in enumerate(models, 1):
                 console.print(f"  [bold]{i}[/bold]  {model}")
-            console.print(f"  [bold]{len(models) + 1}[/bold]  [dim]Custom (enter model name)[/dim]")
+            if allow_custom_model:
+                console.print(f"  [bold]{len(models) + 1}[/bold]  [dim]Custom (enter model name)[/dim]")
             console.print()
 
             while True:
@@ -270,15 +292,20 @@ def _setup_tier(console: Console, tier: str) -> dict[str, Any] | None:
                     if 0 <= midx < len(models):
                         model_name = models[midx]
                         break
-                    if midx == len(models):
+                    if allow_custom_model and midx == len(models):
                         model_name = Prompt.ask("Enter model name")
                         if _is_quit(model_name):
                             _cancel(console)
                             return None
                         break
                 except ValueError:
-                    model_name = model_choice  # Treat as raw model name
-                    break
+                    # Free-text model names stay available for providers whose
+                    # registry is a shortlist. OrcaRouter's picker is
+                    # catalogue-driven, so an unknown entry is rejected.
+                    if allow_custom_model:
+                        model_name = model_choice
+                        break
+                    console.print("[red]Choose a number from the catalogue list.[/red]")
         else:
             model_name = Prompt.ask("Enter model name")
             if _is_quit(model_name):
@@ -290,8 +317,6 @@ def _setup_tier(console: Console, tier: str) -> dict[str, Any] | None:
 
     # Step 3: API key — read from .env file or environment variables
     if provider.needs_api_key:
-        import os
-
         env_var = provider.env_var
         env_key = os.environ.get(env_var or "")
         if env_key:

@@ -318,3 +318,14 @@ def get_dread_assessment_groq(groq_api_key, groq_model, prompt):
         with st.expander("View model's reasoning process", expanded=False):
             st.write(response.reasoning)
     return parsed
+
+
+# Function to get DREAD risk assessment from OrcaRouter Cyber Inference.
+def get_dread_assessment_orcarouter(orcarouter_api_key, model_name, prompt):
+    config = LLMConfig(
+        provider="OrcaRouter Cyber Inference",
+        model_name=model_name,
+        api_key=orcarouter_api_key,
+    )
+    parsed, _response = generate_dread_assessment(config, prompt)
+    return parsed

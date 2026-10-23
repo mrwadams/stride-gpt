@@ -29,6 +29,7 @@ from attack_tree import (
     get_attack_tree_groq,
     get_attack_tree_lm_studio,
     get_attack_tree_mistral,
+    get_attack_tree_orcarouter,
 )
 from components.drawio_editor import drawio_editor_component
 from dfd import (
@@ -37,11 +38,13 @@ from dfd import (
     get_dfd_from_image_anthropic,
     get_dfd_from_image_google,
     get_dfd_from_image_openai,
+    get_dfd_from_image_orcarouter,
     get_dfd_google,
     get_dfd_groq,
     get_dfd_lm_studio,
     get_dfd_mistral,
     get_dfd_openai,
+    get_dfd_orcarouter,
 )
 from dotenv import load_dotenv
 from dread import (
@@ -54,6 +57,7 @@ from dread import (
     get_dread_assessment_groq,
     get_dread_assessment_lm_studio,
     get_dread_assessment_mistral,
+    get_dread_assessment_orcarouter,
 )
 from github import Github, GithubException
 from mitigations import (
@@ -65,6 +69,7 @@ from mitigations import (
     get_mitigations_groq,
     get_mitigations_lm_studio,
     get_mitigations_mistral,
+    get_mitigations_orcarouter,
 )
 from openai import OpenAI
 from provider_keys import PROVIDER_API_KEY_STATE
@@ -77,6 +82,7 @@ from test_cases import (
     get_test_cases_groq,
     get_test_cases_lm_studio,
     get_test_cases_mistral,
+    get_test_cases_orcarouter,
 )
 from threat_model import (
     create_image_analysis_prompt,
@@ -84,6 +90,7 @@ from threat_model import (
     get_image_analysis,
     get_image_analysis_anthropic,
     get_image_analysis_google,
+    get_image_analysis_orcarouter,
     get_threat_model,
     get_threat_model_anthropic,
     get_threat_model_deepseek,
@@ -91,12 +98,14 @@ from threat_model import (
     get_threat_model_groq,
     get_threat_model_lm_studio,
     get_threat_model_mistral,
+    get_threat_model_orcarouter,
     json_to_markdown,
 )
 
 from stride_gpt.core.drawio_parser import drawio_to_prompt_section
 from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm
+from stride_gpt.core.orcarouter import DEFAULT_MODEL, load_catalog
 from stride_gpt.core.prompts import create_dfd_prompt
 from stride_gpt.core.schemas import LLMConfig
 
@@ -894,6 +903,10 @@ def load_env_variables():
     if deepseek_api_key:
         st.session_state["deepseek_api_key"] = deepseek_api_key
 
+    orcarouter_api_key = os.getenv("ORCAROUTER_API_KEY")
+    if orcarouter_api_key:
+        st.session_state["orcarouter_api_key"] = orcarouter_api_key
+
     # Add LM Studio Server endpoint configuration
     lm_studio_endpoint = os.getenv("LM_STUDIO_ENDPOINT", "http://localhost:1234")
     st.session_state["lm_studio_endpoint"] = lm_studio_endpoint
@@ -901,6 +914,40 @@ def load_env_variables():
 
 # Call this function at the start of your app
 load_env_variables()
+
+# ------------------ OrcaRouter catalogue ------------------ #
+
+ORCAROUTER_PROVIDER_KEY = "OrcaRouter Cyber Inference"
+ORCAROUTER_CATALOG_TTL_SECONDS = 300
+
+
+def _orcarouter_catalog(api_key: str):
+    """Return the current OrcaRouter catalogue, cached briefly per credential.
+
+    The cache tag is a SHA-256 of the key, never the key itself. A live read is
+    authoritative for the TTL window; when it fails the loader returns the
+    verified seed with ``degraded=True`` so the UI can label it.
+    """
+    import hashlib
+    import time
+
+    tag = hashlib.sha256((api_key or "").encode()).hexdigest()[:16]
+    cached = st.session_state.get("orcarouter_catalog")
+    if (
+        isinstance(cached, dict)
+        and cached.get("tag") == tag
+        and time.time() - cached.get("ts", 0) < ORCAROUTER_CATALOG_TTL_SECONDS
+    ):
+        return cached["result"]
+
+    result = load_catalog(api_key or None)
+    st.session_state["orcarouter_catalog"] = {
+        "tag": tag,
+        "ts": time.time(),
+        "result": result,
+    }
+    return result
+
 
 # ------------------ Model Registry ------------------ #
 
@@ -1014,6 +1061,63 @@ with st.sidebar:
             key="selected_model",
             on_change=on_model_selection_change,
             help="Select a model from your local LM Studio Server. If you don't see any models, make sure LM Studio Server is running with models loaded.",
+        )
+    elif model_provider == ORCAROUTER_PROVIDER_KEY:
+        # --- OrcaRouter Cyber Inference: live catalogue-driven model picker ---
+        _orca_provider = _PROVIDERS[ORCAROUTER_PROVIDER_KEY]
+        st.markdown(_orca_provider.setup_instructions)
+        st.caption(
+            "Authorised, scoped security reasoning for security teams · "
+            "[Cyber provider](https://www.orcarouter.ai/cyber) · "
+            "[Cyber model catalogue](https://www.orcarouter.ai/models?tier=cyber)"
+        )
+
+        _orca_key_val = st.text_input(
+            "Enter your OrcaRouter API key:",
+            value=st.session_state.get("orcarouter_api_key", ""),
+            type="password",
+            help=(
+                "Create or manage keys at https://www.orcarouter.ai/console. "
+                "The key stays in this server-side session."
+            ),
+        )
+        if _orca_key_val:
+            st.session_state["orcarouter_api_key"] = _orca_key_val
+
+        if st.button("Refresh OrcaRouter model catalogue", key="orcarouter_refresh"):
+            st.session_state.pop("orcarouter_catalog", None)
+
+        _orca_catalog = _orcarouter_catalog(
+            st.session_state.get("orcarouter_api_key", "")
+        )
+        if _orca_catalog.degraded:
+            st.warning(
+                f"Live OrcaRouter catalogue unavailable: {_orca_catalog.error}. "
+                "Showing the verified seed catalogue; the picker stays a list."
+            )
+        else:
+            st.caption(
+                f"Live OrcaRouter catalogue: {len(_orca_catalog.chat_models)} chat models."
+            )
+
+        _orca_chat_ids = [m.model_id for m in _orca_catalog.chat_models]
+        if not _orca_chat_ids:
+            _orca_chat_ids = [DEFAULT_MODEL]
+        if st.session_state.get("selected_model") not in _orca_chat_ids:
+            st.session_state["selected_model"] = (
+                _orca_catalog.default_model or _orca_chat_ids[0]
+            )
+            st.session_state.pop("current_model_key", None)
+        _orca_model_help = " | ".join(
+            f"{m.model_id}: {m.context_length:,} ctx" if m.context_length else m.model_id
+            for m in _orca_catalog.chat_models
+        )
+        st.selectbox(
+            "Select the model you would like to use:",
+            _orca_chat_ids,
+            key="selected_model",
+            on_change=on_model_selection_change,
+            help=_orca_model_help or None,
         )
     else:
         # --- Cloud providers: generic rendering from registry ---
@@ -1218,6 +1322,7 @@ google_api_key = st.session_state.get("google_api_key", "")
 mistral_api_key = st.session_state.get("mistral_api_key", "")
 groq_api_key = st.session_state.get("groq_api_key", "")
 deepseek_api_key = st.session_state.get("deepseek_api_key", "")
+orcarouter_api_key = st.session_state.get("orcarouter_api_key", "")
 
 
 # ------------------ Main App UI ------------------ #
@@ -1280,10 +1385,20 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
     # Display image uploader for supported multimodal models
     with col1:
         supports_image = False
+        _orca_vision_models = []
         # Get selected_model from session state
         selected_model = st.session_state.get("selected_model", "")
 
-        if (
+        if model_provider == ORCAROUTER_PROVIDER_KEY:
+            # Vision support is inferred from the live catalogue metadata, not
+            # from a model name. Models that do not declare image input are
+            # never offered here (fail closed).
+            _orca_vision_catalog = _orcarouter_catalog(
+                st.session_state.get("orcarouter_api_key", "")
+            )
+            _orca_vision_models = _orca_vision_catalog.image_models
+            supports_image = bool(_orca_vision_models)
+        elif (
             (
                 model_provider == "OpenAI API"
                 and (selected_model.startswith("gpt-4") or selected_model.startswith("gpt-5"))
@@ -1316,14 +1431,39 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             if not supports_image:
                 st.info(
                     "Image upload needs a vision-capable model (OpenAI, Google AI, "
-                    "or an Anthropic Claude model). Switch model in the sidebar, or "
-                    "use the **Draw diagram** or **Guided** tab, which work with "
-                    "any model."
+                    "an Anthropic Claude model, or an OrcaRouter model whose "
+                    "catalogue entry declares image input). Switch model in the "
+                    "sidebar, or use the **Draw diagram** or **Guided** tab, which "
+                    "work with any model."
                 )
             else:
                 uploaded_file = st.file_uploader(
                     "Upload architecture diagram", type=["jpg", "jpeg", "png"]
                 )
+
+                _orca_image_model = None
+                if model_provider == ORCAROUTER_PROVIDER_KEY:
+                    _orca_vision_ids = [m.model_id for m in _orca_vision_models]
+                    _default_vision = (
+                        selected_model
+                        if selected_model in _orca_vision_ids
+                        else _orca_vision_ids[0]
+                    )
+                    if selected_model not in _orca_vision_ids:
+                        st.info(
+                            "The sidebar model does not accept image input. "
+                            "Choose a vision-capable OrcaRouter model for this diagram."
+                        )
+                    if (
+                        st.session_state.get("orcarouter_image_model")
+                        not in _orca_vision_ids
+                    ):
+                        st.session_state["orcarouter_image_model"] = _default_vision
+                    _orca_image_model = st.selectbox(
+                        "OrcaRouter model for image analysis:",
+                        _orca_vision_ids,
+                        key="orcarouter_image_model",
+                    )
 
                 if uploaded_file is not None:
 
@@ -1364,6 +1504,19 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             image_analysis_output = get_image_analysis_anthropic(
                                 anthropic_api_key,
                                 selected_model,
+                                image_analysis_prompt,
+                                base64_image,
+                                media_type,
+                            )
+                        elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                            if not orcarouter_api_key:
+                                st.error(
+                                    "Please enter your OrcaRouter API key to analyse the image."
+                                )
+                                raise ValueError
+                            image_analysis_output = get_image_analysis_orcarouter(
+                                orcarouter_api_key,
+                                _orca_image_model,
                                 image_analysis_prompt,
                                 base64_image,
                                 media_type,
@@ -1568,6 +1721,10 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                         model_output = get_threat_model_deepseek(
                             deepseek_api_key, selected_model, threat_model_prompt
                         )
+                    elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                        model_output = get_threat_model_orcarouter(
+                            orcarouter_api_key, selected_model, threat_model_prompt
+                        )
 
                     # Access the threat model and improvement suggestions from the parsed content
                     threat_model = model_output.get("threat_model", [])
@@ -1705,6 +1862,10 @@ vulnerabilities and prioritising mitigation efforts.
                         mermaid_code = get_attack_tree_deepseek(
                             deepseek_api_key, selected_model, attack_tree_prompt
                         )
+                    elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                        mermaid_code = get_attack_tree_orcarouter(
+                            orcarouter_api_key, selected_model, attack_tree_prompt
+                        )
 
                     # Display thinking content in an expander if available
                     if (
@@ -1802,13 +1963,22 @@ Three ways to use this tab:
     with dfd_input_col2:
         st.markdown("**Or parse an existing DFD image**")
         # Vision support set is the same as for architecture diagrams.
-        dfd_vision_supported = (
-            (model_provider == "OpenAI API" and (
-                selected_model.startswith("gpt-4") or selected_model.startswith("gpt-5")
-            ))
-            or model_provider == "Google AI API"
-            or (model_provider == "Anthropic API" and selected_model.startswith("claude"))
-        )
+        _dfd_orca_image_ids: list[str] = []
+        _dfd_orca_image_model = None
+        if model_provider == ORCAROUTER_PROVIDER_KEY:
+            _dfd_orca_catalog = _orcarouter_catalog(
+                st.session_state.get("orcarouter_api_key", "")
+            )
+            _dfd_orca_image_ids = [m.model_id for m in _dfd_orca_catalog.image_models]
+            dfd_vision_supported = bool(_dfd_orca_image_ids)
+        else:
+            dfd_vision_supported = (
+                (model_provider == "OpenAI API" and (
+                    selected_model.startswith("gpt-4") or selected_model.startswith("gpt-5")
+                ))
+                or model_provider == "Google AI API"
+                or (model_provider == "Anthropic API" and selected_model.startswith("claude"))
+            )
         if dfd_vision_supported:
             uploaded_dfd_image = st.file_uploader(
                 "Upload DFD image",
@@ -1816,11 +1986,33 @@ Three ways to use this tab:
                 key="dfd_image_uploader",
                 help="PNG or JPEG. The diagram is parsed into editable Mermaid below.",
             )
+            if model_provider == ORCAROUTER_PROVIDER_KEY:
+                _dfd_default_vision = (
+                    selected_model
+                    if selected_model in _dfd_orca_image_ids
+                    else _dfd_orca_image_ids[0]
+                )
+                if selected_model not in _dfd_orca_image_ids:
+                    st.caption(
+                        "The sidebar model does not accept image input; choose a "
+                        "vision-capable OrcaRouter model for DFD parsing."
+                    )
+                if (
+                    st.session_state.get("orcarouter_dfd_image_model")
+                    not in _dfd_orca_image_ids
+                ):
+                    st.session_state["orcarouter_dfd_image_model"] = _dfd_default_vision
+                _dfd_orca_image_model = st.selectbox(
+                    "OrcaRouter model for DFD image parsing:",
+                    _dfd_orca_image_ids,
+                    key="orcarouter_dfd_image_model",
+                )
         else:
             uploaded_dfd_image = None
             st.caption(
                 "Image parsing requires a vision-capable model "
-                "(OpenAI GPT-4/5, Anthropic Claude, or Google Gemini)."
+                "(OpenAI GPT-4/5, Anthropic Claude, Google Gemini, or an "
+                "OrcaRouter model declaring image input)."
             )
 
     # --- Section 2: Handle Generation --- #
@@ -1862,6 +2054,10 @@ Three ways to use this tab:
                         dfd_mermaid = get_dfd_groq(_dfd_api_key, selected_model, dfd_prompt)
                     elif model_provider == "DeepSeek API":
                         dfd_mermaid = get_dfd_deepseek(_dfd_api_key, selected_model, dfd_prompt)
+                    elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                        dfd_mermaid = get_dfd_orcarouter(
+                            _dfd_api_key, selected_model, dfd_prompt
+                        )
                     elif model_provider == "LM Studio Server":
                         dfd_mermaid = get_dfd_lm_studio(
                             st.session_state["lm_studio_endpoint"],
@@ -1911,6 +2107,12 @@ Three ways to use this tab:
                         elif model_provider == "Google AI API":
                             dfd_mermaid = get_dfd_from_image_google(
                                 _dfd_api_key, selected_model, base64_image
+                            )
+                        elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                            dfd_mermaid = get_dfd_from_image_orcarouter(
+                                _dfd_api_key,
+                                _dfd_orca_image_model or selected_model,
+                                base64_image,
                             )
                         else:
                             dfd_mermaid = ""
@@ -2049,6 +2251,10 @@ the security posture of the application and protect against potential attacks.
                             mitigations_markdown = get_mitigations_deepseek(
                                 deepseek_api_key, selected_model, mitigations_prompt
                             )
+                        elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                            mitigations_markdown = get_mitigations_orcarouter(
+                                orcarouter_api_key, selected_model, mitigations_prompt
+                            )
 
                         # Display thinking content in an expander if available and using a model with thinking capabilities
                         if (
@@ -2167,6 +2373,10 @@ focusing on the most critical threats first. Use this tab to perform a DREAD ris
                         elif model_provider == "DeepSeek API":
                             dread_assessment = get_dread_assessment_deepseek(
                                 deepseek_api_key, selected_model, dread_assessment_prompt
+                            )
+                        elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                            dread_assessment = get_dread_assessment_orcarouter(
+                                orcarouter_api_key, selected_model, dread_assessment_prompt
                             )
 
                         # Save the DREAD assessment to the session state for later use in test cases
@@ -2301,6 +2511,10 @@ scenarios.
                         elif model_provider == "DeepSeek API":
                             test_cases_markdown = get_test_cases_deepseek(
                                 deepseek_api_key, selected_model, test_cases_prompt
+                            )
+                        elif model_provider == ORCAROUTER_PROVIDER_KEY:
+                            test_cases_markdown = get_test_cases_orcarouter(
+                                orcarouter_api_key, selected_model, test_cases_prompt
                             )
 
                         # Display thinking content in an expander if available and using a model with thinking capabilities

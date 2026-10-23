@@ -497,3 +497,14 @@ def get_attack_tree_google(google_api_key, google_model, prompt):
     if response.thinking:
         st.session_state["last_thinking_content"] = response.thinking
     return mermaid
+
+
+# Function to get attack tree from OrcaRouter Cyber Inference.
+def get_attack_tree_orcarouter(orcarouter_api_key, model_name, prompt):
+    config = LLMConfig(
+        provider="OrcaRouter Cyber Inference",
+        model_name=model_name,
+        api_key=orcarouter_api_key,
+    )
+    mermaid, _response = generate_attack_tree(config, prompt)
+    return mermaid

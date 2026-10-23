@@ -49,7 +49,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
 - Multiple output formats: Markdown, JSON, SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs), and a self-contained HTML view for sharing with stakeholders
 - Advanced reasoning model support (OpenAI GPT-5.4/5.5 series, Anthropic Claude 4.6/4.8 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
-- Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, DeepSeek, plus local hosting via LM Studio Server
+- Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, DeepSeek, OrcaRouter Cyber Inference, plus local hosting via LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
 - Environment variable support for secure configuration
@@ -340,6 +340,8 @@ This installs the `stride-gpt` command. The CLI and the Streamlit web UI are now
    ```
 
    Edit `.env` to add your API keys — or configure them later by running `stride-gpt` and using the `/config` command in the interactive REPL, or via the Streamlit UI.
+
+   To route through **OrcaRouter Cyber Inference**, set `ORCAROUTER_API_KEY` (create a key at [https://www.orcarouter.ai/console](https://www.orcarouter.ai/console)) and select the provider with `/config` or in the Streamlit sidebar. The provider is aimed at authorised, scoped security reasoning for security teams: its model picker is built from the live catalogue at `https://api.orcarouter.ai/v1/models`, the default model is `orcarouter/auto`, the OrcaCyber tier (`orca/orcacyber-ultra-1.0`, `orca/orcacyber-zero-1.5`) is available to security teams with business verification, and `orcarouter/fusion` is the general fallback. See the [cyber provider page](https://www.orcarouter.ai/cyber) and the [cyber model catalogue](https://www.orcarouter.ai/models?tier=cyber).
 
 ### Option 3: Docker (web UI)
 

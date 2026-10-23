@@ -21,4 +21,5 @@ PROVIDER_API_KEY_STATE: dict[str, str] = {
     "Groq API": "groq_api_key",
     "DeepSeek API": "deepseek_api_key",
     "OpenRouter API": "openrouter_api_key",
+    "OrcaRouter Cyber Inference": "orcarouter_api_key",
 }

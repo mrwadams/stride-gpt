@@ -115,3 +115,19 @@ def get_dfd_from_image_google(api_key: str, model_name: str, base64_image: str) 
     config = LLMConfig(provider="Google AI API", model_name=model_name, api_key=api_key)
     mermaid, _ = parse_dfd_from_image(config, base64_image)
     return mermaid
+
+
+def get_dfd_orcarouter(api_key: str, model_name: str, prompt: str) -> str:
+    config = LLMConfig(
+        provider="OrcaRouter Cyber Inference", model_name=model_name, api_key=api_key
+    )
+    mermaid, _ = generate_dfd(config, prompt)
+    return mermaid
+
+
+def get_dfd_from_image_orcarouter(api_key: str, model_name: str, base64_image: str) -> str:
+    config = LLMConfig(
+        provider="OrcaRouter Cyber Inference", model_name=model_name, api_key=api_key
+    )
+    mermaid, _ = parse_dfd_from_image(config, base64_image)
+    return mermaid

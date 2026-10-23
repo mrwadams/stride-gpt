@@ -11,6 +11,7 @@ Provider model listing pages:
   - Groq:       https://console.groq.com/docs/models
   - DeepSeek:   https://api-docs.deepseek.com/quick_start/models
   - OpenRouter: https://openrouter.ai/models
+  - OrcaRouter: https://www.orcarouter.ai/models
 """
 
 from __future__ import annotations
@@ -141,6 +142,30 @@ PROVIDERS: dict[str, ProviderInfo] = {
             "and chosen model below 🔑\n"
             "2. Provide details of the application that you would like to threat model  📝\n"
             "3. Generate a threat list, attack tree and/or mitigating controls for your application 🚀"
+        ),
+    ),
+    "OrcaRouter Cyber Inference": ProviderInfo(
+        name="OrcaRouter Cyber Inference",
+        provider_key="OrcaRouter Cyber Inference",
+        # OrcaRouter exposes the OpenAI wire format, so the OpenAI-compatible
+        # litellm adapter is used with an explicit api_base (set below).
+        litellm_prefix="openai/",
+        env_var="ORCAROUTER_API_KEY",
+        default_api_base="https://api.orcarouter.ai/v1",
+        api_key_url="https://www.orcarouter.ai/console",
+        setup_instructions=(
+            "1. Enter your [OrcaRouter API key](https://www.orcarouter.ai/console) "
+            "below 🔑\n"
+            "2. OrcaRouter Cyber Inference is a named provider for authorised, "
+            "scoped security reasoning: the default model is `orcarouter/auto`, "
+            "with the OrcaCyber tier (`orca/orcacyber-ultra-1.0`, "
+            "`orca/orcacyber-zero-1.5`) for security teams and "
+            "`orcarouter/fusion` as the general fallback. Browse the "
+            "[cyber model catalogue](https://www.orcarouter.ai/models?tier=cyber) 📚\n"
+            "3. Provide details of the application that you would like to threat "
+            "model 📝\n"
+            "4. Generate a threat list, attack tree and/or mitigating controls for "
+            "your application 🚀"
         ),
     ),
     "LM Studio": ProviderInfo(
@@ -376,6 +401,49 @@ MODELS: list[ModelInfo] = [
         default_tokens=64000,
         max_tokens=1048576,
         help_text="Kimi K3 routed via OpenRouter.",
+    ),
+    # --- OrcaRouter Cyber Inference ---
+    # Cold-start metadata only. The provider's live catalogue
+    # (GET https://api.orcarouter.ai/v1/models) is authoritative and supplies
+    # the real model picker; these entries are the verified seed used when that
+    # call fails, and they carry the token limits the UI needs before it has a
+    # catalogue in hand. See stride_gpt/core/orcarouter.py.
+    ModelInfo(
+        model_id="orcarouter/auto",
+        provider_key="OrcaRouter Cyber Inference",
+        default_tokens=64000,
+        max_tokens=128000,
+        help_text=(
+            "OrcaRouter auto-routing (default): picks a suitable model for the "
+            "request and works with any OrcaRouter key."
+        ),
+    ),
+    ModelInfo(
+        model_id="orca/orcacyber-ultra-1.0",
+        provider_key="OrcaRouter Cyber Inference",
+        default_tokens=64000,
+        max_tokens=1048576,
+        help_text=(
+            "OrcaCyber Ultra: security-code scanning and multi-step reasoning "
+            "over large codebases, for security teams with business verification."
+        ),
+    ),
+    ModelInfo(
+        model_id="orca/orcacyber-zero-1.5",
+        provider_key="OrcaRouter Cyber Inference",
+        default_tokens=64000,
+        max_tokens=1000000,
+        help_text=(
+            "OrcaCyber Zero: OrcaCyber-harness security reasoning, for security "
+            "teams with business verification."
+        ),
+    ),
+    ModelInfo(
+        model_id="orcarouter/fusion",
+        provider_key="OrcaRouter Cyber Inference",
+        default_tokens=64000,
+        max_tokens=1000000,
+        help_text="OrcaRouter Fusion: the general-purpose fallback model.",
     ),
     # --- LM Studio (no static models — discovered at runtime) ---
 ]

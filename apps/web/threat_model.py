@@ -16,6 +16,7 @@ __all__ = [
     "get_image_analysis",
     "get_image_analysis_anthropic",
     "get_image_analysis_google",
+    "get_image_analysis_orcarouter",
     "get_threat_model",
     "get_threat_model_anthropic",
     "get_threat_model_deepseek",
@@ -23,6 +24,7 @@ __all__ = [
     "get_threat_model_groq",
     "get_threat_model_lm_studio",
     "get_threat_model_mistral",
+    "get_threat_model_orcarouter",
     "json_to_markdown",
 ]
 
@@ -199,3 +201,30 @@ def get_threat_model_groq(groq_api_key, groq_model, prompt):
         with st.expander("View model's reasoning process", expanded=False):
             st.write(response.reasoning)
     return {"threat_model": result.threat_model, "improvement_suggestions": result.improvement_suggestions}
+
+
+# Function to get threat model from OrcaRouter Cyber Inference.
+def get_threat_model_orcarouter(orcarouter_api_key, model_name, prompt):
+    config = LLMConfig(
+        provider="OrcaRouter Cyber Inference",
+        model_name=model_name,
+        api_key=orcarouter_api_key,
+    )
+    result, _response = generate_threat_model(config, prompt)
+    return {
+        "threat_model": result.threat_model,
+        "improvement_suggestions": result.improvement_suggestions,
+    }
+
+
+# Function to analyse an architecture diagram with OrcaRouter Cyber Inference.
+def get_image_analysis_orcarouter(
+    orcarouter_api_key, model_name, prompt, base64_image, media_type="image/jpeg"
+):
+    config = LLMConfig(
+        provider="OrcaRouter Cyber Inference",
+        model_name=model_name,
+        api_key=orcarouter_api_key,
+    )
+    response = analyze_image(config, base64_image, media_type=media_type)
+    return {"choices": [{"message": {"content": response.content}}]}

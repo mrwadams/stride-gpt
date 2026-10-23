@@ -394,3 +394,14 @@ def get_test_cases_groq(groq_api_key, groq_model, prompt):
         with st.expander("View model's reasoning process", expanded=False):
             st.write(response.reasoning)
     return content
+
+
+# Function to get test cases from OrcaRouter Cyber Inference.
+def get_test_cases_orcarouter(orcarouter_api_key, model_name, prompt):
+    config = LLMConfig(
+        provider="OrcaRouter Cyber Inference",
+        model_name=model_name,
+        api_key=orcarouter_api_key,
+    )
+    content, _response = generate_test_cases(config, prompt)
+    return content

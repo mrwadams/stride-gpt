@@ -90,12 +90,16 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
         "num_retries": 3,
     }
 
-    # Custom endpoint for LM Studio
-    if config.api_base:
+    # Custom endpoint for LM Studio and named providers that publish a fixed
+    # API base (OrcaRouter). An explicit per-call base always wins.
+    api_base = config.api_base
+    if not api_base and provider_info is not None:
+        api_base = provider_info.default_api_base
+    if api_base:
         if config.provider == "LM Studio Server":
-            kwargs["api_base"] = f"{config.api_base}/v1"
+            kwargs["api_base"] = f"{api_base}/v1"
         else:
-            kwargs["api_base"] = config.api_base
+            kwargs["api_base"] = api_base
 
     # JSON mode
     if isinstance(config.response_format, dict):
