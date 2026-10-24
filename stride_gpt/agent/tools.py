@@ -376,7 +376,14 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "search_files",
-            "description": "Search for files matching a glob pattern (e.g. '*.py', 'Dockerfile', '*.tf'). Returns matching file paths.",
+            "description": (
+                "Search for files matching a glob pattern (e.g. '*.py', 'Dockerfile', '*.tf'). "
+                "Returns matching file paths. Results are capped at "
+                f"{MAX_SEARCH_RESULTS}; a final "
+                '{"truncated": true, ...} item means the cap was reached and '
+                "there may be more matches, so narrow the pattern or search a "
+                "subdirectory."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -423,7 +430,14 @@ AGENT_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "grep_content",
-            "description": "Search file contents for a regex pattern. Returns matching lines with file paths and line numbers.",
+            "description": (
+                "Search file contents for a regex pattern. Returns matching "
+                "lines with file paths and line numbers. Results are capped "
+                f"at {MAX_GREP_RESULTS}; a final "
+                '{"truncated": true, ...} item means the cap was reached and '
+                "there may be more matches, so narrow the pattern or search a "
+                "subdirectory."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

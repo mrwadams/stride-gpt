@@ -23,7 +23,7 @@ class TestGeminiKwargs:
     def test_safety_settings_still_applied(self):
         cfg = LLMConfig(
             provider="Google AI API",
-            model_name="gemini-3.5-flash",
+            model_name="gemini-3.8-flash",
             api_key="fake",
         )
         kwargs = _build_litellm_kwargs(cfg)
