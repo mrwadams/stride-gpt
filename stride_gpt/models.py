@@ -250,14 +250,6 @@ MODELS: list[ModelInfo] = [
         help_text="Gemini 3.1 Pro is Google's most capable model with 1M context.",
     ),
     ModelInfo(
-        model_id="gemini-3.5-flash",
-        provider_key="Google AI API",
-        default_tokens=200000,
-        max_tokens=1000000,
-        supports_thinking=True,
-        help_text="Gemini 3.5 Flash is a fast model with 1M context.",
-    ),
-    ModelInfo(
         model_id="gemini-3.1-flash-lite",
         provider_key="Google AI API",
         default_tokens=200000,

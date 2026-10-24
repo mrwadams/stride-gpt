@@ -44,7 +44,7 @@ class TestResolveProvider:
         [
             ("openrouter/anthropic/claude-opus-5", "anthropic/claude-opus-5"),
             ("openrouter/openai/gpt-5.5", "openai/gpt-5.5"),
-            ("openrouter/google/gemini-3.5-flash", "google/gemini-3.5-flash"),
+            ("openrouter/google/gemini-3.8-flash", "google/gemini-3.8-flash"),
         ],
     )
     def test_openrouter_keeps_inner_vendor_prefix(self, model, expected_name):
