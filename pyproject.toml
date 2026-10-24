@@ -96,6 +96,10 @@ constraint-dependencies = [
     # eMudhra intermediates with compromised keys (GHSA-6q48-6c7w-9gw2, <2026.10.18).
     # 2026.10.18 dropped all emSign roots; 2026.10.19 restored the unaffected ones.
     "certifi>=2026.10.19",
+    # filelock via huggingface-hub (tokenizers <- litellm): soft-lock and
+    # ReadWriteLock path handling (CVE-2026-112907, CVE-2026-112913,
+    # CVE-2026-112940, <4.2.1).
+    "filelock>=4.2.1",
 ]
 
 [build-system]
