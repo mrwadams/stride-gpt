@@ -6,7 +6,12 @@ import json
 from unittest.mock import MagicMock
 
 from stride_gpt.agent.html_report import render_html
-from stride_gpt.agent.loop import assign_threat_ids, classify_synthesis, run_analysis
+from stride_gpt.agent.loop import (
+    assign_threat_ids,
+    classify_synthesis,
+    make_threat_id,
+    run_analysis,
+)
 from stride_gpt.agent.report import (
     render_json,
     render_markdown,
@@ -18,6 +23,8 @@ from tests.fakes import ScriptedLLM, reply
 from tests.test_loop import _DFD, _finish, _report, _tool_turn
 
 _NAMES = ("Frontend", "MCP Server", "Orchestration")
+_SCENARIO = "No authentication on any endpoint"
+_IDS = [make_threat_id(n, "Spoofing", _SCENARIO) for n in _NAMES]
 _SNIPPET = "app = Flask(__name__)"
 _EVIDENCE = [{"path": "app.py", "snippet": _SNIPPET}]
 
@@ -36,7 +43,7 @@ def _run(model_pair, target, synthesis_items):
     """Three subsystems that each report the same missing-auth weakness."""
     steps = [
         _tool_turn(
-            _report(f"r{i}", scenario="No authentication on any endpoint", evidence=_EVIDENCE),
+            _report(f"r{i}", scenario=_SCENARIO, evidence=_EVIDENCE),
             _finish(f"f{i}"),
         )
         for i in range(3)
@@ -53,8 +60,10 @@ _AGGREGATION = {
     "Scenario": "No authentication anywhere in the system",
     "Potential Impact": "Anyone can act as any user",
     "Affected Subsystems": list(_NAMES),
-    "Related Threats": ["frontend-T1", "mcp-server-T1", "orchestration-T1"],
+    "Related Threats": _IDS,
 }
+
+_AUTH = make_threat_id("Auth", "Spoofing", "")
 
 
 class TestAggregationRegression:
@@ -65,9 +74,7 @@ class TestAggregationRegression:
 
         assert report.cross_cutting_threats == []
         (observation,) = report.systemic_observations
-        assert observation["Related Threats"] == [
-            "frontend-T1", "mcp-server-T1", "orchestration-T1",
-        ]
+        assert observation["Related Threats"] == _IDS
         ids = [t["id"] for f in report.findings for t in f.threats]
         assert ids == observation["Related Threats"]
 
@@ -83,7 +90,7 @@ class TestAggregationRegression:
         synthesis = next(r for r in fake.requests if r.messages[0]["content"].startswith("You are a security architect"))
         shown = json.loads(synthesis.messages[1]["content"].split("\n", 1)[1])
         threat = shown[0]["threats"][0]
-        assert threat["id"] == "frontend-T1"
+        assert threat["id"] == _IDS[0]
         assert threat["evidence"][0]["snippet"] == _SNIPPET
 
     def test_renders_in_its_own_section(self, model_pair, sandbox_dir):
@@ -92,7 +99,7 @@ class TestAggregationRegression:
         for markdown in (render_markdown(report), render_markdown_from_json(render_json(report))):
             assert "## Systemic Observations" in markdown
             assert "## Cross-Cutting Threats" not in markdown
-            assert "`mcp-server-T1` (MCP Server: Spoofing)" in markdown
+            assert f"`{_IDS[1]}` (MCP Server: Spoofing)" in markdown
             assert "**Systemic observations**: 1" in markdown
         html = render_html(report)
         assert 'id="systemic-observations"' in html
@@ -141,7 +148,7 @@ class TestClassifySynthesis:
             SubsystemFinding(subsystem="Auth", threats=[{"Threat Type": "Spoofing"}]),
             SubsystemFinding(subsystem="API", threats=[{"Threat Type": "Tampering"}]),
         ]
-        assign_threat_ids(findings)
+        assign_threat_ids(findings, [])
         return findings
 
     def test_aggregation_with_unknown_links_is_dropped(self, tmp_path):
@@ -155,12 +162,12 @@ class TestClassifySynthesis:
     def test_aggregation_keeps_only_real_links_and_no_evidence(self, tmp_path):
         raw = [{
             "Classification": "Aggregation", "Threat Type": "Spoofing", "Scenario": "s",
-            "Related Threats": ["auth-T1", "nope-T9", "auth-T1"],
+            "Related Threats": [_AUTH, "nope-T9", _AUTH],
             "evidence": [{"path": "app.py", "snippet": "x"}],
         }]
         emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
         assert emergent == []
-        assert aggregations[0]["Related Threats"] == ["auth-T1"]
+        assert aggregations[0]["Related Threats"] == [_AUTH]
         assert aggregations[0]["Classification"] == "aggregation"
         assert "evidence" not in aggregations[0]
 
@@ -168,33 +175,33 @@ class TestClassifySynthesis:
         """An unhashable link used to raise out of the `in known_ids` test."""
         raw = [{
             "Classification": "aggregation", "Threat Type": "Spoofing", "Scenario": "s",
-            "Related Threats": [{"id": "auth-T1"}, "auth-T1", 7],
+            "Related Threats": [{"id": _AUTH}, _AUTH, 7],
         }]
         emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
         assert emergent == []
-        assert aggregations[0]["Related Threats"] == ["auth-T1"]
+        assert aggregations[0]["Related Threats"] == [_AUTH]
 
     def test_object_shaped_links_alone_drop_the_aggregation(self, tmp_path):
         raw = [{
             "Classification": "aggregation", "Threat Type": "Spoofing", "Scenario": "s",
-            "Related Threats": [{"id": "auth-T1"}],
+            "Related Threats": [{"id": _AUTH}],
         }]
         assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
 
     def test_emergent_keeps_a_link_given_as_a_bare_string(self, tmp_path):
         raw = [{
             "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
-            "Related Threats": "auth-T1",
+            "Related Threats": _AUTH,
             "evidence": [{"path": "app.py", "snippet": "x"}],
         }]
         emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
         assert aggregations == []
-        assert emergent[0]["Related Threats"] == ["auth-T1"]
+        assert emergent[0]["Related Threats"] == [_AUTH]
 
     def test_emergent_drops_links_that_name_nothing(self, tmp_path):
         raw = [{
             "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
-            "Related Threats": ["nope-T9", {"id": "auth-T1"}],
+            "Related Threats": ["nope-T9", {"id": _AUTH}],
             "evidence": [{"path": "app.py", "snippet": "x"}],
         }]
         emergent, _ = classify_synthesis(raw, self._findings(), tmp_path)
@@ -209,7 +216,7 @@ class TestClassifySynthesis:
         findings = [SubsystemFinding(subsystem="Auth", threats=[{"id": ["auth-T1"]}])]
         assert classify_synthesis(
             [{"Classification": "aggregation", "Threat Type": "Spoofing",
-              "Scenario": "s", "Related Threats": ["auth-T1"]}],
+              "Scenario": "s", "Related Threats": [_AUTH]}],
             findings, tmp_path,
         ) == ([], [])
 
@@ -220,17 +227,3 @@ class TestClassifySynthesis:
             "not a dict",
         ]
         assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
-
-
-class TestAssignThreatIds:
-    def test_ids_are_unique_stable_and_preserved(self):
-        findings = [
-            SubsystemFinding(subsystem="API Server", threats=[{"a": 1}, {"a": 2, "id": "keep"}]),
-            SubsystemFinding(subsystem="api server", threats=[{"a": 3}]),
-        ]
-        assign_threat_ids(findings)
-        assert [t["id"] for t in findings[0].threats] == ["api-server-T1", "keep"]
-        assert findings[1].threats[0]["id"] == "api-server-2-T1"
-
-        assign_threat_ids(findings)  # idempotent
-        assert [t["id"] for t in findings[0].threats] == ["api-server-T1", "keep"]

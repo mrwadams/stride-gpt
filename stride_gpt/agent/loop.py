@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -335,9 +334,10 @@ def run_analysis(
     # Skipped subsystems are placeholders, not findings — synthesis and the
     # DFD must reason about what was actually looked at.
     analysed = [f for f in findings if f.outcome != "skipped"]
-    # Ids go on before synthesis so the architect can link to them, and before
-    # anything is written so a saved report always carries them.
-    assign_threat_ids(findings)
+    # Ids go on before synthesis so the architect can link to them. An id
+    # depends only on its own threat's text, so the pass below that adds the
+    # cross-cutting threats leaves these unchanged and the links still resolve.
+    assign_threat_ids(findings, [])
 
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
@@ -1058,33 +1058,6 @@ def _threats_without_evidence(threats: list[dict[str, Any]]) -> list[dict[str, A
     payload.
     """
     return [{k: v for k, v in t.items() if k != "evidence"} for t in threats]
-
-
-def _slug(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "subsystem"
-
-
-def assign_threat_ids(findings: list[SubsystemFinding]) -> None:
-    """Give every threat a stable ``id``, in place, leaving existing ids alone.
-
-    ``<subsystem-slug>-T<n>``, numbered in the order the subsystem reported
-    them. Synthesis links to threats by these ids, and they survive a
-    ``--resume`` because a checkpointed threat keeps the id it was saved with.
-    The slug is lowercase and the ``T`` is not, so two subsystems can never
-    produce the same id.
-    """
-    used_slugs: set[str] = set()
-    for finding in findings:
-        slug = base = _slug(finding.subsystem)
-        suffix = 2
-        while slug in used_slugs:
-            slug = f"{base}-{suffix}"
-            suffix += 1
-        used_slugs.add(slug)
-        for n, threat in enumerate(finding.threats, 1):
-            existing = threat.get("id")
-            if not (isinstance(existing, str) and existing.strip()):
-                threat["id"] = f"{slug}-T{n}"
 
 
 def _known_links(related: Any, known_ids: set[str]) -> list[str]:
