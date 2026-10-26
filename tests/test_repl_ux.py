@@ -48,6 +48,16 @@ def test_q_at_the_architect_prompt_cancels_setup(monkeypatch):
     assert "Setup cancelled." in console.file.getvalue()
 
 
+def test_q_at_the_keep_architect_prompt_cancels_setup(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "save_config", lambda _c: pytest.fail("setup saved after q"))
+    existing = {"architect_provider": "DeepSeek", "architect_model": "deepseek-pro"}
+    console = _recording_console()
+    _answer(monkeypatch, [_DEEPSEEK, "1", "q"])
+    assert config.run_setup(console, existing) is None
+    assert "Setup cancelled." in console.file.getvalue()
+
+
 # ---------------------------------------------------------------------------
 # /help
 # ---------------------------------------------------------------------------
@@ -121,3 +131,29 @@ def test_repl_analyze_expands_home(repl, tmp_path, monkeypatch):
     cli._handle_analyze({}, "~/app")
     assert "not a directory" not in repl["output"].getvalue()
     assert "auto_approve" in repl
+
+
+def test_repl_quick_output_into_a_missing_directory_creates_it(repl, tmp_path, monkeypatch):
+    from stride_gpt.core.schemas import ThreatModelOutput
+
+    monkeypatch.setattr("stride_gpt.config.REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(
+        "stride_gpt.agent.quick.run_quick_analysis",
+        lambda *_a, **_k: ThreatModelOutput(threat_model=[], improvement_suggestions=[]),
+    )
+    desc = tmp_path / "desc.txt"
+    desc.write_text("A web app.")
+    output = tmp_path / "out" / "nested" / "quick.md"
+    cli._handle_quick({}, f"-i {desc} -o {output}")
+    assert output.exists()
+
+
+def test_repl_reports_export_into_a_missing_directory_creates_it(repl, tmp_path, monkeypatch):
+    from stride_gpt.agent.report import save_quick_report
+    from stride_gpt.core.schemas import ThreatModelOutput
+
+    monkeypatch.setattr("stride_gpt.config.REPORTS_DIR", tmp_path / "reports")
+    save_quick_report(ThreatModelOutput(threat_model=[], improvement_suggestions=[]), "app")
+    output = tmp_path / "out" / "nested" / "export.md"
+    cli._handle_reports(f"1 --quick -o {output}")
+    assert output.exists()

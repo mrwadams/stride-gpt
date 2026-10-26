@@ -489,6 +489,7 @@ def _ask_architect(
             default="k",
         ).strip().lower()
         if _is_quit(choice):
+            _cancel(console)
             return False
         if choice in ("k", "keep"):
             return {

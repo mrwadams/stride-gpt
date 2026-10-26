@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from stride_gpt import cli
-from tests.fakes import SUBSYSTEM_TOOL_NAMES, ScriptedLLM, fail, reply
+from tests.fakes import QUICK_TOOL_NAMES, SUBSYSTEM_TOOL_NAMES, ScriptedLLM, fail, reply
 
 runner = CliRunner()
 
@@ -63,3 +63,34 @@ def test_run_where_no_subsystem_is_analysed_exits_1(tmp_path):
         result = runner.invoke(cli.app, ["analyze", str(tmp_path), "--yes", *_MODEL_ARGS])
     assert result.exit_code == 1, result.stdout
     assert "No subsystem was analysed" in result.stdout
+
+
+_QUICK = reply(
+    json.dumps({"threat_model": [], "improvement_suggestions": []}),
+    tools=QUICK_TOOL_NAMES,
+)
+
+
+@pytest.fixture
+def description(tmp_path, monkeypatch):
+    monkeypatch.setattr("stride_gpt.config.REPORTS_DIR", tmp_path / "reports")
+    path = tmp_path / "app.txt"
+    path.write_text("A web app with a login form.")
+    return path
+
+
+def test_quick_output_into_a_missing_directory_creates_it(tmp_path, description):
+    output = tmp_path / "out" / "nested" / "quick.md"
+    with ScriptedLLM([_QUICK]):
+        result = runner.invoke(cli.app, ["quick", "-i", str(description), "-o", str(output), *_MODEL_ARGS])
+    assert result.exit_code == 0, result.stdout
+    assert output.exists()
+
+
+def test_reports_export_into_a_missing_directory_creates_it(tmp_path, description):
+    with ScriptedLLM([_QUICK]):
+        assert runner.invoke(cli.app, ["quick", "-i", str(description), *_MODEL_ARGS]).exit_code == 0
+    output = tmp_path / "out" / "nested" / "export.md"
+    result = runner.invoke(cli.app, ["reports", "1", "--quick", "-o", str(output)])
+    assert result.exit_code == 0, result.stdout
+    assert output.exists()
