@@ -489,7 +489,8 @@ def build_analyze_manifest(
 
     ``token_usage_by_phase`` is the JSON-safe dict from
     ``report.metadata["token_usage"]["by_phase"]`` — plain
-    ``{"prompt_tokens": ..., "completion_tokens": ...}`` dicts, reconstructed
+    ``{"prompt_tokens": ..., "completion_tokens": ..., "cached_prompt_tokens":
+    ..., "uncached_prompt_tokens": ...}`` dicts, reconstructed
     into ``TokenUsage`` here. Per-subsystem totals come straight off
     ``findings`` rather than a separate parameter — each finding already
     carries its own.

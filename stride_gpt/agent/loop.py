@@ -455,7 +455,25 @@ def _format_token_usage_line(usage: TokenUsage) -> str:
         return "Token usage: unavailable"
     prompt = usage.prompt_tokens or 0
     completion = usage.completion_tokens or 0
-    return f"Token usage: {usage.total_tokens:,} (prompt: {prompt:,} | completion: {completion:,})"
+    return (
+        f"Token usage: {usage.total_tokens:,} "
+        f"(prompt: {prompt:,}{_format_cache_split(usage, prompt)} | completion: {completion:,})"
+    )
+
+
+def _format_cache_split(usage: TokenUsage, prompt: int) -> str:
+    """The cached/uncached breakdown of the prompt figure, or ``""`` when no
+    call reported one. Prompt tokens from calls that reported no split are
+    called out rather than silently folded into either side."""
+    if usage.cached_prompt_tokens is None and usage.uncached_prompt_tokens is None:
+        return ""
+    cached = usage.cached_prompt_tokens or 0
+    uncached = usage.uncached_prompt_tokens or 0
+    parts = [f"cached: {cached:,}", f"uncached: {uncached:,}"]
+    unreported = prompt - cached - uncached
+    if unreported > 0:
+        parts.append(f"cache unreported: {unreported:,}")
+    return f" [{', '.join(parts)}]"
 
 
 def _run_summary_text(

@@ -1185,6 +1185,7 @@ class TestTokenAccounting:
         assert report.metadata["token_usage"]["available"] is False
         assert report.metadata["token_usage"]["total"] == {
             "prompt_tokens": None, "completion_tokens": None,
+            "cached_prompt_tokens": None, "uncached_prompt_tokens": None,
         }
         assert all(not f.token_usage.available for f in report.findings)
 
@@ -1206,10 +1207,15 @@ class TestTokenAccounting:
 
         usage = report.metadata["token_usage"]
         assert usage["available"] is True
-        assert usage["by_phase"]["exploration"] == {"prompt_tokens": 300, "completion_tokens": 30}
-        assert usage["by_phase"]["synthesis"] == {"prompt_tokens": 50, "completion_tokens": 5}
-        assert usage["by_phase"]["dfd"] == {"prompt_tokens": 60, "completion_tokens": 6}
-        assert usage["total"] == {"prompt_tokens": 410, "completion_tokens": 41}
+        no_cache = {"cached_prompt_tokens": None, "uncached_prompt_tokens": None}
+        assert usage["by_phase"]["exploration"] == {
+            "prompt_tokens": 300, "completion_tokens": 30, **no_cache,
+        }
+        assert usage["by_phase"]["synthesis"] == {
+            "prompt_tokens": 50, "completion_tokens": 5, **no_cache,
+        }
+        assert usage["by_phase"]["dfd"] == {"prompt_tokens": 60, "completion_tokens": 6, **no_cache}
+        assert usage["total"] == {"prompt_tokens": 410, "completion_tokens": 41, **no_cache}
         assert report.findings[0].token_usage.total_tokens == 110
         assert report.findings[1].token_usage.total_tokens == 220
 
@@ -1245,6 +1251,7 @@ class TestTokenAccounting:
         # This run's total: the fresh subsystem, synthesis and the DFD only.
         assert report.metadata["token_usage"]["total"] == {
             "prompt_tokens": 150, "completion_tokens": 15,
+            "cached_prompt_tokens": None, "uncached_prompt_tokens": None,
         }
         # The reused finding still carries what it cost the run that made it.
         assert report.findings[0].token_usage.total_tokens == 10_000
@@ -1270,6 +1277,66 @@ class TestTokenAccounting:
         assert "Token usage: 125" in summary
         assert "prompt: 100" in summary
         assert "completion: 25" in summary
+        assert "cached" not in summary
+
+    def test_manifest_metadata_carries_the_cache_split_per_phase_and_subsystem(
+        self, model_pair, sandbox_dir
+    ):
+        plan = self._plan(sandbox_dir, "A", "B")
+        steps = [
+            call_tools(_finish("fa"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=100, completion_tokens=10,
+                       cached_prompt_tokens=80, uncached_prompt_tokens=20),
+            call_tools(_finish("fb"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=200, completion_tokens=20,
+                       cached_prompt_tokens=150, uncached_prompt_tokens=50),
+            reply('{"cross_cutting_threats": []}', prompt_tokens=50, completion_tokens=5,
+                  cached_prompt_tokens=0, uncached_prompt_tokens=50),
+            reply("```mermaid\nflowchart LR\n  A --> B\n```",
+                  prompt_tokens=60, completion_tokens=6,
+                  cached_prompt_tokens=10, uncached_prompt_tokens=50),
+        ]
+        progress = MagicMock()
+        with ScriptedLLM(steps):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+
+        usage = report.metadata["token_usage"]
+        assert usage["by_phase"]["exploration"] == {
+            "prompt_tokens": 300, "completion_tokens": 30,
+            "cached_prompt_tokens": 230, "uncached_prompt_tokens": 70,
+        }
+        assert usage["by_phase"]["synthesis"]["cached_prompt_tokens"] == 0
+        total = usage["total"]
+        assert total["cached_prompt_tokens"] == 240
+        assert total["uncached_prompt_tokens"] == 170
+        assert total["cached_prompt_tokens"] + total["uncached_prompt_tokens"] == (
+            total["prompt_tokens"]
+        )
+        assert report.findings[0].token_usage.cached_prompt_tokens == 80
+        assert report.findings[1].token_usage.uncached_prompt_tokens == 50
+
+        summary = progress.complete.call_args.args[0]
+        assert "prompt: 410 [cached: 240, uncached: 170]" in summary
+        assert "unreported" not in summary
+
+    def test_console_summary_flags_prompt_tokens_with_no_cache_report(
+        self, model_pair, sandbox_dir
+    ):
+        """A run mixing providers that do and don't report a cache split
+        mustn't let the unreported prompt tokens vanish from the breakdown."""
+        plan = self._plan(sandbox_dir, "A")
+        progress = MagicMock()
+        steps = [
+            call_tools(_finish("f"), tools=SUBSYSTEM_TOOL_NAMES,
+                       prompt_tokens=100, completion_tokens=10,
+                       cached_prompt_tokens=60, uncached_prompt_tokens=40),
+            reply("```mermaid\nflowchart LR\n  A --> B\n```",
+                  prompt_tokens=30, completion_tokens=3),
+        ]
+        with ScriptedLLM(steps):
+            run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+        summary = progress.complete.call_args.args[0]
+        assert "[cached: 60, uncached: 40, cache unreported: 30]" in summary
 
 
 class TestGraceRound:

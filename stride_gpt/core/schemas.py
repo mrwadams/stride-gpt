@@ -47,6 +47,20 @@ class LLMResponse:
     # "unknown" for "free".
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    # The prompt-cache split of ``prompt_tokens``, where the provider reports
+    # one (DeepSeek, OpenAI and Gemini cache prefixes automatically). ``None``
+    # means the provider said nothing about caching; when set, the two sum
+    # to ``prompt_tokens``.
+    cached_prompt_tokens: int | None = None
+    uncached_prompt_tokens: int | None = None
+
+
+def _add(total: int | None, value: int | None) -> int | None:
+    """Add ``value`` to a running total, leaving ``None`` alone until a real
+    figure arrives."""
+    if value is None:
+        return total
+    return (total or 0) + value
 
 
 class TokenUsage(BaseModel):
@@ -60,6 +74,11 @@ class TokenUsage(BaseModel):
 
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    # Prompt-cache split, summed only over calls whose provider reported one.
+    # ``None`` means no call did. If some calls reported a split and others
+    # didn't, the two fall short of ``prompt_tokens`` by the unreported part.
+    cached_prompt_tokens: int | None = None
+    uncached_prompt_tokens: int | None = None
 
     @property
     def available(self) -> bool:
@@ -77,6 +96,10 @@ class TokenUsage(BaseModel):
             return
         self.prompt_tokens = (self.prompt_tokens or 0) + (response.prompt_tokens or 0)
         self.completion_tokens = (self.completion_tokens or 0) + (response.completion_tokens or 0)
+        self.cached_prompt_tokens = _add(self.cached_prompt_tokens, response.cached_prompt_tokens)
+        self.uncached_prompt_tokens = _add(
+            self.uncached_prompt_tokens, response.uncached_prompt_tokens
+        )
 
     def merge(self, other: TokenUsage) -> None:
         """Fold another aggregate's totals into this one, in place."""
@@ -84,6 +107,10 @@ class TokenUsage(BaseModel):
             return
         self.prompt_tokens = (self.prompt_tokens or 0) + (other.prompt_tokens or 0)
         self.completion_tokens = (self.completion_tokens or 0) + (other.completion_tokens or 0)
+        self.cached_prompt_tokens = _add(self.cached_prompt_tokens, other.cached_prompt_tokens)
+        self.uncached_prompt_tokens = _add(
+            self.uncached_prompt_tokens, other.uncached_prompt_tokens
+        )
 
 
 @dataclass
