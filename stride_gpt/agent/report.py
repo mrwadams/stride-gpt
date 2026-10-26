@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from stride_gpt.core.report_utils import (
+    SYSTEMIC_OBSERVATIONS_NOTE,
     detect_extra_columns,
     evidence_items,
     normalize_mitre_techniques,
     outcome_note,
+    systemic_observation_lines,
     threat_table_header,
     threat_table_row,
 )
@@ -114,6 +116,17 @@ def render_markdown(report: AnalysisReport) -> str:
         )
         lines.append("")
 
+    # Systemic observations — aggregations, not threats
+    if report.systemic_observations:
+        lines.append("## Systemic Observations")
+        lines.append("")
+        lines.append(SYSTEMIC_OBSERVATIONS_NOTE)
+        lines.append("")
+        subsystems = [(f.subsystem, f.threats) for f in report.findings]
+        for observation in report.systemic_observations:
+            lines.extend(systemic_observation_lines(observation, subsystems))
+        lines.append("")
+
     # Summary
     total_threats = sum(len(f.threats) for f in report.findings) + len(report.cross_cutting_threats)
     lines.append("## Summary")
@@ -128,6 +141,8 @@ def render_markdown(report: AnalysisReport) -> str:
         )
     )
     lines.append(f"- **Cross-cutting threats**: {len(report.cross_cutting_threats)}")
+    if report.systemic_observations:
+        lines.append(f"- **Systemic observations**: {len(report.systemic_observations)}")
     if report.metadata:
         lines.append(f"- **LLM calls**: {report.metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {report.metadata.get('tool_calls', 'N/A')}")
@@ -193,6 +208,7 @@ def render_json(report: AnalysisReport) -> dict[str, Any]:
             for f in report.findings
         ],
         "cross_cutting_threats": report.cross_cutting_threats,
+        "systemic_observations": report.systemic_observations,
         "metadata": report.metadata,
     }
 
@@ -315,6 +331,20 @@ def _sarif_locations(threat: dict[str, Any], files_analyzed: Any) -> list[dict[s
         for f in files[:3]  # Limit to avoid bloat
         if (uri := _sarif_uri(f))
     ]
+
+
+def _sarif_evidence_properties(threat: dict[str, Any]) -> dict[str, Any]:
+    """Evidence counts for a result's ``properties``; empty when none was cited."""
+    items = evidence_items(threat)
+    if not items:
+        return {}
+    props: dict[str, Any] = {
+        "evidence_total": len(items),
+        "evidence_verified": sum(1 for item in items if item.get("verified")),
+    }
+    if _has_ambiguous_evidence(items):
+        props["evidence_ambiguous"] = True
+    return props
 
 
 def _sarif_evidence_note(threat: dict[str, Any]) -> str:
@@ -631,6 +661,17 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
         )
         lines.append("")
 
+    systemic = data.get("systemic_observations") or []
+    if systemic:
+        lines.append("## Systemic Observations")
+        lines.append("")
+        lines.append(SYSTEMIC_OBSERVATIONS_NOTE)
+        lines.append("")
+        subsystems = [(sub["name"], sub.get("threats", [])) for sub in data.get("subsystems", [])]
+        for observation in systemic:
+            lines.extend(systemic_observation_lines(observation, subsystems))
+        lines.append("")
+
     total = sum(len(s.get("threats", [])) for s in data.get("subsystems", []))
     total += len(cross_cutting)
     metadata = data.get("metadata", {})
@@ -639,6 +680,8 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     lines.append(f"- **Total threats identified**: {total}")
     lines.extend(_subsystem_summary_lines(data.get("subsystems", [])))
     lines.append(f"- **Cross-cutting threats**: {len(cross_cutting)}")
+    if systemic:
+        lines.append(f"- **Systemic observations**: {len(systemic)}")
     if metadata:
         lines.append(f"- **LLM calls**: {metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {metadata.get('tool_calls', 'N/A')}")
@@ -686,14 +729,7 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 },
                 "properties": {"subsystem": sub["name"]},
             }
-            evidence = evidence_items(threat)
-            if evidence:
-                result_entry["properties"]["evidence_total"] = len(evidence)
-                result_entry["properties"]["evidence_verified"] = sum(
-                    1 for item in evidence if item.get("verified")
-                )
-                if _has_ambiguous_evidence(evidence):
-                    result_entry["properties"]["evidence_ambiguous"] = True
+            result_entry["properties"].update(_sarif_evidence_properties(threat))
             if threat.get("OWASP_LLM"):
                 result_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
             if threat.get("OWASP_ASI"):
@@ -721,13 +757,17 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
             "ruleId": rule_id,
             "level": "warning",
             "message": {
-                "text": f"[Cross-cutting] {scenario_txt}\n\nPotential Impact: {impact_txt}",
+                "text": (
+                    f"[Cross-cutting] {scenario_txt}\n\nPotential Impact: {impact_txt}"
+                    + _sarif_evidence_note(threat)
+                ),
             },
             "properties": {
                 "subsystem": "cross-cutting",
                 "affected_subsystems": threat.get("Affected Subsystems", []),
             },
         }
+        cross_entry["properties"].update(_sarif_evidence_properties(threat))
         if threat.get("OWASP_LLM"):
             cross_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
         if threat.get("OWASP_ASI"):
@@ -737,6 +777,11 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
         mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
         if mitre_ids:
             cross_entry["properties"]["mitre_attack"] = mitre_ids
+        # No files_analyzed to fall back on: a cross-cutting threat is located
+        # by its verified evidence or not at all.
+        locations = _sarif_locations(threat, [])
+        if locations:
+            cross_entry["locations"] = locations
         results.append(cross_entry)
 
     return {

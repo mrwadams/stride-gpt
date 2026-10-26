@@ -280,6 +280,7 @@ def _persist_analyze_intermediates(
         plan=plan,
         findings=report.findings,
         cross_cutting=report.cross_cutting_threats,
+        systemic_observations=report.systemic_observations,
         data_flow_diagram=report.data_flow_diagram,
     )
     for path in written:

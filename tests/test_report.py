@@ -1176,6 +1176,49 @@ class TestSarifEvidenceLocations:
         ]
 
 
+class TestSarifCrossCuttingEvidence:
+    """Emergent cross-cutting threats cite evidence; SARIF must carry it."""
+
+    def _result(self, *evidence: dict) -> dict:
+        data = {
+            "subsystems": [],
+            "cross_cutting_threats": [{
+                "Threat Type": "Information Disclosure",
+                "Scenario": "Key sent in cleartext",
+                "Potential Impact": "Key theft",
+                "Affected Subsystems": ["Frontend", "Server"],
+                "evidence": list(evidence),
+            }],
+        }
+        return render_sarif_from_json(data)["runs"][0]["results"][0]
+
+    def test_verified_evidence_becomes_locations_and_counts(self):
+        result = self._result(
+            {"path": "./app.py", "snippet": "x", "verified": True,
+             "start_line": 5, "end_line": 5},
+            {"path": "nope.py", "snippet": "y", "verified": False},
+        )
+        assert result["locations"] == [
+            {"physicalLocation": {"artifactLocation": {"uri": "app.py"},
+                                  "region": {"startLine": 5, "endLine": 5}}},
+        ]
+        assert result["properties"]["evidence_total"] == 2
+        assert result["properties"]["evidence_verified"] == 1
+        assert "Evidence: 1 of 2 snippets verified" in result["message"]["text"]
+
+    def test_nothing_verified_means_no_locations(self):
+        """There is no files_analyzed fallback for a cross-cutting threat."""
+        result = self._result({"path": "nope.py", "snippet": "y", "verified": False})
+        assert "locations" not in result
+        assert result["properties"]["evidence_verified"] == 0
+
+    def test_no_evidence_renders_as_before(self):
+        result = self._result()
+        assert "locations" not in result
+        assert "evidence_total" not in result["properties"]
+        assert "Evidence:" not in result["message"]["text"]
+
+
 class TestEvidenceInMarkdownAndHtml:
     def test_column_appears_only_when_a_threat_has_evidence(self, sample_report):
         assert "Evidence" not in render_markdown(sample_report)
