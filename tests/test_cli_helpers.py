@@ -310,6 +310,7 @@ class TestPlanningUsageIsThreaded:
 
         def fake_run_analysis(**kwargs):
             seen["planning_usage"] = kwargs.get("planning_usage")
+            seen["max_llm_calls"] = kwargs.get("max_llm_calls")
             return AnalysisReport(plan=plan, findings=[], metadata={})
 
         monkeypatch.setattr("stride_gpt.agent.loop.create_analysis_plan", fake_create_plan)
@@ -340,3 +341,12 @@ class TestPlanningUsageIsThreaded:
             f"{entry}: run_analysis did not receive the planning usage"
         )
         assert seen["planning_usage"].total_tokens == 550
+
+    @pytest.mark.parametrize("entry", ["analyze", "repl"])
+    def test_both_entry_points_cap_llm_calls_by_default(self, monkeypatch, entry):
+        """The REPL's /analyze takes no --max-llm-calls, so it must still get
+        the default cap rather than run_analysis's unlimited 0 (#226)."""
+        from stride_gpt.agent.budget import DEFAULT_MAX_LLM_CALLS
+
+        seen = self._capture(monkeypatch, entry)
+        assert seen["max_llm_calls"] == DEFAULT_MAX_LLM_CALLS > 0

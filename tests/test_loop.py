@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from stride_gpt.agent.budget import llm_call_ceiling
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.loop import (
     MAX_THREATS_PER_SUBSYSTEM,
@@ -167,12 +168,12 @@ class TestRunAnalysis:
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     @patch("stride_gpt.agent.loop._analyze_subsystem")
-    def test_per_subsystem_budget_is_remaining_not_global(
+    def test_llm_budget_is_per_subsystem_and_tool_budget_is_remaining(
         self, mock_analyze, _mock_synth, model_pair, tmp_path
     ):
-        """Each subsystem should receive the remaining global budget, not the
-        original limit — otherwise N subsystems could each spend the full
-        budget independently."""
+        """Every subsystem gets the full LLM call cap, so a cap bounds each
+        subsystem's work instead of truncating the plan. The tool budget is
+        still run-level, so each subsystem gets what remains of it."""
         plan = AnalysisPlan(
             target_path=str(tmp_path),
             overall_description="Test app",
@@ -203,14 +204,13 @@ class TestRunAnalysis:
                 progress=progress,
             )
 
-        # First subsystem call: full budget (10 llm, 8 tool) remains.
-        # Second subsystem call: 10-3=7 llm, 8-2=6 tool should be passed.
+        # Both subsystems get the full 10 LLM calls; the second gets 8-2=6 tool calls.
         assert mock_analyze.call_count == 2
         first_kwargs = mock_analyze.call_args_list[0].kwargs
         second_kwargs = mock_analyze.call_args_list[1].kwargs
         assert first_kwargs["max_llm_calls"] == 10
         assert first_kwargs["max_tool_calls"] == 8
-        assert second_kwargs["max_llm_calls"] == 7
+        assert second_kwargs["max_llm_calls"] == 10
         assert second_kwargs["max_tool_calls"] == 6
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
@@ -300,6 +300,28 @@ class TestRunAnalysis:
         assert report.metadata.get("status") == "cancelled"
         assert report.findings == []
 
+    @patch("stride_gpt.agent.loop.create_plan")
+    def test_approval_prompt_states_the_call_ceiling(self, mock_plan, model_pair, tmp_path):
+        mock_plan.return_value = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test",
+            subsystems=[
+                Subsystem(name=n, description=n, key_files=[], focus_areas=[])
+                for n in ("A", "B", "C")
+            ],
+        )
+        console = MagicMock()
+        console.input.return_value = "q"
+        progress = MagicMock()
+
+        run_analysis(
+            model_pair, tmp_path, auto_approve=False, console=console,
+            progress=progress, max_llm_calls=10,
+        )
+
+        statuses = [c.args[0] for c in progress.status.call_args_list]
+        assert any("ceiling" in s and "not an estimate" in s and "36" in s for s in statuses)
+
 
 # ---------------------------------------------------------------------------
 # Resuming from a checkpoint (#197)
@@ -375,12 +397,13 @@ class TestResume:
         be recorded as ``skipped`` and checkpointed as such, destroying the
         findings the resume existed to keep. Reuse is free, so the budget has
         no say in it wherever it sits in the plan."""
+        (tmp_path / "x.py").write_text("x = 1\n")
         plan = AnalysisPlan(
             target_path=str(tmp_path),
             overall_description="Test app",
             subsystems=[
-                Subsystem(name="Auth", description="Auth", key_files=[], focus_areas=[]),
-                Subsystem(name="API", description="API", key_files=[], focus_areas=[]),
+                Subsystem(name=n, description=n, key_files=[], focus_areas=[])
+                for n in ("Auth", "Mid", "API")
             ],
         )
         reused_finding = SubsystemFinding(
@@ -389,24 +412,37 @@ class TestResume:
 
         checkpoints: list[list[SubsystemFinding]] = []
         progress = MagicMock()
-        with ScriptedLLM([_DFD]):
+        # Auth spends the run-level tool budget, which stops the loop at Mid.
+        with ScriptedLLM([
+            call_tools(
+                ToolCallResult(id="r", function_name="read_file", arguments={"path": "x.py"}),
+                tools=SUBSYSTEM_TOOL_NAMES,
+            ),
+            call_tools(
+                ToolCallResult(id="f", function_name="finish", arguments={}),
+                tools=REPORTING_TOOL_NAMES,
+            ),
+            reply(json.dumps({"cross_cutting_threats": []})),
+            _DFD,
+        ]):
             report = run_analysis(
                 model_pair, tmp_path, plan=plan, progress=progress,
-                max_llm_calls=1,
+                max_tool_calls=1,
                 resume_findings={"API": reused_finding},
                 on_checkpoint=lambda fs: checkpoints.append(list(fs)),
             )
 
-        # Auth had no checkpointed result and no budget left, so it is skipped;
+        # Mid had no checkpointed result and no budget left, so it is skipped;
         # API is handed back untouched, in plan order.
-        assert [f.subsystem for f in report.findings] == ["Auth", "API"]
-        assert report.findings[0].outcome == "skipped"
-        assert report.findings[1] is reused_finding
+        assert [f.subsystem for f in report.findings] == ["Auth", "Mid", "API"]
+        assert report.findings[0].outcome == "budget_exhausted"
+        assert report.findings[1].outcome == "skipped"
+        assert report.findings[2] is reused_finding
         assert report.metadata["resumed_subsystems"] == ["API"]
         # Only the genuinely lost subsystem is announced as skipped.
-        progress.subsystems_skipped.assert_called_once_with(["Auth"])
+        progress.subsystems_skipped.assert_called_once_with(["Mid"])
         # And what got written back to the checkpoint kept API's findings.
-        assert checkpoints[-1][1] is reused_finding
+        assert checkpoints[-1][2] is reused_finding
 
     def test_non_resumed_run_has_empty_resumed_list_and_full_rerun_list(self, model_pair, tmp_path):
         plan = AnalysisPlan(
@@ -1105,33 +1141,96 @@ class TestSubsystemOutcomes:
 
         assert finding.outcome == "completed"
 
-    def test_an_exhausted_run_budget_records_the_rest_as_skipped(
+    def test_an_exhausted_run_tool_budget_records_the_rest_as_skipped(
         self, model_pair, sandbox_dir
     ):
         """Findings always match the plan, so the run's own counts can see them."""
         plan = self._plan(sandbox_dir, "One", "Two", "Three")
         progress = MagicMock()
 
-        # One LLM call of headroom: the first subsystem runs, then the guard
-        # stops the loop before the second.
-        with ScriptedLLM([_tool_turn(_report("r"), _finish("f")), _DFD]):
+        # The first subsystem spends the whole run-level tool budget, then
+        # the guard stops the loop before the second.
+        with ScriptedLLM([
+            _tool_turn(_read("a")),
+            _grace_turn(_report("r"), _finish("f")),
+            _DFD,
+        ]):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=progress,
+                max_tool_calls=1,
+            )
+
+        assert [f.subsystem for f in report.findings] == ["One", "Two", "Three"]
+        assert [f.outcome for f in report.findings] == [
+            "budget_exhausted", "skipped", "skipped",
+        ]
+        assert all("skipped" in s for f in report.findings[1:]
+                   for s in f.improvement_suggestions)
+        progress.subsystems_skipped.assert_called_once_with(["Two", "Three"])
+        assert report.metadata["subsystem_outcomes"] == {"budget_exhausted": 1, "skipped": 2}
+        summary = progress.complete.call_args.args[0]
+        assert "Analysis partially complete" in summary
+        assert "Subsystems analyzed: 1/3" in summary
+        assert "2 skipped" in summary
+
+    def test_the_llm_call_cap_bounds_every_subsystem_and_skips_none(
+        self, model_pair, sandbox_dir
+    ):
+        """A cap of R gives each subsystem R rounds plus the grace round: every
+        subsystem is analysed under the bound and none is skipped for it."""
+        plan = self._plan(sandbox_dir, "One", "Two", "Three")
+        progress = MagicMock()
+        synthesis = reply(json.dumps({"cross_cutting_threats": []}))
+
+        steps = []
+        for n in range(3):
+            steps += [
+                _tool_turn(_read(f"a{n}")),
+                _tool_turn(_read(f"b{n}", "config.yaml")),
+                _grace_turn(_report(f"r{n}"), _finish(f"f{n}")),
+            ]
+        with ScriptedLLM([*steps, synthesis, _DFD]):
             report = run_analysis(
                 model_pair, sandbox_dir, plan=plan, progress=progress,
                 max_llm_calls=2,
             )
 
-        assert [f.subsystem for f in report.findings] == ["One", "Two", "Three"]
-        assert [f.outcome for f in report.findings] == [
-            "completed", "skipped", "skipped",
-        ]
-        assert all("skipped" in s for f in report.findings[1:]
-                   for s in f.improvement_suggestions)
-        progress.subsystems_skipped.assert_called_once_with(["Two", "Three"])
-        assert report.metadata["subsystem_outcomes"] == {"completed": 1, "skipped": 2}
-        summary = progress.complete.call_args.args[0]
-        assert "Analysis partially complete" in summary
-        assert "Subsystems analyzed: 1/3" in summary
-        assert "2 skipped" in summary
+        assert [f.outcome for f in report.findings] == ["budget_exhausted"] * 3
+        assert all(len(f.threats) == 1 for f in report.findings)
+        progress.subsystems_skipped.assert_not_called()
+        # 3 subsystems x (2 rounds + 1 grace) + synthesis + DFD, one under
+        # the ceiling, which also allows for synthesis retrying.
+        assert report.metadata["llm_calls"] == 11
+        assert llm_call_ceiling(3, 2) == 12
+
+    def test_a_synthesis_retry_is_counted_and_stays_within_the_ceiling(
+        self, model_pair, sandbox_dir
+    ):
+        """Synthesis retries once on a non-JSON reply. Both calls count, and a
+        run where every budget is spent still lands on the ceiling, not over it."""
+        plan = self._plan(sandbox_dir, "One", "Two", "Three")
+        progress = MagicMock()
+
+        steps = []
+        for n in range(3):
+            steps += [
+                _tool_turn(_read(f"a{n}")),
+                _tool_turn(_read(f"b{n}", "config.yaml")),
+                _grace_turn(_report(f"r{n}"), _finish(f"f{n}")),
+            ]
+        with ScriptedLLM([
+            *steps,
+            reply("not JSON"),
+            reply(json.dumps({"cross_cutting_threats": []})),
+            _DFD,
+        ]) as fake:
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=progress,
+                max_llm_calls=2,
+            )
+
+        assert len(fake.requests) == 12
+        assert report.metadata["llm_calls"] == len(fake.requests) == llm_call_ceiling(3, 2)
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     def test_skipped_placeholders_do_not_trigger_synthesis(
@@ -1140,14 +1239,17 @@ class TestSubsystemOutcomes:
         """Only one subsystem was really analysed, however many findings exist."""
         plan = self._plan(sandbox_dir, "One", "Two", "Three")
 
-        with ScriptedLLM([_tool_turn(_report("r"), _finish("f")), _DFD]):
+        with ScriptedLLM([
+            _tool_turn(_read("a")),
+            _grace_turn(_report("r"), _finish("f")),
+            _DFD,
+        ]):
             run_analysis(
                 model_pair, sandbox_dir, plan=plan, progress=MagicMock(),
-                max_llm_calls=2,
+                max_tool_calls=1,
             )
 
         mock_synth.assert_not_called()
-
 
 
 class TestTokenAccounting:
