@@ -181,6 +181,15 @@ def _cancel(console: Console) -> None:
     console.print("\n[dim]Setup cancelled.[/dim]")
 
 
+class _CancellableConfirm(Confirm):
+    """A y/n prompt that also takes q. Returns None when the user cancels."""
+
+    def process_response(self, value: str) -> bool | None:
+        if _is_quit(value):
+            return None
+        return super().process_response(value)
+
+
 TIER_BLURB = {
     "worker": (
         "Worker model — the default tier. Most of STRIDE-GPT's calls run "
@@ -307,7 +316,7 @@ def _setup_tier(console: Console, tier: str) -> dict[str, Any] | None:
                     style="yellow",
                 )
             )
-            if not Confirm.ask("Continue setup without the key for now?", default=True):
+            if not _CancellableConfirm.ask("Continue setup without the key for now?", default=True):
                 _cancel(console)
                 return None
 
@@ -454,11 +463,15 @@ def _ask_architect(
     has_existing = bool(existing and existing.get("architect_model"))
 
     if not has_existing:
-        if not Confirm.ask(
+        answer = _CancellableConfirm.ask(
             "Configure a separate architect model for planning, synthesis, and "
             "context summarization? (Recommended: a stronger reasoning model)",
             default=False,
-        ):
+        )
+        if answer is None:
+            _cancel(console)
+            return False
+        if not answer:
             return None
         tier = _setup_tier(console, "architect")
         return False if tier is None else tier

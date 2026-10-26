@@ -72,9 +72,9 @@ BANNER = rf"""[bold blue]
 
 HELP_TEXT = """
 [bold]Commands:[/bold]
-  [cyan]/analyze[/cyan] [path]        Analyze a codebase for STRIDE threats
+  [cyan]/analyze[/cyan] \\[path]      Analyze a codebase for STRIDE threats
   [cyan]/quick[/cyan]               Quick threat model from a text description
-  [cyan]/reports[/cyan]              List previous analysis reports
+  [cyan]/reports[/cyan]             List previous analysis reports
   [cyan]/config[/cyan]              View or change settings
   [cyan]/help[/cyan]                Show this help
   [cyan]/quit[/cyan]                Exit
@@ -482,6 +482,22 @@ def _make_checkpoint_writer(
     return _write
 
 
+_REPL_VALUE_FLAGS = {"-o", "--output", "-f", "--format", "--resume", "-i", "--input", "-t", "--type"}
+
+
+def _reject_repl_argument(command: str, arg: str) -> None:
+    """Say why the REPL won't run a command with an argument it doesn't take."""
+    if arg in _REPL_VALUE_FLAGS:
+        console.print(f"[red]{arg} needs a value.[/red] Type /help for usage.")
+    elif arg.startswith("-"):
+        console.print(
+            f"[red]/{command} doesn't take {arg}.[/red] Type /help for the flags it takes, "
+            f"or run [cyan]stride-gpt {command} --help[/cyan] for the full set."
+        )
+    else:
+        console.print(f"[red]Unexpected argument for /{command}: {arg}.[/red] Type /help for usage.")
+
+
 def _handle_analyze(config: dict, args_str: str) -> None:
     """Run agentic analysis from interactive session."""
     from stride_gpt.agent.html_report import render_html
@@ -493,7 +509,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
 
     # Parse inline args
     parts = args_str.split() if args_str else ["."]
-    target_path = Path(parts[0]).resolve()
+    target_path = Path(parts[0]).expanduser().resolve()
 
     if not target_path.is_dir():
         console.print(f"[red]Error: {parts[0]} is not a directory.[/red]")
@@ -504,10 +520,11 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     output_format = OutputFormat.markdown
     resume_path = None
     force = False
+    auto_approve = False
     i = 1
     while i < len(parts):
         if parts[i] in ("-o", "--output") and i + 1 < len(parts):
-            output_path = Path(parts[i + 1])
+            output_path = Path(parts[i + 1]).expanduser()
             i += 2
         elif parts[i] in ("-f", "--format") and i + 1 < len(parts):
             try:
@@ -517,20 +534,21 @@ def _handle_analyze(config: dict, args_str: str) -> None:
                 return
             i += 2
         elif parts[i] in ("-y", "--yes"):
-            i += 1  # auto_approve handled below
+            auto_approve = True
+            i += 1
         elif parts[i] == "--resume" and i + 1 < len(parts):
-            resume_path = Path(parts[i + 1])
+            resume_path = Path(parts[i + 1]).expanduser()
             i += 2
         elif parts[i] == "--force":
             force = True
             i += 1
         else:
-            i += 1
+            _reject_repl_argument("analyze", parts[i])
+            return
 
     if output_path is not None and not _prepare_output_dir(output_path):
         return
 
-    auto_approve = "-y" in args_str or "--yes" in args_str
     models = config_to_model_pair(config)
     if models is None:
         console.print("[red]No model configured. Run /config to set one up.[/red]")
@@ -800,10 +818,10 @@ def _handle_quick(config: dict, args_str: str) -> None:
     i = 0
     while i < len(parts):
         if parts[i] in ("-i", "--input") and i + 1 < len(parts):
-            input_file = Path(parts[i + 1])
+            input_file = Path(parts[i + 1]).expanduser()
             i += 2
         elif parts[i] in ("-o", "--output") and i + 1 < len(parts):
-            output_path = Path(parts[i + 1])
+            output_path = Path(parts[i + 1]).expanduser()
             i += 2
         elif parts[i] in ("-t", "--type") and i + 1 < len(parts):
             hint = parts[i + 1]
@@ -824,7 +842,8 @@ def _handle_quick(config: dict, args_str: str) -> None:
                 return
             i += 2
         else:
-            i += 1
+            _reject_repl_argument("quick", parts[i])
+            return
 
     # Get app description
     if input_file:
