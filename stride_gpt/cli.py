@@ -505,7 +505,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     planning_usage = TokenUsage()
     resolved = _resolve_analysis_plan(
         models, target_path, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
-        usage=planning_usage,
+        usage=planning_usage, max_llm_calls=DEFAULT_MAX_LLM_CALLS,
     )
     if resolved is None:
         console.print("[red]Analysis cancelled.[/red]")
@@ -540,6 +540,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         resume_findings=resume_findings,
         on_checkpoint=on_checkpoint,
         planning_usage=planning_usage,
+        max_llm_calls=DEFAULT_MAX_LLM_CALLS,
     )
     finished_at = datetime.now(UTC)
 

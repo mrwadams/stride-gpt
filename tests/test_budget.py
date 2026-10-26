@@ -19,8 +19,8 @@ def test_default_cap_is_non_zero():
 
 
 def test_ceiling_is_subsystems_times_cap_plus_grace_and_synthesis():
-    # 6 subsystems x (25 rounds + 1 grace round) + synthesis + DFD.
-    assert llm_call_ceiling(6, 25) == 6 * 26 + 2
+    # 6 subsystems x (25 rounds + 1 grace round) + synthesis and its retry + DFD.
+    assert llm_call_ceiling(6, 25) == 6 * 26 + 3
 
 
 def test_no_ceiling_when_the_cap_is_disabled():
@@ -32,7 +32,7 @@ def test_ceiling_line_is_labelled_as_a_ceiling_not_an_estimate():
     line = format_llm_call_ceiling(4, 10)
     assert "ceiling" in line
     assert "not an estimate" in line
-    assert "46" in line
+    assert "47" in line
 
 
 @pytest.mark.parametrize(("answer", "approved"), [

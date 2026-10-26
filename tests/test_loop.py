@@ -320,7 +320,7 @@ class TestRunAnalysis:
         )
 
         statuses = [c.args[0] for c in progress.status.call_args_list]
-        assert any("ceiling" in s and "not an estimate" in s and "35" in s for s in statuses)
+        assert any("ceiling" in s and "not an estimate" in s and "36" in s for s in statuses)
 
 
 # ---------------------------------------------------------------------------
@@ -1198,8 +1198,39 @@ class TestSubsystemOutcomes:
         assert [f.outcome for f in report.findings] == ["budget_exhausted"] * 3
         assert all(len(f.threats) == 1 for f in report.findings)
         progress.subsystems_skipped.assert_not_called()
-        # 3 subsystems x (2 rounds + 1 grace) + synthesis + DFD: exactly the ceiling.
-        assert report.metadata["llm_calls"] == llm_call_ceiling(3, 2) == 11
+        # 3 subsystems x (2 rounds + 1 grace) + synthesis + DFD, one under
+        # the ceiling, which also allows for synthesis retrying.
+        assert report.metadata["llm_calls"] == 11
+        assert llm_call_ceiling(3, 2) == 12
+
+    def test_a_synthesis_retry_is_counted_and_stays_within_the_ceiling(
+        self, model_pair, sandbox_dir
+    ):
+        """Synthesis retries once on a non-JSON reply. Both calls count, and a
+        run where every budget is spent still lands on the ceiling, not over it."""
+        plan = self._plan(sandbox_dir, "One", "Two", "Three")
+        progress = MagicMock()
+
+        steps = []
+        for n in range(3):
+            steps += [
+                _tool_turn(_read(f"a{n}")),
+                _tool_turn(_read(f"b{n}", "config.yaml")),
+                _grace_turn(_report(f"r{n}"), _finish(f"f{n}")),
+            ]
+        with ScriptedLLM([
+            *steps,
+            reply("not JSON"),
+            reply(json.dumps({"cross_cutting_threats": []})),
+            _DFD,
+        ]) as fake:
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan, progress=progress,
+                max_llm_calls=2,
+            )
+
+        assert len(fake.requests) == 12
+        assert report.metadata["llm_calls"] == len(fake.requests) == llm_call_ceiling(3, 2)
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     def test_skipped_placeholders_do_not_trigger_synthesis(

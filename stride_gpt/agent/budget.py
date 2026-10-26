@@ -18,17 +18,18 @@ if TYPE_CHECKING:
 # subsystem finishes on its own and the cap only bites on a runaway one.
 DEFAULT_MAX_LLM_CALLS = 25
 
-# Calls a run makes outside the per-subsystem budget once the plan is
-# approved: cross-cutting synthesis and the system-level DFD.
-_POST_SUBSYSTEM_CALLS = 2
+# Calls a run can make outside the per-subsystem budget once the plan is
+# approved: cross-cutting synthesis, which retries once when its first reply
+# is not JSON, and the system-level DFD.
+_POST_SUBSYSTEM_CALLS = 3
 
 
 def llm_call_ceiling(subsystem_count: int, max_llm_calls: int) -> int | None:
     """Most LLM calls a run with this plan can make after approval.
 
     Each subsystem gets ``max_llm_calls`` rounds plus one final reporting
-    round (``_grace_round``), then synthesis and the DFD run once each. It is
-    an upper bound, never an estimate: a run can only come in under it.
+    round (``_grace_round``), then synthesis (at most two calls) and the DFD
+    (one). It is an upper bound, never an estimate: a run can only come in under it.
     ``None`` when the cap is disabled (``0``), since nothing bounds the run.
     """
     if not max_llm_calls:
@@ -44,7 +45,7 @@ def format_llm_call_ceiling(subsystem_count: int, max_llm_calls: int) -> str:
     return (
         f"LLM call ceiling: {ceiling} calls — a ceiling, not an estimate "
         f"({subsystem_count} subsystems x ({max_llm_calls} rounds + 1 final round)"
-        f" + {_POST_SUBSYSTEM_CALLS} for synthesis and the diagram)"
+        f" + {_POST_SUBSYSTEM_CALLS} for synthesis, its retry and the diagram)"
     )
 
 

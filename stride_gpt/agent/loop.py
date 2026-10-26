@@ -343,8 +343,11 @@ def run_analysis(
     if len(analysed) > 1:
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
-        raw_synthesis = _synthesize(models, analysed, usage=phase_usage["synthesis"])
-        llm_calls += 1
+        synth_counts = {"llm": 0}
+        raw_synthesis = _synthesize(
+            models, analysed, usage=phase_usage["synthesis"], call_counts=synth_counts,
+        )
+        llm_calls += synth_counts["llm"]
         cross_cutting, systemic = classify_synthesis(raw_synthesis, analysed, target_path)
         if systemic:
             progress.status(f"Noted {len(systemic)} systemic observations (not counted as threats)")
@@ -1186,13 +1189,19 @@ def _findings_summary(
 
 
 def _synthesize(
-    models: ModelPair, findings: list[SubsystemFinding], *, usage: TokenUsage | None = None
+    models: ModelPair,
+    findings: list[SubsystemFinding],
+    *,
+    usage: TokenUsage | None = None,
+    call_counts: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Ask the architect for cross-cutting output across all subsystem findings.
 
     Returns the raw items, each classified as an aggregation or an emergent
     threat; ``classify_synthesis`` validates them and splits the two kinds.
     Uses the architect tier — synthesis is a cross-cutting reasoning task.
+    ``call_counts["llm"]`` is set to the calls made: one, or two when the
+    first reply was not JSON.
     """
     findings_summary = _findings_summary(findings)
 
@@ -1209,6 +1218,8 @@ def _synthesize(
         {"role": "user", "content": f"Per-subsystem findings:\n{findings_summary}"},
     ]
     response = call_llm(json_config, messages)
+    if call_counts is not None:
+        call_counts["llm"] = 1
     if usage is not None:
         usage.record(response)
     data = extract_json_object(response.content)
@@ -1221,6 +1232,8 @@ def _synthesize(
             "content": "Please respond with ONLY a valid JSON object in the format specified. No other text.",
         })
         response = call_llm(json_config, messages)
+        if call_counts is not None:
+            call_counts["llm"] = 2
         if usage is not None:
             usage.record(response)
         data = extract_json_object(response.content)
