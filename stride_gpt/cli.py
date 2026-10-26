@@ -32,6 +32,11 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
 
+from stride_gpt.agent.budget import (
+    DEFAULT_MAX_LLM_CALLS,
+    format_llm_call_ceiling,
+    prompt_plan_approval,
+)
 from stride_gpt.config import (
     config_to_model_pair,
     load_config,
@@ -357,6 +362,7 @@ def _resolve_analysis_plan(
     progress,
     app_type: AppTypeOverride | None = None,
     usage=None,
+    max_llm_calls: int = 0,
 ):
     """Get the plan + its app_type_source, from a checkpoint or a fresh Phase 1.
 
@@ -395,8 +401,8 @@ def _resolve_analysis_plan(
     console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
 
     if not auto_approve:
-        response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
-        if response.lower() not in ("y", "yes"):
+        console.print(format_llm_call_ceiling(len(plan.subsystems), max_llm_calls))
+        if not prompt_plan_approval(console):
             return None
 
     return plan, app_type_source
@@ -881,7 +887,7 @@ def analyze(
     no_architect: Annotated[bool, typer.Option("--no-architect", help="Bypass any saved architect tier for this run; worker handles every call.")] = False,
     output: Annotated[Path | None, typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
-    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls across both tiers; a subsystem that hits it gets one final round to report what it found (0 = unlimited).")] = 0,
+    max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls per subsystem; a subsystem that hits it gets one final round to report what it found, so none is skipped. The default is about twice the ~12 rounds per subsystem a measured full run took (0 = unlimited).")] = DEFAULT_MAX_LLM_CALLS,
     max_tool_calls: Annotated[int, typer.Option(help="Max code-exploration calls; reporting a threat doesn't spend it (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
@@ -943,7 +949,7 @@ def analyze(
     planning_usage = TokenUsage()
     resolved = _resolve_analysis_plan(
         models, target, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
-        app_type=app_type, usage=planning_usage,
+        app_type=app_type, usage=planning_usage, max_llm_calls=max_llm_calls,
     )
     if resolved is None:
         console.print("[red]Analysis cancelled.[/red]")

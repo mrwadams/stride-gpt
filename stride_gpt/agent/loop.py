@@ -11,6 +11,7 @@ from typing import Any
 
 from rich.console import Console
 
+from stride_gpt.agent.budget import format_llm_call_ceiling, prompt_plan_approval
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.errors import classify_error
 from stride_gpt.agent.evidence import normalise_path, summarise_checks, verify_evidence
@@ -98,6 +99,7 @@ def create_analysis_plan(
     return create_plan(models.for_architect(), target_path, usage=usage)
 
 
+
 # Phases token usage is broken down by in the run manifest and console
 # summary. "planning" happens once, either inside run_analysis (when no plan
 # is supplied) or outside it via create_analysis_plan — see ``planning_usage``.
@@ -133,10 +135,12 @@ def run_analysis(
             cross-cutting synthesis, and context summarization.
         target_path: Path to the codebase root.
         plan: Pre-approved analysis plan. If None, creates one (Phase 1).
-        max_llm_calls: Cap on total LLM calls (0 = unlimited). A subsystem
-            that reaches it gets one final round on top, to report what it
-            found — see ``_grace_round`` — so a run can exceed this by one
-            call per subsystem that ran out.
+        max_llm_calls: Cap on LLM calls *per subsystem* (0 = unlimited).
+            Every subsystem gets the same budget and none is skipped for
+            spending it: one that reaches it gets one final round on top to
+            report what it found — see ``_grace_round`` — and is recorded
+            ``budget_exhausted``. ``llm_call_ceiling`` gives the bound this
+            puts on the whole run.
         max_tool_calls: Cap on code exploration (0 = unlimited). Reporting a
             threat doesn't spend it: the cap bounds reading the code, and a
             model mid-report must not be cut off. ``metadata["tool_calls"]``
@@ -193,8 +197,8 @@ def run_analysis(
             # the caller should have handled approval. For backward compat
             # with CLI, we use Rich console input if available.
             if console is not None:
-                response = console.input("[bold yellow]Approve this plan? (y/n/q): [/bold yellow]")
-                if response.lower() not in ("y", "yes"):
+                progress.status(format_llm_call_ceiling(len(plan.subsystems), max_llm_calls))
+                if not prompt_plan_approval(console):
                     progress.complete("Analysis cancelled.")
                     cancel_meta = _build_metadata(
                         models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
@@ -245,16 +249,7 @@ def run_analysis(
         # A budget that runs out mid-plan used to drop the remaining
         # subsystems entirely, so the run's own N/M counts couldn't see them.
         # Each one is recorded as ``skipped`` instead: findings always match
-        # the plan.
-        if max_llm_calls and llm_calls >= max_llm_calls - 1:
-            progress.limit_reached("LLM call", llm_calls, max_llm_calls)
-            findings.extend(_stop_remaining(
-                plan.subsystems[i - 1:], "LLM call", progress,
-                resume_findings=resume_findings, resumed_names=resumed_names,
-            ))
-            if on_checkpoint:
-                on_checkpoint(findings)
-            break
+        # the plan. The LLM call cap never gets here — it is per subsystem.
         if max_tool_calls and explore_calls >= max_tool_calls:
             progress.limit_reached("tool call", explore_calls, max_tool_calls)
             findings.extend(_stop_remaining(
@@ -268,9 +263,12 @@ def run_analysis(
         progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
         rerun_names.append(subsystem.name)
 
-        # Pass remaining budget so a single subsystem can't starve later
-        # subsystems (or the synthesis pass). 0 still means unlimited.
-        remaining_llm = max_llm_calls - llm_calls if max_llm_calls else 0
+        # The LLM call cap is per subsystem: every subsystem gets the same
+        # rounds, and one that spends them reports through the grace round
+        # as ``budget_exhausted``. A run-level cap truncated the plan
+        # front-to-back instead, leaving later subsystems unanalysed. The
+        # tool budget is still run-level: pass what remains of it.
+        # 0 still means unlimited.
         remaining_tool = max_tool_calls - explore_calls if max_tool_calls else 0
         sub_token_usage = TokenUsage()
 
@@ -284,7 +282,7 @@ def run_analysis(
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
                 ctx=ctx,
-                max_llm_calls=remaining_llm,
+                max_llm_calls=max_llm_calls,
                 max_tool_calls=remaining_tool,
                 progress=progress,
                 call_counts=sub_counts,
@@ -342,7 +340,7 @@ def run_analysis(
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
     systemic: list[dict[str, Any]] = []
-    if len(analysed) > 1 and (not max_llm_calls or llm_calls < max_llm_calls):
+    if len(analysed) > 1:
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
         raw_synthesis = _synthesize(models, analysed, usage=phase_usage["synthesis"])
@@ -355,9 +353,9 @@ def run_analysis(
     # --- Phase 4: System-level DFD ---
     # Optional pass — gives the report a visual map of components and trust
     # boundaries. Wrapped in try/except so a bad DFD never nukes a good
-    # report. Skipped when no findings exist or the call budget is spent.
+    # report. Skipped when no findings exist.
     data_flow_diagram: str | None = None
-    if analysed and (not max_llm_calls or llm_calls < max_llm_calls):
+    if analysed:
         progress.status("Generating system-level Data Flow Diagram...")
         try:
             data_flow_diagram = _generate_system_dfd(models, plan, analysed, usage=phase_usage["dfd"])
@@ -987,7 +985,10 @@ Start by reading the key files. Use grep to find security-relevant patterns like
                 break
             if _explore_budget_spent(run, max_tool_calls):
                 break
-            if ctx.needs_compression(messages):
+            # Compression counts against the cap, and only pays off if
+            # another exploration round follows; skipping it once the cap is
+            # reached keeps a subsystem within cap + 1 (the grace round).
+            if (not max_llm_calls or run.llm_calls < max_llm_calls) and ctx.needs_compression(messages):
                 compress_usage = TokenUsage()
                 compressed = ctx.compress(models.for_architect(), messages, usage=compress_usage)
                 if compressed is not messages:
