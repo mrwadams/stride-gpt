@@ -333,6 +333,20 @@ def _sarif_locations(threat: dict[str, Any], files_analyzed: Any) -> list[dict[s
     ]
 
 
+def _sarif_evidence_properties(threat: dict[str, Any]) -> dict[str, Any]:
+    """Evidence counts for a result's ``properties``; empty when none was cited."""
+    items = evidence_items(threat)
+    if not items:
+        return {}
+    props: dict[str, Any] = {
+        "evidence_total": len(items),
+        "evidence_verified": sum(1 for item in items if item.get("verified")),
+    }
+    if _has_ambiguous_evidence(items):
+        props["evidence_ambiguous"] = True
+    return props
+
+
 def _sarif_evidence_note(threat: dict[str, Any]) -> str:
     """A verification line for the result message.
 
@@ -715,14 +729,7 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
                 },
                 "properties": {"subsystem": sub["name"]},
             }
-            evidence = evidence_items(threat)
-            if evidence:
-                result_entry["properties"]["evidence_total"] = len(evidence)
-                result_entry["properties"]["evidence_verified"] = sum(
-                    1 for item in evidence if item.get("verified")
-                )
-                if _has_ambiguous_evidence(evidence):
-                    result_entry["properties"]["evidence_ambiguous"] = True
+            result_entry["properties"].update(_sarif_evidence_properties(threat))
             if threat.get("OWASP_LLM"):
                 result_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
             if threat.get("OWASP_ASI"):
@@ -750,13 +757,17 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
             "ruleId": rule_id,
             "level": "warning",
             "message": {
-                "text": f"[Cross-cutting] {scenario_txt}\n\nPotential Impact: {impact_txt}",
+                "text": (
+                    f"[Cross-cutting] {scenario_txt}\n\nPotential Impact: {impact_txt}"
+                    + _sarif_evidence_note(threat)
+                ),
             },
             "properties": {
                 "subsystem": "cross-cutting",
                 "affected_subsystems": threat.get("Affected Subsystems", []),
             },
         }
+        cross_entry["properties"].update(_sarif_evidence_properties(threat))
         if threat.get("OWASP_LLM"):
             cross_entry["properties"]["owasp_llm"] = threat["OWASP_LLM"]
         if threat.get("OWASP_ASI"):
@@ -766,6 +777,11 @@ def render_sarif_from_json(data: dict[str, Any]) -> dict[str, Any]:
         mitre_ids = _sarif_mitre_ids(threat.get("MITRE_ATTACK"))
         if mitre_ids:
             cross_entry["properties"]["mitre_attack"] = mitre_ids
+        # No files_analyzed to fall back on: a cross-cutting threat is located
+        # by its verified evidence or not at all.
+        locations = _sarif_locations(threat, [])
+        if locations:
+            cross_entry["locations"] = locations
         results.append(cross_entry)
 
     return {
