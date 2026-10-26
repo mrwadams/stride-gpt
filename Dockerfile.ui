@@ -1,7 +1,7 @@
 # Streamlit web UI image for STRIDE-GPT.
 # The CLI is published to PyPI (`pip install stride-gpt`); no separate CLI image.
 
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
 
 ENV PYTHONUNBUFFERED=1
 ENV PIP_ROOT_USER_ACTION=ignore
