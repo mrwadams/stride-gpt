@@ -353,6 +353,21 @@ def _load_and_validate_checkpoint(resume_path: Path, *, target: Path, models: Mo
     return restore_checkpoint_paths(checkpoint, target=target)
 
 
+def _report_auth_failure(exc: Exception) -> bool:
+    """Print one line if ``exc`` is a rejected API key. False for any other error.
+
+    Lets a caller exit cleanly on a bad key, which the user can fix, while any
+    other failure still raises with its traceback.
+    """
+    from stride_gpt.agent.errors import classify_error
+
+    error_class, reason = classify_error(exc)
+    if error_class != "auth":
+        return False
+    console.print(f"[red]Authentication failed. {reason}[/red]")
+    return True
+
+
 def _resolve_analysis_plan(
     models: ModelPair,
     target: Path,
@@ -503,10 +518,15 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     # Phase 1: Plan (or reuse a checkpointed one)
     started_at = datetime.now(UTC)
     planning_usage = TokenUsage()
-    resolved = _resolve_analysis_plan(
-        models, target_path, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
-        usage=planning_usage, max_llm_calls=DEFAULT_MAX_LLM_CALLS,
-    )
+    try:
+        resolved = _resolve_analysis_plan(
+            models, target_path, checkpoint=checkpoint, auto_approve=auto_approve,
+            progress=progress, usage=planning_usage, max_llm_calls=DEFAULT_MAX_LLM_CALLS,
+        )
+    except Exception as e:
+        if not _report_auth_failure(e):
+            raise
+        return
     if resolved is None:
         console.print("[red]Analysis cancelled.[/red]")
         return
@@ -810,8 +830,13 @@ def _handle_quick(config: dict, args_str: str) -> None:
     )
 
     started_at = datetime.now(UTC)
-    with console.status("Analysing description..."):
-        result = run_quick_analysis(models, app_description, hint=hint)
+    try:
+        with console.status("Analysing description..."):
+            result = run_quick_analysis(models, app_description, hint=hint)
+    except Exception as e:
+        if not _report_auth_failure(e):
+            raise
+        return
     finished_at = datetime.now(UTC)
 
     saved_path = save_quick_report(
@@ -948,10 +973,16 @@ def analyze(
     # Phase 1: Plan (or reuse a checkpointed one)
     started_at = datetime.now(UTC)
     planning_usage = TokenUsage()
-    resolved = _resolve_analysis_plan(
-        models, target, checkpoint=checkpoint, auto_approve=auto_approve, progress=progress,
-        app_type=app_type, usage=planning_usage, max_llm_calls=max_llm_calls,
-    )
+    try:
+        resolved = _resolve_analysis_plan(
+            models, target, checkpoint=checkpoint, auto_approve=auto_approve,
+            progress=progress, app_type=app_type, usage=planning_usage,
+            max_llm_calls=max_llm_calls,
+        )
+    except Exception as e:
+        if not _report_auth_failure(e):
+            raise
+        raise typer.Exit(1) from None
     if resolved is None:
         console.print("[red]Analysis cancelled.[/red]")
         raise typer.Exit(0)
@@ -1103,8 +1134,13 @@ def quick(
     )
 
     started_at = datetime.now(UTC)
-    with console.status("Analysing description..."):
-        result = run_quick_analysis(models, app_description, hint=app_type)
+    try:
+        with console.status("Analysing description..."):
+            result = run_quick_analysis(models, app_description, hint=app_type)
+    except Exception as e:
+        if not _report_auth_failure(e):
+            raise
+        raise typer.Exit(1) from None
     finished_at = datetime.now(UTC)
 
     saved_path = save_quick_report(

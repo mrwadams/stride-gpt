@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json as _json
 import re
+import time
 
 import litellm
 
@@ -80,14 +81,12 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
     if api_key is None and provider_info is not None and not provider_info.needs_api_key:
         api_key = LOCAL_PLACEHOLDER_API_KEY
 
+    # No `num_retries`: litellm's retry path imports tenacity, which isn't a
+    # dependency, so every provider error crashed on the import. `_completion`
+    # retries transient errors instead.
     kwargs: dict = {
         "model": model,
         "api_key": api_key,
-        # Retry transient errors (429 rate limits, timeouts, 5xx). LiteLLM delegates
-        # to the provider SDK, which uses exponential backoff and respects the
-        # Retry-After header. Necessary because the agent loop bursts many calls
-        # in close succession and easily trips TPM caps on tight org tiers.
-        "num_retries": 3,
     }
 
     # Custom endpoint for LM Studio
@@ -146,6 +145,48 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
         kwargs["max_tokens"] = config.max_tokens
 
     return kwargs
+
+
+# Retry transient errors (408 timeouts, 429 rate limits, 5xx, dropped
+# connections). Necessary because the agent loop bursts many calls in close
+# succession and easily trips TPM caps on tight org tiers.
+MAX_RETRIES = 3
+MAX_RETRY_DELAY = 60.0
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Whether a failed call is worth repeating. Auth and bad requests are not."""
+    status = getattr(exc, "status_code", None)
+    return isinstance(status, int) and (status in (408, 429) or status >= 500)
+
+
+def _retry_delay(exc: Exception, attempt: int) -> float:
+    """Seconds to wait before retry ``attempt`` (0-based).
+
+    Honours the provider's Retry-After header when it gives one in seconds,
+    otherwise backs off exponentially: 2s, 4s, 8s.
+    """
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) or {}
+    try:
+        retry_after = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        retry_after = None
+    if retry_after is not None and retry_after >= 0:
+        return min(retry_after, MAX_RETRY_DELAY)
+    return min(2.0 * 2**attempt, MAX_RETRY_DELAY)
+
+
+def _completion(**kwargs):
+    """``litellm.completion`` with retries on transient provider errors."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            return litellm.completion(**kwargs)
+        except Exception as e:
+            if not _is_transient(e):
+                raise
+            time.sleep(_retry_delay(e, attempt))
+    return litellm.completion(**kwargs)
 
 
 def _extract_usage(response) -> dict[str, int | None]:
@@ -268,7 +309,7 @@ def _extract_gemini_thinking(response) -> str | None:
 def _call_litellm(config: LLMConfig, messages: list[dict]) -> LLMResponse:
     """Call LLM via LiteLLM (all providers)."""
     kwargs = _build_litellm_kwargs(config)
-    response = litellm.completion(messages=messages, **kwargs)
+    response = _completion(messages=messages, **kwargs)
 
     message = response.choices[0].message
     content = message.content or ""
@@ -325,7 +366,7 @@ def _call_litellm_with_tools(
     kwargs = _build_litellm_kwargs(config)
     # Don't send JSON response_format when using tools — the model decides the format
     kwargs.pop("response_format", None)
-    response = litellm.completion(messages=messages, tools=tools, **kwargs)
+    response = _completion(messages=messages, tools=tools, **kwargs)
 
     message = response.choices[0].message
     content = message.content or ""
@@ -396,7 +437,7 @@ def _call_litellm_with_image(
         )
         messages.insert(0, {"role": "system", "content": system_prompt})
 
-    response = litellm.completion(messages=messages, **kwargs)
+    response = _completion(messages=messages, **kwargs)
     content = response.choices[0].message.content or ""
     thinking, _ = _extract_thinking(config, response)
     usage = _extract_usage(response)
