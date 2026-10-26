@@ -26,15 +26,17 @@ KEY_FILE_SAMPLE_LIMIT = 200
 
 PLANNER_SYSTEM_PROMPT = """You are a security architect planning a STRIDE threat model analysis of a codebase.
 
-Based on the file structure and key files provided, identify 3-7 logical subsystems to analyze for security threats. Each subsystem should represent a distinct area of functionality or infrastructure.
+Based on the file structure and key files provided, identify up to 7 subsystems to analyze for security threats. A subsystem is a deployable unit or a trust boundary: a service, a background worker, a frontend, a data store, or the deployment configuration. It is not a security concern. Authentication, input validation and secret handling are concerns that most services have, so list them as focus areas of the subsystem whose code implements them, not as subsystems of their own.
+
+Each subsystem is analyzed separately, so give each file to exactly one subsystem. If two subsystems would list the same file, they are one subsystem. A small codebase with one service may have only one or two subsystems.
 
 Good subsystem examples:
-- "Authentication & Authorization" — login flows, session management, RBAC
-- "API Layer" — REST/GraphQL endpoints, request validation, rate limiting
-- "Data Storage" — database access, ORM models, migrations, data at rest
-- "External Integrations" — third-party APIs, webhooks, message queues
-- "Infrastructure" — Dockerfiles, CI/CD, Terraform, deployment configs
-- "Frontend" — client-side code, input handling, state management
+- "Public API service" — the web process: routes, request validation, and the login and session code it calls
+- "Background worker" — job consumers, schedulers, and what they do with queued data
+- "Web frontend" — client-side code, input handling, state management
+- "Data store" — schema, migrations, and data access code shared by several services
+- "Third-party integration client" — outbound calls to external APIs, webhooks
+- "Infrastructure & deployment" — Dockerfiles, CI/CD, Terraform, deployment configs
 
 You must also classify the overall application type so the downstream STRIDE agent knows which OWASP reference cards apply. Choose exactly one of:
 
@@ -58,7 +60,7 @@ Respond with a JSON object:
     ]
 }
 
-Be specific about which files to examine. Prioritize subsystems that handle:
+Be specific about which files to examine. In each subsystem's focus areas, cover the concerns its code handles:
 1. Authentication and authorization
 2. Data input and validation
 3. Sensitive data handling

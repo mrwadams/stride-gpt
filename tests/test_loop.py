@@ -461,6 +461,32 @@ class TestResume:
         assert report.metadata["rerun_subsystems"] == ["Auth"]
 
 
+class TestWorkerScope:
+    def test_worker_is_told_what_the_other_subsystems_cover(self, model_pair, tmp_path):
+        """Issue #264: a worker that only knows its own files re-reports
+        weaknesses it finds by following calls into another subsystem."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="X",
+            subsystems=[
+                Subsystem(name="API service", description="d", key_files=["app/api.py"], focus_areas=[]),
+                Subsystem(name="Worker", description="d", key_files=["worker/jobs.py"], focus_areas=[]),
+            ],
+        )
+        finding = reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES)
+
+        with ScriptedLLM([finding, finding, reply(json.dumps({"cross_cutting_threats": []})), _DFD]) as fake:
+            run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
+
+        first, second = (
+            next(m for m in fake.requests[i].messages if m.get("role") == "user")["content"]
+            for i in (0, 1)
+        )
+        assert "Worker: worker/jobs.py" in first
+        assert "API service:" not in first
+        assert "API service: app/api.py" in second
+
+
 # ---------------------------------------------------------------------------
 # App-type propagation (planner hint → agent prompt → metadata)
 # ---------------------------------------------------------------------------
