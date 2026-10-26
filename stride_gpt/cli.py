@@ -353,18 +353,58 @@ def _load_and_validate_checkpoint(resume_path: Path, *, target: Path, models: Mo
     return restore_checkpoint_paths(checkpoint, target=target)
 
 
-def _report_auth_failure(exc: Exception) -> bool:
-    """Print one line if ``exc`` is a rejected API key. False for any other error.
+def _report_provider_failure(exc: Exception) -> bool:
+    """Print one line if ``exc`` is a failed provider call. False for any other error.
 
-    Lets a caller exit cleanly on a bad key, which the user can fix, while any
-    other failure still raises with its traceback.
+    A rejected key, an unreachable endpoint or a provider that keeps failing
+    after retries is something the user fixes outside stride-gpt, so the caller
+    exits cleanly. Any other failure still raises with its traceback.
     """
     from stride_gpt.agent.errors import classify_error
 
     error_class, reason = classify_error(exc)
-    if error_class != "auth":
+    if error_class == "auth":
+        console.print(f"[red]Authentication failed. {reason}[/red]")
+        return True
+    if error_class in ("provider_error", "rate_limited"):
+        console.print(
+            f"[red]The provider call failed after retries. {reason}[/red]\n"
+            "Check the API base URL, your network connection and the provider's status."
+        )
+        return True
+    return False
+
+
+def _prepare_output_dir(output: Path) -> bool:
+    """Create the directory ``-o`` writes into. False, with a message, if it can't be.
+
+    Runs before planning: the first checkpoint is written next to ``output``
+    as soon as the plan is approved, so a missing directory would otherwise
+    crash the run after the planning call has been paid for.
+    """
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        console.print(f"[red]Cannot create {output.parent}: {e.strerror}.[/red]")
         return False
-    console.print(f"[red]Authentication failed. {reason}[/red]")
+    return True
+
+
+def _report_nothing_analysed(report) -> bool:
+    """Print a warning and return True if no subsystem was analysed.
+
+    Every subsystem can fail (a worker key the provider rejects, say) while
+    planning succeeds on the architect, leaving a report with no threats that
+    would otherwise look like a clean run.
+    """
+    if report.metadata.get("status") == "cancelled" or not report.plan.subsystems:
+        return False
+    if report.metadata.get("subsystems_analyzed") != 0:
+        return False
+    console.print(
+        "[red]No subsystem was analysed, so this report has no threats. "
+        "Each subsystem's Status line says why.[/red]"
+    )
     return True
 
 
@@ -487,6 +527,9 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         else:
             i += 1
 
+    if output_path is not None and not _prepare_output_dir(output_path):
+        return
+
     auto_approve = "-y" in args_str or "--yes" in args_str
     models = config_to_model_pair(config)
     if models is None:
@@ -524,7 +567,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
             progress=progress, usage=planning_usage, max_llm_calls=DEFAULT_MAX_LLM_CALLS,
         )
     except Exception as e:
-        if not _report_auth_failure(e):
+        if not _report_provider_failure(e):
             raise
         return
     if resolved is None:
@@ -610,6 +653,8 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     if saved_path:
         _print_saved_paths(saved_path)
         console.print("[dim]View previous reports with[/dim] [cyan]/reports[/cyan]")
+
+    _report_nothing_analysed(report)
 
 
 def _handle_reports(args_str: str) -> None:
@@ -834,7 +879,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
         with console.status("Analysing description..."):
             result = run_quick_analysis(models, app_description, hint=hint)
     except Exception as e:
-        if not _report_auth_failure(e):
+        if not _report_provider_failure(e):
             raise
         return
     finished_at = datetime.now(UTC)
@@ -945,6 +990,9 @@ def analyze(
         console.print(f"[red]Error: {path} is not a directory.[/red]")
         raise typer.Exit(1)
 
+    if output is not None and not _prepare_output_dir(output):
+        raise typer.Exit(1)
+
     _check_lm_studio_context_for(load_config() or {}, models, console, exit_on_fail=True)
 
     checkpoint = None
@@ -980,7 +1028,7 @@ def analyze(
             max_llm_calls=max_llm_calls,
         )
     except Exception as e:
-        if not _report_auth_failure(e):
+        if not _report_provider_failure(e):
             raise
         raise typer.Exit(1) from None
     if resolved is None:
@@ -1065,6 +1113,9 @@ def analyze(
         _print_saved_paths(saved_path)
         console.print("[dim]View previous reports with:[/dim] [cyan]stride-gpt reports[/cyan]")
 
+    if _report_nothing_analysed(report):
+        raise typer.Exit(1)
+
 
 @app.command()
 def quick(
@@ -1138,7 +1189,7 @@ def quick(
         with console.status("Analysing description..."):
             result = run_quick_analysis(models, app_description, hint=app_type)
     except Exception as e:
-        if not _report_auth_failure(e):
+        if not _report_provider_failure(e):
             raise
         raise typer.Exit(1) from None
     finished_at = datetime.now(UTC)
