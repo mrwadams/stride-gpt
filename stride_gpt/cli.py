@@ -763,7 +763,7 @@ def _handle_reports(args_str: str) -> None:
     i = 1
     while i < len(parts):
         if parts[i] in ("-o", "--output") and i + 1 < len(parts):
-            output_path = Path(parts[i + 1])
+            output_path = Path(parts[i + 1]).expanduser()
             i += 2
         elif parts[i] in ("-f", "--format") and i + 1 < len(parts):
             try:
@@ -785,6 +785,8 @@ def _handle_reports(args_str: str) -> None:
         rendered = render_html_from_json(data)
 
     if output_path:
+        if not _prepare_output_dir(output_path):
+            return
         output_path.write_text(rendered)
         console.print(f"[green]Report exported to {output_path}[/green]")
         if output_format == OutputFormat.json:
@@ -881,6 +883,9 @@ def _handle_quick(config: dict, args_str: str) -> None:
         return
 
     if not _check_tier_api_keys(config, models):
+        return
+
+    if output_path is not None and not _prepare_output_dir(output_path):
         return
 
     source = str(input_file) if input_file else "typed description"
@@ -1192,6 +1197,9 @@ def quick(
         console.print("[red]Error: Empty app description.[/red]")
         raise typer.Exit(1)
 
+    if output is not None and not _prepare_output_dir(output):
+        raise typer.Exit(1)
+
     source = str(input_file) if input_file else "stdin"
     console.print(
         Panel(
@@ -1319,6 +1327,8 @@ def reports(
         rendered = render_html_from_json(data)
 
     if output:
+        if not _prepare_output_dir(output):
+            raise typer.Exit(1)
         output.write_text(rendered)
         console.print(f"[green]Report exported to {output}[/green]")
         if output_format == OutputFormat.json:
