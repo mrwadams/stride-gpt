@@ -266,7 +266,11 @@ class TestClassifySynthesis:
                 {"path": "app.py"},
             ],
         }]
-        assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
+        dropped: list[dict[str, str]] = []
+        assert classify_synthesis(raw, self._findings(), tmp_path, dropped=dropped) == ([], [])
+        assert dropped == [
+            {"item": "emergent threat 'Tampering'", "reason": "none of its evidence verifies"}
+        ]
 
     def test_emergent_with_some_verified_evidence_is_kept(self, tmp_path):
         (tmp_path / "app.py").write_text("x\n")
@@ -287,3 +291,54 @@ class TestClassifySynthesis:
             "not a dict",
         ]
         assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
+
+    def test_dropped_items_are_recorded_with_reasons(self, tmp_path):
+        raw = [
+            {"Threat Type": "Spoofing", "Scenario": "no classification"},
+            {"Classification": "aggregation", "Threat Type": "Tampering", "Scenario": "s"},
+            {"Classification": "emergent", "Threat Type": "Repudiation", "Scenario": "s"},
+            "not a dict",
+        ]
+        dropped: list[dict[str, str]] = []
+        assert classify_synthesis(raw, self._findings(), tmp_path, dropped=dropped) == ([], [])
+        assert [d["item"] for d in dropped] == [
+            "synthesis item 'Spoofing'",
+            "aggregation 'Tampering'",
+            "emergent threat 'Repudiation'",
+            "synthesis item",
+        ]
+        assert "neither" in dropped[0]["reason"]
+        assert dropped[1]["reason"] == "it links to no known threat id"
+        assert dropped[2]["reason"] == "it cites no evidence"
+        assert "str" in dropped[3]["reason"]
+
+    def test_output_that_is_not_a_list_is_recorded_as_dropped(self, tmp_path):
+        dropped: list[dict[str, str]] = []
+        classify_synthesis("none", self._findings(), tmp_path, dropped=dropped)
+        assert dropped == [{"item": "synthesis output", "reason": "expected a list of items, got str"}]
+
+
+_PRE_209 = {"Threat Type": "Spoofing", "Scenario": "old shape, no Classification"}
+
+
+class TestDroppedSynthesisReporting:
+    """Every item dropped must not read the same as synthesis finding nothing (#252)."""
+
+    def test_all_dropped_is_recorded_in_metadata_and_summaries(self, model_pair, sandbox_dir):
+        report, _ = _run(model_pair, sandbox_dir, [_PRE_209, _PRE_209])
+
+        assert report.cross_cutting_threats == []
+        dropped = report.metadata["synthesis_dropped"]
+        assert len(dropped) == 2
+        assert all("neither" in d["reason"] for d in dropped)
+        for markdown in (render_markdown(report), render_markdown_from_json(render_json(report))):
+            assert "**Synthesis items dropped**: 2" in markdown
+        assert "2 synthesis items dropped" in render_html(report)
+
+    def test_empty_synthesis_says_nothing_about_drops(self, model_pair, sandbox_dir):
+        report, _ = _run(model_pair, sandbox_dir, [])
+
+        assert report.metadata["synthesis_dropped"] == []
+        for markdown in (render_markdown(report), render_markdown_from_json(render_json(report))):
+            assert "Synthesis items dropped" not in markdown
+        assert "synthesis items dropped" not in render_html(report)

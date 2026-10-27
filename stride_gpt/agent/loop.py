@@ -341,6 +341,7 @@ def run_analysis(
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
     systemic: list[dict[str, Any]] = []
+    synthesis_dropped: list[dict[str, str]] = []
     if len(analysed) > 1:
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
@@ -352,7 +353,7 @@ def run_analysis(
         )
         llm_calls += synth_counts["llm"]
         cross_cutting, systemic = classify_synthesis(
-            raw_synthesis, analysed, target_path,
+            raw_synthesis, analysed, target_path, dropped=synthesis_dropped,
             evidence_stripped=synth_notes.get("evidence_stripped", False),
         )
         if systemic:
@@ -378,6 +379,7 @@ def run_analysis(
     )
     metadata["references_loaded"] = sorted(loaded_refs)
     metadata["token_usage"] = _token_usage_metadata(phase_usage)
+    metadata["synthesis_dropped"] = synthesis_dropped
 
     assign_threat_ids(findings, cross_cutting)
     report = AnalysisReport(
@@ -1126,6 +1128,7 @@ def classify_synthesis(
     target_path: Path,
     *,
     evidence_stripped: bool = False,
+    dropped: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split synthesis output into ``(emergent threats, aggregations)``.
 
@@ -1152,23 +1155,32 @@ def classify_synthesis(
     without their snippets to fit the architect's context window, which
     leaves it nothing to cite; every emergent threat is then expected to be
     dropped, and the log says why.
+
+    When ``dropped`` is given, each dropped item is appended to it as
+    ``{"item": <Threat Type>, "reason": <why>}`` so the run manifest and the
+    report can tell "every item was dropped" apart from "synthesis found
+    nothing".
     """
     known_ids = {t["id"] for f in findings for t in f.threats if isinstance(t.get("id"), str)}
     emergent: list[dict[str, Any]] = []
     aggregations: list[dict[str, Any]] = []
+
+    def drop(item: str, reason: str) -> None:
+        logger.warning("Dropped %s: %s", item, reason)
+        if dropped is not None:
+            dropped.append({"item": item, "reason": reason})
 
     if not isinstance(raw, list):
         # `_synthesize` hands back whatever sat under "cross_cutting_threats",
         # which a model can make a string or a number. Phase 3 is the last
         # thing before the report, so iterating that would throw away every
         # subsystem finding the run just paid for.
-        logger.warning(
-            "Dropped synthesis output: expected a list of items, got %s", type(raw).__name__
-        )
+        drop("synthesis output", f"expected a list of items, got {type(raw).__name__}")
         return emergent, aggregations
 
     for item in raw:
         if not isinstance(item, dict):
+            drop("synthesis item", f"expected an object, got {type(item).__name__}")
             continue
         kind = str(item.get("Classification") or "").strip().lower()
         label = f"{item.get('Threat Type', 'Unknown')!r}"
@@ -1178,20 +1190,20 @@ def classify_synthesis(
         if kind == AGGREGATION:
             linked = _known_links(item.get("Related Threats"), known_ids)
             if not linked:
-                logger.warning("Dropped aggregation %s: it links to no known threat id", label)
+                drop(f"aggregation {label}", "it links to no known threat id")
                 continue
             entry["Related Threats"] = linked
             aggregations.append(entry)
         elif kind == EMERGENT:
             checks = verify_evidence(target_path, item.get("evidence"))
             if not checks:
-                logger.warning("Dropped emergent threat %s: it cites no evidence", label)
+                drop(f"emergent threat {label}", "it cites no evidence")
                 continue
             if not any(c.verified for c in checks):
-                logger.warning(
-                    "Dropped emergent threat %s: none of its evidence verifies%s",
-                    label,
-                    " (evidence stripped to fit context)" if evidence_stripped else "",
+                drop(
+                    f"emergent threat {label}",
+                    "none of its evidence verifies"
+                    + (" (evidence stripped to fit context)" if evidence_stripped else ""),
                 )
                 continue
             entry["evidence"] = [c.to_dict() for c in checks]
@@ -1206,9 +1218,10 @@ def classify_synthesis(
                 entry.pop("Related Threats", None)
             emergent.append(entry)
         else:
-            logger.warning(
-                "Dropped synthesis item %s: classification %r is neither %r nor %r",
-                label, item.get("Classification"), AGGREGATION, EMERGENT,
+            drop(
+                f"synthesis item {label}",
+                f"classification {item.get('Classification')!r} is neither "
+                f"{AGGREGATION!r} nor {EMERGENT!r}",
             )
     return emergent, aggregations
 
