@@ -79,3 +79,11 @@ def test_auto_saved_report_lands_in_the_redirected_dir(_hermetic_config_dir, sam
     assert path.is_relative_to(_hermetic_config_dir / "reports" / "analyze")
     assert path.is_file()
     assert path.with_suffix(".html").is_file()
+
+
+def test_config_dir_redirect_applies_without_opting_in(request):
+    """Guards ``autouse``: this test does not name the fixture, so it is only
+    active here if pytest applies it to every test. The tests above request it
+    by name, which would activate it (for the whole session) even without
+    autouse and leave a leak from earlier tests unnoticed."""
+    assert "_hermetic_config_dir" in request.fixturenames
