@@ -345,11 +345,16 @@ def run_analysis(
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
         synth_counts = {"llm": 0}
+        synth_notes: dict[str, bool] = {}
         raw_synthesis = _synthesize(
             models, analysed, usage=phase_usage["synthesis"], call_counts=synth_counts,
+            notes=synth_notes,
         )
         llm_calls += synth_counts["llm"]
-        cross_cutting, systemic = classify_synthesis(raw_synthesis, analysed, target_path)
+        cross_cutting, systemic = classify_synthesis(
+            raw_synthesis, analysed, target_path,
+            evidence_stripped=synth_notes.get("evidence_stripped", False),
+        )
         if systemic:
             progress.status(f"Noted {len(systemic)} systemic observations (not counted as threats)")
         progress.synthesis_done(len(cross_cutting))
@@ -1119,6 +1124,8 @@ def classify_synthesis(
     raw: list[dict[str, Any]],
     findings: list[SubsystemFinding],
     target_path: Path,
+    *,
+    evidence_stripped: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split synthesis output into ``(emergent threats, aggregations)``.
 
@@ -1128,11 +1135,23 @@ def classify_synthesis(
     * an aggregation must link to at least one threat that exists, and
       carries no evidence of its own;
     * an emergent threat must cite evidence, which is checked against the code
-      by ``verify_evidence`` exactly as a subsystem threat's is.
+      by ``verify_evidence`` exactly as a subsystem threat's is, and at least
+      one of its snippets must verify. When one does, it is kept and any
+      unverified snippets stay on it marked ``verified: false``; when none
+      does, it is dropped.
 
     Anything else is dropped and logged. An aggregation linking to nothing is
     a claim with no support, and an emergent threat citing nothing is the
     unverifiable restatement this split exists to stop counting as a threat.
+
+    The verified-snippet rule is stricter than a subsystem threat gets. The
+    architect has no tools: the only code it sees is the evidence quoted in
+    the findings, so a citation that fails to verify was altered from one of
+    those snippets or invented, and unlike a worker it gets no feedback and no
+    chance to correct it. ``evidence_stripped`` says the findings were sent
+    without their snippets to fit the architect's context window, which
+    leaves it nothing to cite; every emergent threat is then expected to be
+    dropped, and the log says why.
     """
     known_ids = {t["id"] for f in findings for t in f.threats if isinstance(t.get("id"), str)}
     emergent: list[dict[str, Any]] = []
@@ -1167,6 +1186,13 @@ def classify_synthesis(
             checks = verify_evidence(target_path, item.get("evidence"))
             if not checks:
                 logger.warning("Dropped emergent threat %s: it cites no evidence", label)
+                continue
+            if not any(c.verified for c in checks):
+                logger.warning(
+                    "Dropped emergent threat %s: none of its evidence verifies%s",
+                    label,
+                    " (evidence stripped to fit context)" if evidence_stripped else "",
+                )
                 continue
             entry["evidence"] = [c.to_dict() for c in checks]
             # Optional here, so an emergent threat that links to nothing real
@@ -1210,6 +1236,7 @@ def _synthesize(
     *,
     usage: TokenUsage | None = None,
     call_counts: dict[str, int] | None = None,
+    notes: dict[str, bool] | None = None,
 ) -> list[dict[str, Any]]:
     """Ask the architect for cross-cutting output across all subsystem findings.
 
@@ -1217,7 +1244,8 @@ def _synthesize(
     threat; ``classify_synthesis`` validates them and splits the two kinds.
     Uses the architect tier — synthesis is a cross-cutting reasoning task.
     ``call_counts["llm"]`` is set to the calls made: one, or two when the
-    first reply was not JSON.
+    first reply was not JSON. ``notes["evidence_stripped"]`` is set when the
+    findings had to be sent without their evidence snippets.
     """
     findings_summary = _findings_summary(findings)
 
@@ -1226,7 +1254,11 @@ def _synthesize(
     # Guard against the architect having a smaller context window than the
     # raw findings summary — trim per-finding if so. Worker's window drives
     # the agent loop, but the architect handles the synthesis call.
-    findings_summary = _truncate_findings_to_fit(architect, findings, findings_summary)
+    findings_summary, evidence_shown = _truncate_findings_to_fit(
+        architect, findings, findings_summary
+    )
+    if notes is not None:
+        notes["evidence_stripped"] = not evidence_shown
 
     json_config = architect.model_copy(update={"response_format": "json"})
     messages: list[dict] = [
@@ -1311,13 +1343,15 @@ def _truncate_findings_to_fit(
     architect: LLMConfig,
     findings: list[SubsystemFinding],
     rendered: str,
-) -> str:
+) -> tuple[str, bool]:
     """If the rendered findings JSON exceeds the architect's context window,
     trim it until it fits: first the per-finding `files_analyzed` lists
     (cheapest content), then the evidence snippets, which costs the architect
     the ability to cite them. Falls through unchanged on any sizing error —
     better to send too much and let the provider error than crash
     mid-synthesis here.
+
+    Returns the text to send and whether it still carries the evidence.
     """
     try:
         import litellm
@@ -1329,13 +1363,14 @@ def _truncate_findings_to_fit(
             return litellm.token_counter(model=architect.model_name, messages=messages) <= budget
 
         if fits(rendered):
-            return rendered
+            return rendered, True
         trimmed = _findings_summary(findings, max_files=5)
         if fits(trimmed):
-            return trimmed
-        return _findings_summary(findings, max_files=5, evidence=False)
+            return trimmed, True
+        logger.warning("Synthesis findings sent without evidence snippets to fit the architect's context")
+        return _findings_summary(findings, max_files=5, evidence=False), False
     except Exception:
-        return rendered
+        return rendered, True
 
 
 COMPRESSION_BUDGET = 0.75  # leave headroom for the system prompt + response

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import MagicMock
+
+import litellm
 
 from stride_gpt.agent.html_report import render_html
 from stride_gpt.agent.loop import (
@@ -141,6 +144,37 @@ class TestEmergentThreat:
         assert report.cross_cutting_threats == []
         assert report.systemic_observations == []
 
+    def test_with_no_verified_evidence_is_dropped(self, model_pair, sandbox_dir, caplog):
+        invented = {"path": "does/not/exist.py", "snippet": _SNIPPET}
+        altered = {"path": "app.py", "snippet": "app = Flask(name)"}
+        with caplog.at_level(logging.WARNING):
+            report, _ = _run(model_pair, sandbox_dir, [self._emergent([invented, altered])])
+
+        assert report.cross_cutting_threats == []
+        assert "Total threats identified**: 3" in render_markdown(report)
+        assert len(render_sarif(report)["runs"][0]["results"]) == 3
+        assert "none of its evidence verifies" in caplog.text
+        assert "stripped" not in caplog.text
+
+    def test_dropped_when_evidence_was_stripped_to_fit_context(
+        self, model_pair, sandbox_dir, monkeypatch, caplog
+    ):
+        """With no snippets to quote, the architect's citation cannot verify."""
+
+        def token_counter(*, model, messages):
+            # Only the summary without evidence fits the architect's window.
+            return 1 if '"evidence"' not in messages[0]["content"] else 10**9
+
+        monkeypatch.setattr(litellm, "token_counter", token_counter)
+        paraphrase = {"path": "app.py", "snippet": "app = Flask(app_name)"}
+        with caplog.at_level(logging.WARNING):
+            report, fake = _run(model_pair, sandbox_dir, [self._emergent([paraphrase])])
+
+        synthesis = next(r for r in fake.requests if r.messages[0]["content"].startswith("You are a security architect"))
+        assert _SNIPPET not in synthesis.messages[1]["content"]
+        assert report.cross_cutting_threats == []
+        assert "evidence stripped to fit context" in caplog.text
+
 
 class TestClassifySynthesis:
     def _findings(self):
@@ -194,6 +228,7 @@ class TestClassifySynthesis:
             "Related Threats": _AUTH,
             "evidence": [{"path": "app.py", "snippet": "x"}],
         }]
+        (tmp_path / "app.py").write_text("x\n")
         emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
         assert aggregations == []
         assert emergent[0]["Related Threats"] == [_AUTH]
@@ -204,6 +239,7 @@ class TestClassifySynthesis:
             "Related Threats": ["nope-T9", {"id": _AUTH}],
             "evidence": [{"path": "app.py", "snippet": "x"}],
         }]
+        (tmp_path / "app.py").write_text("x\n")
         emergent, _ = classify_synthesis(raw, self._findings(), tmp_path)
         assert "Related Threats" not in emergent[0]
 
@@ -219,6 +255,30 @@ class TestClassifySynthesis:
               "Scenario": "s", "Related Threats": [_AUTH]}],
             findings, tmp_path,
         ) == ([], [])
+
+    def test_emergent_with_no_verified_evidence_is_dropped(self, tmp_path):
+        (tmp_path / "app.py").write_text("x\n")
+        raw = [{
+            "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
+            "evidence": [
+                {"path": "does/not/exist.py", "snippet": "x"},
+                {"path": "app.py", "snippet": "y"},
+                {"path": "app.py"},
+            ],
+        }]
+        assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
+
+    def test_emergent_with_some_verified_evidence_is_kept(self, tmp_path):
+        (tmp_path / "app.py").write_text("x\n")
+        raw = [{
+            "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
+            "evidence": [
+                {"path": "does/not/exist.py", "snippet": "x"},
+                {"path": "app.py", "snippet": "x"},
+            ],
+        }]
+        (threat,), _ = classify_synthesis(raw, self._findings(), tmp_path)
+        assert [e["verified"] for e in threat["evidence"]] == [False, True]
 
     def test_unclassified_and_malformed_items_are_dropped(self, tmp_path):
         raw = [
