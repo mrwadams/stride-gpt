@@ -35,6 +35,32 @@ def _cli_dotenv_loaded_up_front():
     importlib.import_module("stride_gpt.cli")
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _hermetic_config_dir(tmp_path_factory, _cli_dotenv_loaded_up_front):
+    """Point every ``~/.stride-gpt`` path at a temp dir for the whole suite.
+
+    ``CONFIG_DIR`` and the paths derived from it are evaluated at import, so
+    setting ``HOME`` in a test is too late: without this, anything that
+    auto-saves a report (or config, or REPL history) writes into the
+    developer's real ``~/.stride-gpt`` and shows up in ``stride-gpt reports``.
+    Autouse so a new test cannot reintroduce the leak by forgetting to opt in.
+    Tests that monkeypatch these paths themselves still win for their duration.
+
+    Depends on the dotenv fixture so the CLI's import-time ``load_dotenv`` has
+    already read the real ``.env`` (whose keys ``_hermetic_api_keys`` clears)
+    rather than racing this redirect.
+    """
+    config_dir = tmp_path_factory.mktemp("stride-gpt-home") / ".stride-gpt"
+    mp = pytest.MonkeyPatch()
+    mp.setattr("stride_gpt.config.CONFIG_DIR", config_dir)
+    mp.setattr("stride_gpt.config.CONFIG_FILE", config_dir / "config.json")
+    mp.setattr("stride_gpt.config.REPORTS_DIR", config_dir / "reports")
+    # prompt.py binds CONFIG_DIR by name and builds the history path from it.
+    mp.setattr("stride_gpt.prompt.CONFIG_DIR", config_dir)
+    yield config_dir
+    mp.undo()
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_api_keys(monkeypatch):
     """Run every test as if no provider credentials were configured.

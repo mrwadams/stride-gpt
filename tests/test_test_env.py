@@ -55,3 +55,27 @@ def test_importing_the_cli_mid_test_cannot_reinstate_keys():
     assert cli is not None
     leaked = sorted(name for name in _credential_vars() if os.environ.get(name))
     assert not leaked, f"an in-test import of the CLI reinstated: {leaked}"
+
+
+def test_config_dir_is_redirected_away_from_home(_hermetic_config_dir):
+    """Module-level paths derive from ``Path.home()`` at import, so only the
+    autouse redirect keeps the suite out of the developer's ``~/.stride-gpt``."""
+    from pathlib import Path
+
+    from stride_gpt import config, prompt
+
+    real = Path.home() / ".stride-gpt"
+    for path in (config.CONFIG_DIR, config.CONFIG_FILE, config.REPORTS_DIR, prompt.CONFIG_DIR):
+        assert not path.is_relative_to(real), f"{path} still points under {real}"
+    assert config.analyze_reports_dir().is_relative_to(_hermetic_config_dir)
+    assert config.quick_reports_dir().is_relative_to(_hermetic_config_dir)
+
+
+def test_auto_saved_report_lands_in_the_redirected_dir(_hermetic_config_dir, sample_report):
+    """A test that does not opt in still auto-saves into the temp dir."""
+    from stride_gpt.agent.report import save_report
+
+    path = save_report(sample_report)
+    assert path.is_relative_to(_hermetic_config_dir / "reports" / "analyze")
+    assert path.is_file()
+    assert path.with_suffix(".html").is_file()
