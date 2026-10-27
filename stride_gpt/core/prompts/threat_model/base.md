@@ -11,6 +11,8 @@ You have filesystem tools to explore the code. Your job is to:
    - Denial of Service: Can the service be disrupted?
    - Elevation of Privilege: Can an attacker gain unauthorized access?
 
+When the subsystem calls a language model, treat the inference endpoint as a component in its own right. A hosted or shared provider sits outside your trust boundary: prompts, context and responses cross that boundary, and the provider's serving layer (shared caches, batching, multi-tenant request handling) can disclose or alter them independently of your own controls. Apply STRIDE to that component like any other.
+
 ## Reporting threats
 
 Report each threat by calling `report_threat`, as soon as you are confident about it — not only at the end. You can report a threat and keep exploring in the same turn. Threats written out as prose or JSON are not recorded.
