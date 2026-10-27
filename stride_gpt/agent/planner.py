@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
+import fnmatch
+import os
 from collections import deque
 from pathlib import Path
 
-from stride_gpt.agent.tools import list_directory, search_files
+from stride_gpt.agent.tools import SKIP_DIRS, list_directory
 from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm
 from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, Subsystem, TokenUsage
@@ -63,6 +64,26 @@ Be specific about which files to examine. Prioritize subsystems that handle:
 3. Sensitive data handling
 4. External communication
 5. Infrastructure and deployment"""
+
+
+def _discover_key_files(target_path: Path) -> list[str]:
+    """Every file under ``target_path`` matching ``KEY_PATTERNS``, sorted.
+
+    Walks the tree itself rather than calling ``search_files``, which stops
+    at 50 matches per pattern in walk order: on OWASP Juice Shop the first
+    50 ``*.ts`` files were all frontend, so the planner never saw the backend
+    routes. ``_diverse_key_files`` caps what reaches the prompt.
+    """
+    root = target_path.resolve()
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        found.extend(
+            str((Path(dirpath) / filename).relative_to(root))
+            for filename in filenames
+            if any(fnmatch.fnmatch(filename, pattern) for pattern in KEY_PATTERNS)
+        )
+    return sorted(found)
 
 
 def _tree_round_robin(files: list[str]) -> list[str]:
@@ -123,13 +144,7 @@ def create_plan(
     """Scan a codebase and generate an analysis plan via LLM."""
     # Gather codebase structure
     dir_listing = list_directory(target_path, ".")
-    key_files: list[str] = []
-    for pattern in KEY_PATTERNS:
-        results = json.loads(search_files(target_path, pattern))
-        key_files.extend(r for r in results if isinstance(r, str))
-
-    # Deduplicate and sort
-    key_files = sorted(set(key_files))
+    key_files = _discover_key_files(target_path)
     key_files_shown = _diverse_key_files(key_files, KEY_FILE_SAMPLE_LIMIT)
 
     if len(key_files_shown) < len(key_files):
