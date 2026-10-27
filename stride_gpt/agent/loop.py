@@ -942,7 +942,7 @@ Start by reading the key files. Use grep to find security-relevant patterns like
 Other subsystems in this analysis, each analyzed separately:
 {others}
 
-Report threats whose evidence is in this subsystem's code. You can read another subsystem's files to understand a threat here, but leave their weaknesses to that subsystem's analysis. When this subsystem's code can reach a weakness in another subsystem, report the whole chain as one threat: cite this subsystem's code and the line it reaches there, and name that subsystem in the scenario. When another subsystem's code reaches a weakness here, the chain belongs to that subsystem: report the weakness here, cite only this subsystem's code, and name the other subsystem as a way in."""
+The files listed above belong to those subsystems. You can read them to understand a threat here, but leave weaknesses in them to that subsystem's analysis. Report what you find in every other file you read, including files that no subsystem lists: the lists are a sample of each subsystem's code, not all of it. When this subsystem's code can reach a weakness in another subsystem, report the whole chain as one threat: cite this subsystem's code and the line it reaches there, and name that subsystem in the scenario. When another subsystem's code reaches a weakness here, the chain belongs to that subsystem: report the weakness here, cite only this subsystem's code, and name the other subsystem as a way in."""
 
     messages: list[dict] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
