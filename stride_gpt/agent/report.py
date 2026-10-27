@@ -143,6 +143,7 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.append(f"- **Cross-cutting threats**: {len(report.cross_cutting_threats)}")
     if report.systemic_observations:
         lines.append(f"- **Systemic observations**: {len(report.systemic_observations)}")
+    lines.extend(_synthesis_dropped_lines(report.metadata))
     if report.metadata:
         lines.append(f"- **LLM calls**: {report.metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {report.metadata.get('tool_calls', 'N/A')}")
@@ -170,6 +171,21 @@ def _status_lines(outcome: str, error_class: str | None) -> list[str]:
     if note is None:
         return []
     return [f"> **Status**: {outcome.replace('_', ' ')} — {note}.", ""]
+
+
+def _synthesis_dropped_lines(metadata: dict[str, Any] | None) -> list[str]:
+    """A summary line for synthesis items dropped by validation, if any.
+
+    Without it a run whose every synthesis item was dropped reads the same as
+    one where synthesis genuinely found nothing.
+    """
+    dropped = (metadata or {}).get("synthesis_dropped") or []
+    if not dropped:
+        return []
+    return [
+        f"- **Synthesis items dropped**: {len(dropped)} "
+        "(failed validation; reasons in run.json)"
+    ]
 
 
 def _subsystem_summary_lines(subsystems: list[dict[str, Any]]) -> list[str]:
@@ -682,6 +698,7 @@ def render_markdown_from_json(data: dict[str, Any]) -> str:
     lines.append(f"- **Cross-cutting threats**: {len(cross_cutting)}")
     if systemic:
         lines.append(f"- **Systemic observations**: {len(systemic)}")
+    lines.extend(_synthesis_dropped_lines(metadata))
     if metadata:
         lines.append(f"- **LLM calls**: {metadata.get('llm_calls', 'N/A')}")
         lines.append(f"- **Tool calls**: {metadata.get('tool_calls', 'N/A')}")

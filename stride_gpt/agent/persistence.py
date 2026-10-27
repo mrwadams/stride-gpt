@@ -108,6 +108,12 @@ class RunSummary(BaseModel):
     token_usage_total: TokenUsage = TokenUsage()
     token_usage_by_phase: dict[str, TokenUsage] = {}
     token_usage_by_subsystem: dict[str, TokenUsage] = {}
+    # Synthesis items dropped for failing validation, each as
+    # ``{"item": ..., "reason": ...}``. A run whose synthesis items were all
+    # dropped reports a non-zero count here; one where synthesis returned
+    # nothing reports zero. Always zero for /quick, which has no synthesis.
+    synthesis_items_dropped: int = 0
+    synthesis_dropped: list[dict[str, str]] = []
 
 
 class RunManifest(BaseModel):
@@ -480,6 +486,7 @@ def build_analyze_manifest(
     resumed_subsystems: list[str] | None = None,
     rerun_subsystems: list[str] | None = None,
     token_usage_by_phase: dict[str, dict[str, int | None]] | None = None,
+    synthesis_dropped: list[dict[str, str]] | None = None,
 ) -> RunManifest:
     """Assemble the manifest for a /analyze run.
 
@@ -515,6 +522,8 @@ def build_analyze_manifest(
         token_usage_total=token_usage_total,
         token_usage_by_phase=by_phase,
         token_usage_by_subsystem={f.subsystem: f.token_usage for f in findings},
+        synthesis_items_dropped=len(synthesis_dropped or []),
+        synthesis_dropped=list(synthesis_dropped or []),
     )
     return RunManifest(
         stride_gpt_version=_stride_gpt_version(),

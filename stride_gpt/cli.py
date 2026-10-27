@@ -278,6 +278,7 @@ def _persist_analyze_intermediates(
         resumed_subsystems=report.metadata.get("resumed_subsystems", []),
         rerun_subsystems=report.metadata.get("rerun_subsystems", []),
         token_usage_by_phase=token_usage.get("by_phase"),
+        synthesis_dropped=report.metadata.get("synthesis_dropped"),
     )
     written = write_intermediates(
         output,
