@@ -197,6 +197,11 @@ def _render_header(
         summary_chips.append(
             f'<span class="{chip}">{systemic_count} systemic observations</span>'
         )
+    synthesis_error_class = metadata.get("synthesis_error_class")
+    if isinstance(synthesis_error_class, str) and synthesis_error_class:
+        summary_chips.append(
+            f'<span class="{chip}">Synthesis failed ({html.escape(synthesis_error_class)})</span>'
+        )
 
     meta_line_parts: list[str] = []
     if generated_at:
