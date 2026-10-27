@@ -281,6 +281,7 @@ def run_analysis(
                 subsystem_description=subsystem.description,
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
+                other_subsystems=[other for other in plan.subsystems if other is not subsystem],
                 ctx=ctx,
                 max_llm_calls=max_llm_calls,
                 max_tool_calls=remaining_tool,
@@ -911,6 +912,7 @@ def _analyze_subsystem(
     loaded_refs: set[str] | None = None,
     token_usage: TokenUsage | None = None,
     phase_usage: dict[str, TokenUsage] | None = None,
+    other_subsystems: list[Subsystem] | None = None,
 ) -> SubsystemFinding:
     """Analyze a single subsystem using the agent loop.
 
@@ -927,6 +929,20 @@ Key files to examine: {', '.join(key_files) if key_files else 'Discover relevant
 Focus areas: {', '.join(focus_areas) if focus_areas else 'All STRIDE categories'}
 
 Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, and network calls. Report each threat with report_threat as you find it, then call finish."""
+
+    if other_subsystems:
+        # Issue #264: without this, a worker that follows a call into another
+        # subsystem's file re-reports what that subsystem's worker will find.
+        others = "\n".join(
+            f"- {o.name}: {', '.join(o.key_files) if o.key_files else 'no key files listed'}"
+            for o in other_subsystems
+        )
+        user_prompt += f"""
+
+Other subsystems in this analysis, each analyzed separately:
+{others}
+
+The files listed above belong to those subsystems. You can read them to understand a threat here, but leave weaknesses in them to that subsystem's analysis. Report what you find in every other file you read, including files that no subsystem lists: the lists are a sample of each subsystem's code, not all of it. When this subsystem's code can reach a weakness in another subsystem, report the whole chain as one threat: cite this subsystem's code and the line it reaches there, and name that subsystem in the scenario. When another subsystem's code reaches a weakness here, the chain belongs to that subsystem: report the weakness here, cite only this subsystem's code, and name the other subsystem as a way in."""
 
     messages: list[dict] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
