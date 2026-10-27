@@ -89,9 +89,11 @@ constraint-dependencies = [
     # following, RecursionError DoS (<=2.14.0).
     "pyjwt>=2.15.0",
     # litellm: authenticated SSRF and provider-credential exfiltration via
-    # request-body routing params (1.91.0-1.91.4). Floor kept lock-only so the
-    # published wheel's litellm>=1.40 range is unchanged.
-    "litellm>=1.91.5",
+    # request-body routing params (1.91.0-1.91.4), proxy-user arbitrary local
+    # file read (GHSA-g5ff-637f-6q2m, <1.95.0), then internal_user privilege
+    # escalation (CVE-2026-114612, fixed in 1.103.1 on the 1.103 line). Floor
+    # kept lock-only so the published wheel's litellm>=1.40 range is unchanged.
+    "litellm>=1.103.1",
     # certifi via httpx/requests: bundled emSign ECC Root CA - G3 chains to
     # eMudhra intermediates with compromised keys (GHSA-6q48-6c7w-9gw2, <2026.10.18).
     # 2026.10.18 dropped all emSign roots; 2026.10.19 restored the unaffected ones.
