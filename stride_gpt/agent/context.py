@@ -22,7 +22,13 @@ DEFAULT_LIMITS: dict[str, int] = {
     "default": 28_000,
 }
 
-COMPRESSION_THRESHOLD = 0.80  # Compress when at 80% of limit
+# Compress when the conversation reaches 80% of the context window. This keeps
+# the worker's conversation inside the model's window, so it is an overflow
+# guard, not a cost control. It is a fraction of the window because overflow
+# depends on the window size: it fires on small-context models (LM Studio, the
+# 28,000-token fallback) and is not expected to fire on 1M-token models. See
+# #227 for the measurement.
+COMPRESSION_THRESHOLD = 0.80
 # Share of the context window for recent turns kept verbatim. The newest turn
 # is always kept, even if it alone is over budget.
 KEEP_RECENT_FRACTION = 0.25
