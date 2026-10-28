@@ -61,6 +61,10 @@ web = [
 # `uv sync` (used by SCC, CI, and release) installs these groups by default, so
 # the web app has its deps in every environment without extra flags.
 default-groups = ["dev", "web"]
+# Supply-chain cooldown: only resolve versions that have been on PyPI for at
+# least 5 days, so a poisoned release is yanked before `uv lock` can pick it up.
+# The security floors below still win once a fixed release is 5 days old.
+exclude-newer = "5 days"
 # Security floors for transitive deps not directly imported. Applied at lock
 # time and baked into uv.lock, which is the single source of truth for these
 # pins (the old requirements.txt duplication has been retired).
