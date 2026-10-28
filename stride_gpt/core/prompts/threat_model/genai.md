@@ -64,6 +64,10 @@ ELEVATION OF PRIVILEGE (Traditional + LLM):
 9. LLM09 - Misinformation: Could LLM hallucinations or false outputs cause harm if trusted?
 10. LLM10 - Unbounded Consumption: Are there limits on resource consumption to prevent DoS and cost overruns?
 
+## Hosted inference providers
+
+When the model is served by a hosted or shared provider, treat the inference endpoint as an external service like any other, and consider how its serving layer works. Prompt and KV caches, request batching and multi-tenant scheduling can put one customer's prompt or completion content into another customer's response, in either direction, independently of the analysed system's own controls. This is not one of LLM01–LLM10, so set `OWASP_LLM` to `null` for such a threat unless one of them also applies.
+
 ## Schema additions
 
 Each threat object in `"threats"` must additionally include:
