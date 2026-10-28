@@ -64,3 +64,55 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  package:
+    name: Package (installed wheel)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Build wheel
+        run: uv build --wheel -o dist
+
+      # Tests run against the source tree, so a file that setuptools leaves
+      # out of the wheel (package-data only lists *.md in threat_model/) still
+      # passes them. Install the wheel into an empty venv and run it from
+      # outside the checkout, so nothing can import from the source tree.
+      - name: Install wheel into a clean venv
+        run: |
+          uv venv "$RUNNER_TEMP/wheel-venv" --python 3.12
+          uv pip install --python "$RUNNER_TEMP/wheel-venv/bin/python" dist/*.whl
+
+      - name: Smoke test the installed package
+        working-directory: ${{ runner.temp }}
+        env:
+          CARDS_SRC: ${{ github.workspace }}/stride_gpt/core/prompts/threat_model
+        run: |
+          set -euo pipefail
+          venv="$RUNNER_TEMP/wheel-venv/bin"
+          "$venv/stride-gpt" --version
+          "$venv/stride-gpt" --help > /dev/null
+          "$venv/python" - <<'PY'
+          import os
+          import pathlib
+
+          import stride_gpt
+          from importlib.resources import files
+          from stride_gpt.core.prompts.variants import list_references
+
+          assert "site-packages" in stride_gpt.__file__, stride_gpt.__file__
+          src = {p.name for p in pathlib.Path(os.environ["CARDS_SRC"]).glob("*.md")}
+          pkg = {f.name for f in files("stride_gpt.core.prompts.threat_model").iterdir()}
+          missing = sorted(src - pkg)
+          assert not missing, f"missing from wheel: {missing}"
+          assert list_references(), "no reference cards found in the installed package"
+          print(f"{len(src)} prompt files packaged, {len(list_references())} reference cards")
+          PY
