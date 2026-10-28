@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import MagicMock
+
+import litellm
 
 from stride_gpt.agent.html_report import render_html
 from stride_gpt.agent.loop import (
@@ -141,6 +144,37 @@ class TestEmergentThreat:
         assert report.cross_cutting_threats == []
         assert report.systemic_observations == []
 
+    def test_with_no_verified_evidence_is_dropped(self, model_pair, sandbox_dir, caplog):
+        invented = {"path": "does/not/exist.py", "snippet": _SNIPPET}
+        altered = {"path": "app.py", "snippet": "app = Flask(name)"}
+        with caplog.at_level(logging.WARNING):
+            report, _ = _run(model_pair, sandbox_dir, [self._emergent([invented, altered])])
+
+        assert report.cross_cutting_threats == []
+        assert "Total threats identified**: 3" in render_markdown(report)
+        assert len(render_sarif(report)["runs"][0]["results"]) == 3
+        assert "none of its evidence verifies" in caplog.text
+        assert "stripped" not in caplog.text
+
+    def test_dropped_when_evidence_was_stripped_to_fit_context(
+        self, model_pair, sandbox_dir, monkeypatch, caplog
+    ):
+        """With no snippets to quote, the architect's citation cannot verify."""
+
+        def token_counter(*, model, messages):
+            # Only the summary without evidence fits the architect's window.
+            return 1 if '"evidence"' not in messages[0]["content"] else 10**9
+
+        monkeypatch.setattr(litellm, "token_counter", token_counter)
+        paraphrase = {"path": "app.py", "snippet": "app = Flask(app_name)"}
+        with caplog.at_level(logging.WARNING):
+            report, fake = _run(model_pair, sandbox_dir, [self._emergent([paraphrase])])
+
+        synthesis = next(r for r in fake.requests if r.messages[0]["content"].startswith("You are a security architect"))
+        assert _SNIPPET not in synthesis.messages[1]["content"]
+        assert report.cross_cutting_threats == []
+        assert "evidence stripped to fit context" in caplog.text
+
 
 class TestClassifySynthesis:
     def _findings(self):
@@ -194,6 +228,7 @@ class TestClassifySynthesis:
             "Related Threats": _AUTH,
             "evidence": [{"path": "app.py", "snippet": "x"}],
         }]
+        (tmp_path / "app.py").write_text("x\n")
         emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
         assert aggregations == []
         assert emergent[0]["Related Threats"] == [_AUTH]
@@ -204,6 +239,7 @@ class TestClassifySynthesis:
             "Related Threats": ["nope-T9", {"id": _AUTH}],
             "evidence": [{"path": "app.py", "snippet": "x"}],
         }]
+        (tmp_path / "app.py").write_text("x\n")
         emergent, _ = classify_synthesis(raw, self._findings(), tmp_path)
         assert "Related Threats" not in emergent[0]
 
@@ -220,6 +256,34 @@ class TestClassifySynthesis:
             findings, tmp_path,
         ) == ([], [])
 
+    def test_emergent_with_no_verified_evidence_is_dropped(self, tmp_path):
+        (tmp_path / "app.py").write_text("x\n")
+        raw = [{
+            "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
+            "evidence": [
+                {"path": "does/not/exist.py", "snippet": "x"},
+                {"path": "app.py", "snippet": "y"},
+                {"path": "app.py"},
+            ],
+        }]
+        dropped: list[dict[str, str]] = []
+        assert classify_synthesis(raw, self._findings(), tmp_path, dropped=dropped) == ([], [])
+        assert dropped == [
+            {"item": "emergent threat 'Tampering'", "reason": "none of its evidence verifies"}
+        ]
+
+    def test_emergent_with_some_verified_evidence_is_kept(self, tmp_path):
+        (tmp_path / "app.py").write_text("x\n")
+        raw = [{
+            "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
+            "evidence": [
+                {"path": "does/not/exist.py", "snippet": "x"},
+                {"path": "app.py", "snippet": "x"},
+            ],
+        }]
+        (threat,), _ = classify_synthesis(raw, self._findings(), tmp_path)
+        assert [e["verified"] for e in threat["evidence"]] == [False, True]
+
     def test_unclassified_and_malformed_items_are_dropped(self, tmp_path):
         raw = [
             {"Threat Type": "Spoofing", "Scenario": "no classification"},
@@ -227,3 +291,54 @@ class TestClassifySynthesis:
             "not a dict",
         ]
         assert classify_synthesis(raw, self._findings(), tmp_path) == ([], [])
+
+    def test_dropped_items_are_recorded_with_reasons(self, tmp_path):
+        raw = [
+            {"Threat Type": "Spoofing", "Scenario": "no classification"},
+            {"Classification": "aggregation", "Threat Type": "Tampering", "Scenario": "s"},
+            {"Classification": "emergent", "Threat Type": "Repudiation", "Scenario": "s"},
+            "not a dict",
+        ]
+        dropped: list[dict[str, str]] = []
+        assert classify_synthesis(raw, self._findings(), tmp_path, dropped=dropped) == ([], [])
+        assert [d["item"] for d in dropped] == [
+            "synthesis item 'Spoofing'",
+            "aggregation 'Tampering'",
+            "emergent threat 'Repudiation'",
+            "synthesis item",
+        ]
+        assert "neither" in dropped[0]["reason"]
+        assert dropped[1]["reason"] == "it links to no known threat id"
+        assert dropped[2]["reason"] == "it cites no evidence"
+        assert "str" in dropped[3]["reason"]
+
+    def test_output_that_is_not_a_list_is_recorded_as_dropped(self, tmp_path):
+        dropped: list[dict[str, str]] = []
+        classify_synthesis("none", self._findings(), tmp_path, dropped=dropped)
+        assert dropped == [{"item": "synthesis output", "reason": "expected a list of items, got str"}]
+
+
+_PRE_209 = {"Threat Type": "Spoofing", "Scenario": "old shape, no Classification"}
+
+
+class TestDroppedSynthesisReporting:
+    """Every item dropped must not read the same as synthesis finding nothing (#252)."""
+
+    def test_all_dropped_is_recorded_in_metadata_and_summaries(self, model_pair, sandbox_dir):
+        report, _ = _run(model_pair, sandbox_dir, [_PRE_209, _PRE_209])
+
+        assert report.cross_cutting_threats == []
+        dropped = report.metadata["synthesis_dropped"]
+        assert len(dropped) == 2
+        assert all("neither" in d["reason"] for d in dropped)
+        for markdown in (render_markdown(report), render_markdown_from_json(render_json(report))):
+            assert "**Synthesis items dropped**: 2" in markdown
+        assert "2 synthesis items dropped" in render_html(report)
+
+    def test_empty_synthesis_says_nothing_about_drops(self, model_pair, sandbox_dir):
+        report, _ = _run(model_pair, sandbox_dir, [])
+
+        assert report.metadata["synthesis_dropped"] == []
+        for markdown in (render_markdown(report), render_markdown_from_json(render_json(report))):
+            assert "Synthesis items dropped" not in markdown
+        assert "synthesis items dropped" not in render_html(report)

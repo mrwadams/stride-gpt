@@ -77,47 +77,37 @@ class TestBuildPlan:
 
 
 class TestKeyFileDiscovery:
-    """search_files appends a truncation marker to its JSON results array once a
-    pattern hits MAX_SEARCH_RESULTS. create_plan's discovery loop must not admit
-    that marker as if it were a real path.
+    """Discovery must see every matching file, not the first 50 per pattern.
+
+    It used search_files, which stops at MAX_SEARCH_RESULTS per pattern in
+    walk order. On OWASP Juice Shop the first 50 ``*.ts`` matches were all
+    frontend files, so the planner never saw the 61 backend route modules.
     """
 
     @patch("stride_gpt.agent.planner.call_llm")
-    def test_truncation_marker_is_excluded_from_key_files(
-        self, mock_call_llm, llm_config, tmp_path
-    ):
-        from stride_gpt.agent.tools import MAX_SEARCH_RESULTS, search_files
+    def test_files_past_the_search_cap_reach_the_prompt(self, mock_call_llm, llm_config, tmp_path):
+        from stride_gpt.agent.tools import MAX_SEARCH_RESULTS
 
-        for i in range(MAX_SEARCH_RESULTS + 1):
-            (tmp_path / f"module_{i}.py").write_text("pass\n")
-
-        results = json.loads(search_files(tmp_path, "*.py"))
-        assert {"truncated": True, "total_limit": MAX_SEARCH_RESULTS} in results, (
-            "fixture must actually trigger the truncation path being tested"
+        mock_call_llm.return_value = LLMResponse(
+            content=json.dumps({
+                "overall_description": "Test",
+                "subsystems": [{"name": "App", "description": "Main", "key_files": ["server.ts"]}],
+            }),
         )
+        for name in ("frontend", "routes"):
+            (tmp_path / name).mkdir()
+            for i in range(MAX_SEARCH_RESULTS):
+                (tmp_path / name / f"m{i:03d}.ts").write_text("x\n")
+        (tmp_path / "node_modules").mkdir()
+        (tmp_path / "node_modules" / "dep.ts").write_text("x\n")
 
-        captured: dict = {}
-
-        def _record_prompt(config, messages):
-            # create_plan sends the discovery prompt (which embeds key_files)
-            # as the last user message.
-            captured["prompt"] = messages[-1]["content"]
-            return LLMResponse(
-                content=json.dumps(
-                    {
-                        "overall_description": "Test",
-                        "subsystems": [
-                            {"name": "App", "description": "Main", "key_files": ["module_0.py"]}
-                        ],
-                    }
-                ),
-            )
-
-        mock_call_llm.side_effect = _record_prompt
         create_plan(llm_config, tmp_path)
 
-        assert "... (truncated" not in captured["prompt"]
-        assert f"## Key Files Found ({MAX_SEARCH_RESULTS} files)" in captured["prompt"]
+        prompt = mock_call_llm.call_args[0][1][1]["content"]
+        assert f"## Key Files Found ({2 * MAX_SEARCH_RESULTS} files)" in prompt
+        assert "frontend/m000.ts" in prompt
+        assert "routes/m000.ts" in prompt
+        assert "truncated" not in prompt
 
 
 # ---------------------------------------------------------------------------

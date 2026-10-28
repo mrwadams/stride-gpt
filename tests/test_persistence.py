@@ -801,3 +801,33 @@ def test_threats_without_evidence_pass_through_redaction(tmp_path, monkeypatch, 
     )
     on_disk = json.loads((tmp_path / "report.findings.json").read_text())
     assert on_disk["findings"][0]["threats"] == [threat]
+
+
+def test_build_analyze_manifest_records_dropped_synthesis_items(
+    tmp_path, monkeypatch, sample_plan, model_pair,
+):
+    """A run whose synthesis items were all dropped differs in run.json from
+    one where synthesis returned nothing (#252)."""
+    monkeypatch.chdir(tmp_path)
+    kwargs = {
+        "models": model_pair,
+        "plan": sample_plan,
+        "target": tmp_path,
+        "started_at": datetime.now(UTC),
+        "finished_at": datetime.now(UTC),
+        "app_type_source": "planner",
+        "system_prompt": "hello",
+        "references_loaded": [],
+        "llm_calls": 5,
+        "tool_calls": 12,
+        "findings": _findings_for(sample_plan),
+    }
+    drops = [{"item": "aggregation 'Spoofing'", "reason": "it links to no known threat id"}]
+
+    dropped = build_analyze_manifest(**kwargs, synthesis_dropped=drops).run_summary
+    empty = build_analyze_manifest(**kwargs).run_summary
+
+    assert dropped.synthesis_items_dropped == 1
+    assert dropped.synthesis_dropped == drops
+    assert empty.synthesis_items_dropped == 0
+    assert empty.synthesis_dropped == []

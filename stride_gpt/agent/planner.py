@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
+import fnmatch
+import os
 from collections import deque
 from pathlib import Path
 
-from stride_gpt.agent.tools import list_directory, search_files
+from stride_gpt.agent.tools import SKIP_DIRS, list_directory
 from stride_gpt.core.json_extract import extract_json_object
 from stride_gpt.core.llm import call_llm
 from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, Subsystem, TokenUsage
@@ -25,15 +26,19 @@ KEY_FILE_SAMPLE_LIMIT = 200
 
 PLANNER_SYSTEM_PROMPT = """You are a security architect planning a STRIDE threat model analysis of a codebase.
 
-Based on the file structure and key files provided, identify 3-7 logical subsystems to analyze for security threats. Each subsystem should represent a distinct area of functionality or infrastructure.
+Based on the file structure and key files provided, identify up to 7 subsystems to analyze for security threats. A subsystem is a deployable unit or a trust boundary: a service, a background worker, a frontend, a data store, or the deployment configuration. It is not a security concern. Authentication, input validation and secret handling are concerns that most services have, so list them as focus areas of the subsystem whose code implements them, not as subsystems of their own.
+
+Each subsystem is analyzed separately, so give each file to exactly one subsystem. If two subsystems would list the same file, they are one subsystem. A small codebase with one service may have only one or two subsystems. A service too large to review in one pass, such as one with dozens of route or handler modules, can be split by module or directory (for example, groups of routes), as long as each file still goes to one subsystem.
+
+Tests, test fixtures and developer tooling are not subsystems unless they ship or run in production.
 
 Good subsystem examples:
-- "Authentication & Authorization" — login flows, session management, RBAC
-- "API Layer" — REST/GraphQL endpoints, request validation, rate limiting
-- "Data Storage" — database access, ORM models, migrations, data at rest
-- "External Integrations" — third-party APIs, webhooks, message queues
-- "Infrastructure" — Dockerfiles, CI/CD, Terraform, deployment configs
-- "Frontend" — client-side code, input handling, state management
+- "Public API service" — the web process: routes, request validation, and the login and session code it calls
+- "Background worker" — job consumers, schedulers, and what they do with queued data
+- "Web frontend" — client-side code, input handling, state management
+- "Data store" — schema, migrations, and data access code shared by several services
+- "Third-party integration client" — outbound calls to external APIs, webhooks
+- "Infrastructure & deployment" — Dockerfiles, CI/CD, Terraform, deployment configs
 
 You must also classify the overall application type so the downstream STRIDE agent knows which OWASP reference cards apply. Choose exactly one of:
 
@@ -57,12 +62,32 @@ Respond with a JSON object:
     ]
 }
 
-Be specific about which files to examine. Prioritize subsystems that handle:
+Be specific about which files to examine. In each subsystem's focus areas, cover the concerns its code handles:
 1. Authentication and authorization
 2. Data input and validation
 3. Sensitive data handling
 4. External communication
 5. Infrastructure and deployment"""
+
+
+def _discover_key_files(target_path: Path) -> list[str]:
+    """Every file under ``target_path`` matching ``KEY_PATTERNS``, sorted.
+
+    Walks the tree itself rather than calling ``search_files``, which stops
+    at 50 matches per pattern in walk order: on OWASP Juice Shop the first
+    50 ``*.ts`` files were all frontend, so the planner never saw the backend
+    routes. ``_diverse_key_files`` caps what reaches the prompt.
+    """
+    root = target_path.resolve()
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        found.extend(
+            str((Path(dirpath) / filename).relative_to(root))
+            for filename in filenames
+            if any(fnmatch.fnmatch(filename, pattern) for pattern in KEY_PATTERNS)
+        )
+    return sorted(found)
 
 
 def _tree_round_robin(files: list[str]) -> list[str]:
@@ -123,13 +148,7 @@ def create_plan(
     """Scan a codebase and generate an analysis plan via LLM."""
     # Gather codebase structure
     dir_listing = list_directory(target_path, ".")
-    key_files: list[str] = []
-    for pattern in KEY_PATTERNS:
-        results = json.loads(search_files(target_path, pattern))
-        key_files.extend(r for r in results if isinstance(r, str))
-
-    # Deduplicate and sort
-    key_files = sorted(set(key_files))
+    key_files = _discover_key_files(target_path)
     key_files_shown = _diverse_key_files(key_files, KEY_FILE_SAMPLE_LIMIT)
 
     if len(key_files_shown) < len(key_files):

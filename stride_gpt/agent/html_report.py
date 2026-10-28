@@ -116,6 +116,7 @@ def render_html_from_json(data: dict[str, Any]) -> str:
         subsystem_count=len(subsystems),
         cross_cutting_count=len(cross_cutting),
         systemic_count=len(systemic),
+        synthesis_dropped_count=len(metadata.get("synthesis_dropped") or []),
     ))
 
     if overview:
@@ -175,6 +176,7 @@ def _render_header(
     subsystem_count: int,
     cross_cutting_count: int,
     systemic_count: int = 0,
+    synthesis_dropped_count: int = 0,
 ) -> str:
     model_line = _format_model_line(metadata)
     chip = (
@@ -201,6 +203,12 @@ def _render_header(
     if isinstance(synthesis_error_class, str) and synthesis_error_class:
         summary_chips.append(
             f'<span class="{chip}">Synthesis failed ({html.escape(synthesis_error_class)})</span>'
+        )
+    # Otherwise a run whose every synthesis item was dropped reads the same as
+    # one where synthesis genuinely found nothing.
+    if synthesis_dropped_count:
+        summary_chips.append(
+            f'<span class="{chip}">{synthesis_dropped_count} synthesis items dropped</span>'
         )
 
     meta_line_parts: list[str] = []

@@ -281,6 +281,7 @@ def run_analysis(
                 subsystem_description=subsystem.description,
                 key_files=subsystem.key_files,
                 focus_areas=subsystem.focus_areas,
+                other_subsystems=[other for other in plan.subsystems if other is not subsystem],
                 ctx=ctx,
                 max_llm_calls=max_llm_calls,
                 max_tool_calls=remaining_tool,
@@ -341,20 +342,26 @@ def run_analysis(
     cross_cutting: list[dict[str, Any]] = []
     systemic: list[dict[str, Any]] = []
     synthesis_error_class: str | None = None
+    synthesis_dropped: list[dict[str, str]] = []
     if len(analysed) > 1:
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
         synth_counts = {"llm": 0}
+        synth_notes: dict[str, bool] = {}
         try:
             raw_synthesis = _synthesize(
                 models, analysed, usage=phase_usage["synthesis"], call_counts=synth_counts,
+                notes=synth_notes,
             )
         except Exception as exc:
             synthesis_error_class = type(exc).__name__
             logger.warning("Synthesis failed (%s)", synthesis_error_class)
             progress.error("synthesis", f"Failed ({synthesis_error_class}); findings preserved.")
         else:
-            cross_cutting, systemic = classify_synthesis(raw_synthesis, analysed, target_path)
+            cross_cutting, systemic = classify_synthesis(
+                raw_synthesis, analysed, target_path, dropped=synthesis_dropped,
+                evidence_stripped=synth_notes.get("evidence_stripped", False),
+            )
             if systemic:
                 progress.status(f"Noted {len(systemic)} systemic observations (not counted as threats)")
             progress.synthesis_done(len(cross_cutting))
@@ -382,6 +389,7 @@ def run_analysis(
     metadata["token_usage"] = _token_usage_metadata(phase_usage)
     if synthesis_error_class is not None:
         metadata["synthesis_error_class"] = synthesis_error_class
+    metadata["synthesis_dropped"] = synthesis_dropped
 
     assign_threat_ids(findings, cross_cutting)
     report = AnalysisReport(
@@ -921,6 +929,7 @@ def _analyze_subsystem(
     loaded_refs: set[str] | None = None,
     token_usage: TokenUsage | None = None,
     phase_usage: dict[str, TokenUsage] | None = None,
+    other_subsystems: list[Subsystem] | None = None,
 ) -> SubsystemFinding:
     """Analyze a single subsystem using the agent loop.
 
@@ -937,6 +946,20 @@ Key files to examine: {', '.join(key_files) if key_files else 'Discover relevant
 Focus areas: {', '.join(focus_areas) if focus_areas else 'All STRIDE categories'}
 
 Start by reading the key files. Use grep to find security-relevant patterns like authentication, authorization, input validation, SQL queries, file operations, secret handling, and network calls. Report each threat with report_threat as you find it, then call finish."""
+
+    if other_subsystems:
+        # Issue #264: without this, a worker that follows a call into another
+        # subsystem's file re-reports what that subsystem's worker will find.
+        others = "\n".join(
+            f"- {o.name}: {', '.join(o.key_files) if o.key_files else 'no key files listed'}"
+            for o in other_subsystems
+        )
+        user_prompt += f"""
+
+Other subsystems in this analysis, each analyzed separately:
+{others}
+
+The files listed above belong to those subsystems. You can read them to understand a threat here, but leave weaknesses in them to that subsystem's analysis. Report what you find in every other file you read, including files that no subsystem lists: the lists are a sample of each subsystem's code, not all of it. When this subsystem's code can reach a weakness in another subsystem, report the whole chain as one threat: cite this subsystem's code and the line it reaches there, and name that subsystem in the scenario. When another subsystem's code reaches a weakness here, the chain belongs to that subsystem: report the weakness here, cite only this subsystem's code, and name the other subsystem as a way in."""
 
     messages: list[dict] = [
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
@@ -1113,6 +1136,9 @@ def classify_synthesis(
     raw: list[dict[str, Any]],
     findings: list[SubsystemFinding],
     target_path: Path,
+    *,
+    evidence_stripped: bool = False,
+    dropped: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Split synthesis output into ``(emergent threats, aggregations)``.
 
@@ -1122,28 +1148,49 @@ def classify_synthesis(
     * an aggregation must link to at least one threat that exists, and
       carries no evidence of its own;
     * an emergent threat must cite evidence, which is checked against the code
-      by ``verify_evidence`` exactly as a subsystem threat's is.
+      by ``verify_evidence`` exactly as a subsystem threat's is, and at least
+      one of its snippets must verify. When one does, it is kept and any
+      unverified snippets stay on it marked ``verified: false``; when none
+      does, it is dropped.
 
     Anything else is dropped and logged. An aggregation linking to nothing is
     a claim with no support, and an emergent threat citing nothing is the
     unverifiable restatement this split exists to stop counting as a threat.
+
+    The verified-snippet rule is stricter than a subsystem threat gets. The
+    architect has no tools: the only code it sees is the evidence quoted in
+    the findings, so a citation that fails to verify was altered from one of
+    those snippets or invented, and unlike a worker it gets no feedback and no
+    chance to correct it. ``evidence_stripped`` says the findings were sent
+    without their snippets to fit the architect's context window, which
+    leaves it nothing to cite; every emergent threat is then expected to be
+    dropped, and the log says why.
+
+    When ``dropped`` is given, each dropped item is appended to it as
+    ``{"item": <Threat Type>, "reason": <why>}`` so the run manifest and the
+    report can tell "every item was dropped" apart from "synthesis found
+    nothing".
     """
     known_ids = {t["id"] for f in findings for t in f.threats if isinstance(t.get("id"), str)}
     emergent: list[dict[str, Any]] = []
     aggregations: list[dict[str, Any]] = []
+
+    def drop(item: str, reason: str) -> None:
+        logger.warning("Dropped %s: %s", item, reason)
+        if dropped is not None:
+            dropped.append({"item": item, "reason": reason})
 
     if not isinstance(raw, list):
         # `_synthesize` hands back whatever sat under "cross_cutting_threats",
         # which a model can make a string or a number. Phase 3 is the last
         # thing before the report, so iterating that would throw away every
         # subsystem finding the run just paid for.
-        logger.warning(
-            "Dropped synthesis output: expected a list of items, got %s", type(raw).__name__
-        )
+        drop("synthesis output", f"expected a list of items, got {type(raw).__name__}")
         return emergent, aggregations
 
     for item in raw:
         if not isinstance(item, dict):
+            drop("synthesis item", f"expected an object, got {type(item).__name__}")
             continue
         kind = str(item.get("Classification") or "").strip().lower()
         label = f"{item.get('Threat Type', 'Unknown')!r}"
@@ -1153,14 +1200,21 @@ def classify_synthesis(
         if kind == AGGREGATION:
             linked = _known_links(item.get("Related Threats"), known_ids)
             if not linked:
-                logger.warning("Dropped aggregation %s: it links to no known threat id", label)
+                drop(f"aggregation {label}", "it links to no known threat id")
                 continue
             entry["Related Threats"] = linked
             aggregations.append(entry)
         elif kind == EMERGENT:
             checks = verify_evidence(target_path, item.get("evidence"))
             if not checks:
-                logger.warning("Dropped emergent threat %s: it cites no evidence", label)
+                drop(f"emergent threat {label}", "it cites no evidence")
+                continue
+            if not any(c.verified for c in checks):
+                drop(
+                    f"emergent threat {label}",
+                    "none of its evidence verifies"
+                    + (" (evidence stripped to fit context)" if evidence_stripped else ""),
+                )
                 continue
             entry["evidence"] = [c.to_dict() for c in checks]
             # Optional here, so an emergent threat that links to nothing real
@@ -1174,9 +1228,10 @@ def classify_synthesis(
                 entry.pop("Related Threats", None)
             emergent.append(entry)
         else:
-            logger.warning(
-                "Dropped synthesis item %s: classification %r is neither %r nor %r",
-                label, item.get("Classification"), AGGREGATION, EMERGENT,
+            drop(
+                f"synthesis item {label}",
+                f"classification {item.get('Classification')!r} is neither "
+                f"{AGGREGATION!r} nor {EMERGENT!r}",
             )
     return emergent, aggregations
 
@@ -1204,6 +1259,7 @@ def _synthesize(
     *,
     usage: TokenUsage | None = None,
     call_counts: dict[str, int] | None = None,
+    notes: dict[str, bool] | None = None,
 ) -> list[dict[str, Any]]:
     """Ask the architect for cross-cutting output across all subsystem findings.
 
@@ -1211,7 +1267,8 @@ def _synthesize(
     threat; ``classify_synthesis`` validates them and splits the two kinds.
     Uses the architect tier — synthesis is a cross-cutting reasoning task.
     ``call_counts["llm"]`` is set to the calls made: one, or two when the
-    first reply was not JSON.
+    first reply was not JSON. ``notes["evidence_stripped"]`` is set when the
+    findings had to be sent without their evidence snippets.
     """
     findings_summary = _findings_summary(findings)
 
@@ -1220,7 +1277,11 @@ def _synthesize(
     # Guard against the architect having a smaller context window than the
     # raw findings summary — trim per-finding if so. Worker's window drives
     # the agent loop, but the architect handles the synthesis call.
-    findings_summary = _truncate_findings_to_fit(architect, findings, findings_summary)
+    findings_summary, evidence_shown = _truncate_findings_to_fit(
+        architect, findings, findings_summary
+    )
+    if notes is not None:
+        notes["evidence_stripped"] = not evidence_shown
 
     json_config = architect.model_copy(update={"response_format": "json"})
     messages: list[dict] = [
@@ -1305,13 +1366,15 @@ def _truncate_findings_to_fit(
     architect: LLMConfig,
     findings: list[SubsystemFinding],
     rendered: str,
-) -> str:
+) -> tuple[str, bool]:
     """If the rendered findings JSON exceeds the architect's context window,
     trim it until it fits: first the per-finding `files_analyzed` lists
     (cheapest content), then the evidence snippets, which costs the architect
     the ability to cite them. Falls through unchanged on any sizing error —
     better to send too much and let the provider error than crash
     mid-synthesis here.
+
+    Returns the text to send and whether it still carries the evidence.
     """
     try:
         import litellm
@@ -1323,13 +1386,14 @@ def _truncate_findings_to_fit(
             return litellm.token_counter(model=architect.model_name, messages=messages) <= budget
 
         if fits(rendered):
-            return rendered
+            return rendered, True
         trimmed = _findings_summary(findings, max_files=5)
         if fits(trimmed):
-            return trimmed
-        return _findings_summary(findings, max_files=5, evidence=False)
+            return trimmed, True
+        logger.warning("Synthesis findings sent without evidence snippets to fit the architect's context")
+        return _findings_summary(findings, max_files=5, evidence=False), False
     except Exception:
-        return rendered
+        return rendered, True
 
 
 COMPRESSION_BUDGET = 0.75  # leave headroom for the system prompt + response
