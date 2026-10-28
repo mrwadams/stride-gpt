@@ -278,6 +278,7 @@ def _persist_analyze_intermediates(
         resumed_subsystems=report.metadata.get("resumed_subsystems", []),
         rerun_subsystems=report.metadata.get("rerun_subsystems", []),
         token_usage_by_phase=token_usage.get("by_phase"),
+        synthesis_error_class=report.metadata.get("synthesis_error_class"),
         synthesis_dropped=report.metadata.get("synthesis_dropped"),
     )
     written = write_intermediates(
@@ -642,13 +643,13 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         rendered = render_html(report)
 
     if output_path:
-        output_path.write_text(rendered)
+        output_path.write_text(rendered, encoding="utf-8")
         console.print(f"\n[green]Report written to {output_path}[/green]")
         # JSON output pairs an HTML companion next to it — JSON is the machine
         # artifact, HTML is its human view.
         if output_format == OutputFormat.json:
             html_path = output_path.with_suffix(".html")
-            html_path.write_text(render_html(report))
+            html_path.write_text(render_html(report), encoding="utf-8")
             console.print(f"[green]HTML view written to {html_path}[/green]")
         _persist_analyze_intermediates(
             output=output_path,
@@ -788,11 +789,11 @@ def _handle_reports(args_str: str) -> None:
     if output_path:
         if not _prepare_output_dir(output_path):
             return
-        output_path.write_text(rendered)
+        output_path.write_text(rendered, encoding="utf-8")
         console.print(f"[green]Report exported to {output_path}[/green]")
         if output_format == OutputFormat.json:
             html_path = output_path.with_suffix(".html")
-            html_path.write_text(render_html_from_json(data))
+            html_path.write_text(render_html_from_json(data), encoding="utf-8")
             console.print(f"[green]HTML view written to {html_path}[/green]")
     else:
         console.print()
@@ -924,9 +925,9 @@ def _handle_quick(config: dict, args_str: str) -> None:
             # produce byte-identical HTML for the same analysis.
             from stride_gpt.agent.report import load_report
             html = render_html_from_json(load_report(saved_path))
-            output_path.write_text(html)
+            output_path.write_text(html, encoding="utf-8")
         else:
-            output_path.write_text(markdown)
+            output_path.write_text(markdown, encoding="utf-8")
         console.print(f"[green]Report written to {output_path}[/green]")
         _persist_quick_intermediates(
             output=output_path,
@@ -1109,11 +1110,11 @@ def analyze(
         rendered = render_html(report)
 
     if output:
-        output.write_text(rendered)
+        output.write_text(rendered, encoding="utf-8")
         console.print(f"\n[green]Report written to {output}[/green]")
         if output_format == OutputFormat.json:
             html_path = output.with_suffix(".html")
-            html_path.write_text(render_html(report))
+            html_path.write_text(render_html(report), encoding="utf-8")
             console.print(f"[green]HTML view written to {html_path}[/green]")
         _persist_analyze_intermediates(
             output=output,
@@ -1234,9 +1235,9 @@ def quick(
     if output:
         if output_format == OutputFormat.html:
             html = render_html_from_json(load_report(saved_path))
-            output.write_text(html)
+            output.write_text(html, encoding="utf-8")
         else:
-            output.write_text(markdown)
+            output.write_text(markdown, encoding="utf-8")
         console.print(f"[green]Report written to {output}[/green]")
         _persist_quick_intermediates(
             output=output,
@@ -1330,11 +1331,11 @@ def reports(
     if output:
         if not _prepare_output_dir(output):
             raise typer.Exit(1)
-        output.write_text(rendered)
+        output.write_text(rendered, encoding="utf-8")
         console.print(f"[green]Report exported to {output}[/green]")
         if output_format == OutputFormat.json:
             html_path = output.with_suffix(".html")
-            html_path.write_text(render_html_from_json(data))
+            html_path.write_text(render_html_from_json(data), encoding="utf-8")
             console.print(f"[green]HTML view written to {html_path}[/green]")
     else:
         console.print()

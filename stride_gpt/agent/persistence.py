@@ -69,8 +69,8 @@ class RunSummary(BaseModel):
 
     * ``"completed"`` — every planned subsystem was analysed (analyze), or the
       single-shot model returned (quick).
-    * ``"partial"`` — at least one subsystem crashed, produced no readable
-      answer, or was never started because the run budget ran out.
+    * ``"partial"`` — a subsystem crashed, produced no readable answer, was
+      never started because the run budget ran out, or synthesis failed.
 
     A subsystem that took the #195 grace round still analysed the code, so it
     counts towards ``subsystems_analyzed`` and doesn't make a run partial;
@@ -86,6 +86,7 @@ class RunSummary(BaseModel):
     # Subsystem count per ``SubsystemOutcome``, omitting outcomes that didn't
     # occur. Empty for /quick.
     subsystem_outcomes: dict[str, int] = {}
+    synthesis_error_class: str | None = None
     llm_calls: int
     tool_calls: int
     # Names of subsystems reused from a checkpoint (``--resume``) versus
@@ -486,6 +487,7 @@ def build_analyze_manifest(
     resumed_subsystems: list[str] | None = None,
     rerun_subsystems: list[str] | None = None,
     token_usage_by_phase: dict[str, dict[str, int | None]] | None = None,
+    synthesis_error_class: str | None = None,
     synthesis_dropped: list[dict[str, str]] | None = None,
 ) -> RunManifest:
     """Assemble the manifest for a /analyze run.
@@ -511,10 +513,11 @@ def build_analyze_manifest(
     for usage in by_phase.values():
         token_usage_total.merge(usage)
     run_summary = RunSummary(
-        status="partial" if subsystems_analyzed < subsystems_planned else "completed",
+        status="partial" if subsystems_analyzed < subsystems_planned or synthesis_error_class else "completed",
         subsystems_planned=subsystems_planned,
         subsystems_analyzed=subsystems_analyzed,
         subsystem_outcomes=count_outcomes(findings),
+        synthesis_error_class=synthesis_error_class,
         llm_calls=llm_calls,
         tool_calls=tool_calls,
         resumed_subsystems=resumed_subsystems or [],

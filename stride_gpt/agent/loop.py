@@ -341,24 +341,32 @@ def run_analysis(
     # --- Phase 3: Synthesis ---
     cross_cutting: list[dict[str, Any]] = []
     systemic: list[dict[str, Any]] = []
+    synthesis_error_class: str | None = None
     synthesis_dropped: list[dict[str, str]] = []
     if len(analysed) > 1:
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
         synth_counts = {"llm": 0}
         synth_notes: dict[str, bool] = {}
-        raw_synthesis = _synthesize(
-            models, analysed, usage=phase_usage["synthesis"], call_counts=synth_counts,
-            notes=synth_notes,
-        )
-        llm_calls += synth_counts["llm"]
-        cross_cutting, systemic = classify_synthesis(
-            raw_synthesis, analysed, target_path, dropped=synthesis_dropped,
-            evidence_stripped=synth_notes.get("evidence_stripped", False),
-        )
-        if systemic:
-            progress.status(f"Noted {len(systemic)} systemic observations (not counted as threats)")
-        progress.synthesis_done(len(cross_cutting))
+        try:
+            raw_synthesis = _synthesize(
+                models, analysed, usage=phase_usage["synthesis"], call_counts=synth_counts,
+                notes=synth_notes,
+            )
+        except Exception as exc:
+            synthesis_error_class = type(exc).__name__
+            logger.warning("Synthesis failed (%s)", synthesis_error_class)
+            progress.error("synthesis", f"Failed ({synthesis_error_class}); findings preserved.")
+        else:
+            cross_cutting, systemic = classify_synthesis(
+                raw_synthesis, analysed, target_path, dropped=synthesis_dropped,
+                evidence_stripped=synth_notes.get("evidence_stripped", False),
+            )
+            if systemic:
+                progress.status(f"Noted {len(systemic)} systemic observations (not counted as threats)")
+            progress.synthesis_done(len(cross_cutting))
+        finally:
+            llm_calls += synth_counts["llm"]
 
     # --- Phase 4: System-level DFD ---
     # Optional pass — gives the report a visual map of components and trust
@@ -379,6 +387,8 @@ def run_analysis(
     )
     metadata["references_loaded"] = sorted(loaded_refs)
     metadata["token_usage"] = _token_usage_metadata(phase_usage)
+    if synthesis_error_class is not None:
+        metadata["synthesis_error_class"] = synthesis_error_class
     metadata["synthesis_dropped"] = synthesis_dropped
 
     assign_threat_ids(findings, cross_cutting)
