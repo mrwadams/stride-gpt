@@ -1,6 +1,7 @@
 """A failed synthesis must not discard completed subsystem findings."""
 
 import json
+import logging
 from unittest.mock import MagicMock
 
 import litellm
@@ -45,6 +46,8 @@ def test_failed_synthesis_preserves_findings_and_marks_reports(model_pair, sandb
     assert report.metadata["synthesis_error_class"] == "AuthenticationError"
     assert report.metadata["llm_calls"] == len(_NAMES) + int(retry) + 1
     progress.synthesis_done.assert_not_called()
+    progress.error.assert_not_called()
+    progress.synthesis_failed.assert_called_once()
     data = render_json(report)
     for rendered in (
         render_markdown(report),
@@ -55,6 +58,45 @@ def test_failed_synthesis_preserves_findings_and_marks_reports(model_pair, sandb
         assert "Synthesis failed" in rendered
         assert "AuthenticationError" in rendered
         assert "secret provider detail" not in rendered
+
+
+def test_provider_error_logs_without_a_traceback(model_pair, sandbox_dir, caplog):
+    def provider_error(*_a, **_k):
+        raise litellm.RateLimitError(message="slow down", model="fake", llm_provider="anthropic")
+
+    with caplog.at_level(logging.WARNING, logger="stride_gpt.agent.loop"):
+        _run_with_synthesis(model_pair, sandbox_dir, provider_error)
+
+    (record,) = [r for r in caplog.records if r.getMessage().startswith("Synthesis failed")]
+    assert not record.exc_info
+
+
+def test_unexpected_error_logs_its_traceback(model_pair, sandbox_dir, caplog):
+    def bug(*_a, **_k):
+        raise TypeError("a bug in synthesis")
+
+    with caplog.at_level(logging.WARNING, logger="stride_gpt.agent.loop"):
+        report = _run_with_synthesis(model_pair, sandbox_dir, bug)
+
+    assert report.metadata["synthesis_error_class"] == "TypeError"
+    (record,) = [r for r in caplog.records if r.getMessage().startswith("Synthesis failed")]
+    assert record.exc_info is not None
+    assert record.exc_info[0] is TypeError
+
+
+def _run_with_synthesis(model_pair, sandbox_dir, synthesize):
+    """Run three subsystems with ``_synthesize`` replaced by ``synthesize``."""
+    steps = [
+        _tool_turn(
+            _report(f"r{i}", scenario=_SCENARIO, evidence=_EVIDENCE),
+            _finish(f"f{i}"),
+        )
+        for i in range(len(_NAMES))
+    ]
+    steps.append(_DFD)
+    with ScriptedLLM(steps), pytest.MonkeyPatch.context() as mp:
+        mp.setattr("stride_gpt.agent.loop._synthesize", synthesize)
+        return run_analysis(model_pair, sandbox_dir, plan=_plan(sandbox_dir), progress=MagicMock())
 
 
 def test_empty_successful_synthesis_is_not_reported_as_failure(model_pair, sandbox_dir):

@@ -66,6 +66,14 @@ class TestQueueProgress:
         assert event["type"] == "error"
         assert event["name"] == "Auth"
 
+    def test_synthesis_failed(self):
+        q: queue.Queue = queue.Queue()
+        p = QueueProgress(q)
+        p.synthesis_failed("Rate limited by the provider.")
+        event = q.get_nowait()
+        assert event["type"] == "synthesis_failed"
+        assert event["reason"] == "Rate limited by the provider."
+
     def test_complete(self):
         q: queue.Queue = queue.Queue()
         p = QueueProgress(q)
@@ -85,3 +93,12 @@ class TestRichProgress:
         p = RichProgress(Console(file=out, width=120))
         p.complete("Token usage: 105 (prompt: 100 [cached: 60, uncached: 40] | completion: 5)")
         assert "(prompt: 100 [cached: 60, uncached: 40] | completion: 5)" in out.getvalue()
+
+    def test_synthesis_failure_names_the_phase_not_a_subsystem(self):
+        out = io.StringIO()
+        p = RichProgress(Console(file=out, width=200))
+        p.synthesis_failed("Unexpected error: bad key [x]")
+        text = out.getvalue()
+        assert "Synthesis failed" in text
+        assert "Error analyzing" not in text
+        assert "Unexpected error: bad key [x]" in text
