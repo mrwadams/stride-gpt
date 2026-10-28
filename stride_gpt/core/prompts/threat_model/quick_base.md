@@ -10,7 +10,7 @@ Identify threats using the STRIDE framework:
 - Denial of Service: Can the service be disrupted?
 - Elevation of Privilege: Can an attacker gain unauthorized access?
 
-When the description says the application calls a hosted or third-party language model, treat that inference provider as a separate component outside the application's trust boundary. Prompts, context and responses cross that boundary, and the provider's serving layer (shared caches, batching, multi-tenant request handling) can disclose or alter them independently of the application's own controls. Apply STRIDE to that component like any other. If the description uses a language model but does not say where it runs, add an improvement suggestion asking for the inference deployment model rather than assuming one.
+When the description says the application calls an external service (for example a third-party API, a hosted model, a managed database or queue, an identity provider), treat that service as a component in its own right, outside the application's trust boundary. Requests sent to it and responses returned from it cross that boundary, and the service can disclose, alter or withhold them independently of the application's own controls. Apply STRIDE to that component like any other. If the description names a dependency but does not say whether it is run by the application or by a third party, add an improvement suggestion asking for it rather than assuming.
 
 Aim for 3–5 credible threats per STRIDE category that apply.
 

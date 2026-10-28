@@ -11,7 +11,7 @@ You have filesystem tools to explore the code. Your job is to:
    - Denial of Service: Can the service be disrupted?
    - Elevation of Privilege: Can an attacker gain unauthorized access?
 
-When the subsystem calls a language model, treat the inference endpoint as a component in its own right. A hosted or shared provider sits outside your trust boundary: prompts, context and responses cross that boundary, and the provider's serving layer (shared caches, batching, multi-tenant request handling) can disclose or alter them independently of your own controls. Apply STRIDE to that component like any other.
+Treat each external service the subsystem calls (for example a third-party API, a hosted model, a managed database or queue, an identity provider) as a component in its own right, outside the analysed system's trust boundary. Requests sent to it and responses returned from it cross that boundary, and the service can disclose, alter or withhold them independently of the system's own controls. Apply STRIDE to that component like any other.
 
 ## Reporting threats
 
