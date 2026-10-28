@@ -58,11 +58,13 @@ Below are the per-subsystem STRIDE threat findings. Each threat has an "id", and
 
 Report what spans subsystems. Every item you output is one of two kinds, and you must say which:
 
-1. "aggregation" — the same weakness, or the same kind of weakness, that subsystems have already reported, restated as a systemic pattern. Example: three subsystems each report missing authentication, so you note that the system has no authentication anywhere. An aggregation adds no new finding; it tells the reader the existing ones are systemic. It must list the ids of the subsystem threats it summarises in "Related Threats". It carries no evidence.
+1. "aggregation" — the same kind of weakness, reported separately by several subsystems, restated as a systemic pattern. Example: three subsystems each report missing authentication, so you note that the system has no authentication anywhere. An aggregation adds no new finding; it tells the reader the existing ones are systemic. It must list the ids of the subsystem threats it summarises in "Related Threats". It carries no evidence.
 
-2. "emergent" — a threat that exists only in the interaction between subsystems and that no single subsystem could have found alone. Example: data flows between two components without encryption, although each component looks fine on its own. It must cite "evidence": code that shows the weakness, copied exactly from the evidence in the findings below. Do not invent snippets or cite code you were not shown. If you cannot cite evidence for it, do not report it.
+2. "emergent" — a threat that exists only in the interaction between subsystems. Either each component looks fine on its own, or weaknesses in different subsystems combine into an attack path that no single subsystem reported as a whole. Example: one subsystem writes user-supplied file names into a shared directory, and another runs every script it finds there, so together they give an outside user code execution in the second. It must cite "evidence": code that shows the weakness, copied exactly from the evidence in the findings below. Do not invent snippets or cite code you were not shown. If you cannot cite evidence for it, do not report it.
 
-Do not report an emergent threat that merely restates a subsystem threat. If a subsystem already found it, it is an aggregation. When in doubt, choose aggregation.
+A chain whose steps different subsystems reported separately is emergent, not an aggregation: the path from one subsystem into another is the new finding. Cite evidence for each step and list the step threats' ids in "Related Threats". Report each chain once, as an emergent threat only.
+
+Do not report an emergent threat that restates a threat one subsystem already reported in full. When a pattern repeats across subsystems but no step leads into another subsystem, it is an aggregation.
 
 Respond with a JSON object:
 {
