@@ -50,8 +50,6 @@ dev = [
 web = [
     "streamlit>=1.58.0",
     "openai",
-    "anthropic",
-    "groq",
     "pyGithub",
     "tiktoken",
     "requests>=2.34.2",
