@@ -355,8 +355,14 @@ def run_analysis(
             )
         except Exception as exc:
             synthesis_error_class = type(exc).__name__
-            logger.warning("Synthesis failed (%s)", synthesis_error_class)
-            progress.error("synthesis", f"Failed ({synthesis_error_class}); findings preserved.")
+            error_class, reason = classify_error(exc)
+            # A provider error explains itself. Anything else is likely a bug
+            # in synthesis, and its traceback is all there is to debug from.
+            logger.warning(
+                "Synthesis failed (%s)", synthesis_error_class,
+                exc_info=error_class == "unexpected",
+            )
+            progress.synthesis_failed(reason)
         else:
             cross_cutting, systemic = classify_synthesis(
                 raw_synthesis, analysed, target_path, dropped=synthesis_dropped,

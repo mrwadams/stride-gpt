@@ -49,6 +49,9 @@ class ProgressCallback(Protocol):
     def synthesis_done(self, count: int) -> None:
         """Cross-cutting threat synthesis completed."""
 
+    def synthesis_failed(self, reason: str) -> None:
+        """Cross-cutting threat synthesis failed. Subsystem findings are kept."""
+
     def token_budget(self, model: str, limit: int, source: str) -> None:
         """Report the context token budget for the model.
 
@@ -130,6 +133,12 @@ class RichProgress:
     def synthesis_done(self, count: int) -> None:
         self.console.print(f"  [green]Found {count} cross-cutting threats[/green]")
 
+    def synthesis_failed(self, reason: str) -> None:
+        self.console.print(
+            f"  [yellow]Synthesis failed, so this run has no cross-cutting threats. "
+            f"Subsystem findings are kept.\n  Reason: {escape(reason)}[/yellow]"
+        )
+
     def complete(self, summary: str) -> None:
         # The summary is plain text, and its token line brackets the cache
         # split — unescaped, Rich reads "[cached: ...]" as a markup tag and
@@ -184,6 +193,9 @@ class QueueProgress:
 
     def synthesis_done(self, count: int) -> None:
         self._put({"type": "synthesis_done", "count": count})
+
+    def synthesis_failed(self, reason: str) -> None:
+        self._put({"type": "synthesis_failed", "reason": reason})
 
     def complete(self, summary: str) -> None:
         self._put({"type": "complete", "summary": summary})
