@@ -151,6 +151,11 @@ class AnalysisPlan(BaseModel):
     # Planner-detected application type. The agent uses this as a hint for
     # which OWASP reference cards to load during per-subsystem analysis.
     detected_app_type: Literal["web", "genai", "agentic"] = "web"
+    # How many files matched ``KEY_PATTERNS`` and how many of them the
+    # planner prompt actually listed (issue #175). ``None`` on plans that
+    # predate these fields.
+    key_files_found: int | None = None
+    key_files_shown: int | None = None
 
 
 # Why a subsystem stopped. A closed set, so a consumer of findings.json can

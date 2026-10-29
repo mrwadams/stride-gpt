@@ -831,3 +831,71 @@ def test_build_analyze_manifest_records_dropped_synthesis_items(
     assert dropped.synthesis_dropped == drops
     assert empty.synthesis_items_dropped == 0
     assert empty.synthesis_dropped == []
+
+
+# ---------------------------------------------------------------------------
+# Key-file truncation in run.json (issue #175)
+# ---------------------------------------------------------------------------
+
+
+def _run_json_for_tree(tmp_path, monkeypatch, model_pair, file_count: int) -> dict:
+    from unittest.mock import patch
+
+    from stride_gpt.agent.planner import create_plan
+    from stride_gpt.core.schemas import LLMResponse
+
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "repo"
+    target.mkdir()
+    for i in range(file_count):
+        (target / f"f{i:03d}.py").write_text("x\n")
+    response = LLMResponse(
+        content=json.dumps({"overall_description": "Test", "subsystems": [{"name": "App"}]}),
+    )
+    with patch("stride_gpt.agent.planner.call_llm", return_value=response):
+        plan = create_plan(model_pair.worker, target)
+
+    manifest = build_analyze_manifest(
+        models=model_pair,
+        plan=plan,
+        target=target,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        app_type_source="planner",
+        system_prompt="hello",
+        references_loaded=[],
+        llm_calls=1,
+        tool_calls=0,
+        findings=_findings_for(plan),
+    )
+    output = tmp_path / "report.md"
+    write_intermediates(output, manifest=manifest, plan=plan, findings=[])
+    return json.loads((tmp_path / "report.run.json").read_text())["run_summary"]
+
+
+def test_run_json_records_key_file_truncation(tmp_path, monkeypatch, model_pair):
+    from stride_gpt.agent.planner import KEY_FILE_SAMPLE_LIMIT
+
+    summary = _run_json_for_tree(tmp_path, monkeypatch, model_pair, KEY_FILE_SAMPLE_LIMIT + 10)
+    assert summary["key_files_found"] == KEY_FILE_SAMPLE_LIMIT + 10
+    assert summary["key_files_shown"] == KEY_FILE_SAMPLE_LIMIT
+
+
+def test_run_json_records_equal_counts_under_the_limit(tmp_path, monkeypatch, model_pair):
+    summary = _run_json_for_tree(tmp_path, monkeypatch, model_pair, 5)
+    assert summary["key_files_found"] == summary["key_files_shown"] == 5
+
+
+def test_quick_manifest_has_no_key_file_counts(model_pair):
+    summary = _make_quick_manifest().run_summary
+    assert summary.key_files_found is None
+    assert summary.key_files_shown is None
+
+
+def test_run_json_written_before_key_file_counts_still_loads(tmp_path):
+    data = json.loads(_make_analyze_manifest(tmp_path).model_dump_json())
+    del data["run_summary"]["key_files_found"]
+    del data["run_summary"]["key_files_shown"]
+    manifest = RunManifest(**data)
+    assert manifest.run_summary.key_files_found is None
+    assert manifest.run_summary.key_files_shown is None

@@ -456,6 +456,16 @@ def _resolve_analysis_plan(
             plan = plan.model_copy(update={"detected_app_type": app_type.value})
 
     console.print(Panel(format_plan_for_display(plan), title="Analysis Plan", style="cyan"))
+    if (
+        plan.key_files_found is not None
+        and plan.key_files_shown is not None
+        and plan.key_files_shown < plan.key_files_found
+    ):
+        console.print(
+            f"[yellow]Warning: the planner saw {plan.key_files_shown} of "
+            f"{plan.key_files_found} key files. Check that no subsystem is "
+            f"missing from the plan.[/yellow]"
+        )
 
     if not auto_approve:
         console.print(format_llm_call_ceiling(len(plan.subsystems), max_llm_calls))

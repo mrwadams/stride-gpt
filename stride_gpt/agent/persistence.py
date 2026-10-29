@@ -115,6 +115,12 @@ class RunSummary(BaseModel):
     # nothing reports zero. Always zero for /quick, which has no synthesis.
     synthesis_items_dropped: int = 0
     synthesis_dropped: list[dict[str, str]] = []
+    # How many key files the planner found and how many fit in its prompt
+    # (``KEY_FILE_SAMPLE_LIMIT``). ``key_files_shown < key_files_found`` means
+    # the planner saw a sample, so a subsystem may be missing from the plan.
+    # ``None`` for /quick, which has no planner.
+    key_files_found: int | None = None
+    key_files_shown: int | None = None
 
 
 class RunManifest(BaseModel):
@@ -527,6 +533,8 @@ def build_analyze_manifest(
         token_usage_by_subsystem={f.subsystem: f.token_usage for f in findings},
         synthesis_items_dropped=len(synthesis_dropped or []),
         synthesis_dropped=list(synthesis_dropped or []),
+        key_files_found=plan.key_files_found,
+        key_files_shown=plan.key_files_shown,
     )
     return RunManifest(
         stride_gpt_version=_stride_gpt_version(),
