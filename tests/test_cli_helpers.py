@@ -350,3 +350,40 @@ class TestPlanningUsageIsThreaded:
 
         seen = self._capture(monkeypatch, entry)
         assert seen["max_llm_calls"] == DEFAULT_MAX_LLM_CALLS > 0
+
+
+# ---------------------------------------------------------------------------
+# _resolve_analysis_plan key-file truncation warning (issue #175)
+# ---------------------------------------------------------------------------
+
+
+class TestKeyFileTruncationWarning:
+    def _printed(self, monkeypatch, found, shown) -> str:
+        from io import StringIO
+        from unittest.mock import MagicMock
+
+        from rich.console import Console
+
+        from stride_gpt.core.schemas import AnalysisPlan, Subsystem
+
+        plan = AnalysisPlan(
+            target_path="/tmp", overall_description="d",
+            subsystems=[Subsystem(name="A", description="d", key_files=[], focus_areas=[])],
+            key_files_found=found, key_files_shown=shown,
+        )
+        monkeypatch.setattr("stride_gpt.agent.loop.create_analysis_plan", lambda *_a, **_k: plan)
+        buf = StringIO()
+        monkeypatch.setattr(cli, "console", Console(file=buf, width=200))
+        models = ModelPair(worker=LLMConfig(provider="OpenAI API", model_name="m", api_key="k"))
+        cli._resolve_analysis_plan(
+            models, cli.Path("/tmp"), checkpoint=None, auto_approve=True, progress=MagicMock(),
+        )
+        return buf.getvalue()
+
+    def test_warns_naming_both_counts_when_truncated(self, monkeypatch):
+        out = self._printed(monkeypatch, 383, 200)
+        assert "Warning" in out
+        assert "200 of 383 key files" in out
+
+    def test_silent_when_every_key_file_was_shown(self, monkeypatch):
+        assert "Warning" not in self._printed(monkeypatch, 50, 50)

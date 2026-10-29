@@ -238,3 +238,54 @@ class TestCreatePlanKeyFileCoverage:
 
         prompt = mock_call_llm.call_args[0][1][1]["content"]
         assert "service_late/f000.py" in prompt
+
+
+# ---------------------------------------------------------------------------
+# create_plan directory overview (issue #175)
+# ---------------------------------------------------------------------------
+
+
+class TestCreatePlanDirectoryOverview:
+    @patch("stride_gpt.agent.planner.call_llm")
+    def test_lists_children_of_top_level_directories(self, mock_call_llm, llm_config, tmp_path):
+        mock_call_llm.return_value = LLMResponse(
+            content=json.dumps({"overall_description": "Test", "subsystems": [{"name": "App"}]}),
+        )
+        for name in ("a", "b"):
+            (tmp_path / "services" / name / "deeper").mkdir(parents=True)
+        (tmp_path / "services" / "node_modules").mkdir()
+        (tmp_path / "node_modules").mkdir()
+        (tmp_path / "README.md").write_text("x\n")
+
+        create_plan(llm_config, tmp_path)
+
+        prompt = mock_call_llm.call_args[0][1][1]["content"]
+        listing = prompt.split("## Directory Structure\n", 1)[1].split("\n\n", 1)[0]
+        assert listing.splitlines() == ["README.md", "services/", "  a/", "  b/"]
+
+
+class TestCreatePlanKeyFileCounts:
+    @patch("stride_gpt.agent.planner.call_llm")
+    def test_counts_recorded_when_truncated(self, mock_call_llm, llm_config, tmp_path):
+        from stride_gpt.agent.planner import KEY_FILE_SAMPLE_LIMIT
+
+        mock_call_llm.return_value = LLMResponse(
+            content=json.dumps({"overall_description": "Test", "subsystems": [{"name": "App"}]}),
+        )
+        for i in range(KEY_FILE_SAMPLE_LIMIT + 10):
+            (tmp_path / f"f{i:03d}.py").write_text("x\n")
+
+        plan = create_plan(llm_config, tmp_path)
+
+        assert plan.key_files_found == KEY_FILE_SAMPLE_LIMIT + 10
+        assert plan.key_files_shown == KEY_FILE_SAMPLE_LIMIT
+
+    @patch("stride_gpt.agent.planner.call_llm")
+    def test_counts_recorded_on_unparseable_plan(self, mock_call_llm, llm_config, tmp_path):
+        mock_call_llm.return_value = LLMResponse(content="not json")
+        (tmp_path / "app.py").write_text("x\n")
+
+        plan = create_plan(llm_config, tmp_path)
+
+        assert plan.subsystems[0].name == "Full Codebase"
+        assert (plan.key_files_found, plan.key_files_shown) == (1, 1)
