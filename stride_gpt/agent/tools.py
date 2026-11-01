@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import math
 import os
-import re
+import time
 from pathlib import Path
 from typing import Any
+
+import regex
 
 from stride_gpt.core.schemas import ToolCallResult
 
@@ -27,10 +30,20 @@ MAX_DIR_ENTRIES = 200
 MAX_GREP_PATTERN_LEN = 200
 MAX_GREP_LINE_LEN = 1000
 
-# Heuristic for catastrophic backtracking: a quantified inner group followed
-# by an outer quantifier — e.g. ``(a+)+``, ``(\w*)+``, ``([0-9]+)*``. Catches
-# the textbook ReDoS shape without blocking ordinary patterns like ``(foo)+``.
-_NESTED_QUANTIFIER_RE = re.compile(r"\([^)]*[+*?{][^)]*\)\s*[+*]")
+# Wall-clock limit on one grep_content call, across every file and line. Which
+# patterns backtrack catastrophically can't be judged from their shape, so the
+# limit is what stops them.
+GREP_DEADLINE_SECONDS = 5.0
+
+# The deadline can't cover compilation: `regex` expands the lower bound of a
+# counted repeat in C, before matching starts, so `(a{4000}){4000}` takes
+# 4.4 GB and `((a{1000}){1000}){1000}` never finishes. This caps the product of
+# the lower bounds. At the cap the densest pattern that fits
+# MAX_GREP_PATTERN_LEN compiles in 0.3s and about 550 MB. Repeats in sequence
+# count as if nested, which is cautious but leaves real patterns alone: a UUID
+# regex multiplies to 6,144.
+MAX_GREP_REPEAT_PRODUCT = 10_000
+_COUNTED_REPEAT_RE = regex.compile(r"\{([0-9]+)(?:,[0-9]*)?\}")
 
 # Version-control metadata can hold credentials (actions/checkout v4/v5 writes
 # the job token into .git/config; some clones embed a token in the remote URL)
@@ -185,12 +198,15 @@ def list_directory(root: Path, path: str = ".") -> str:
     entries: list[dict[str, Any]] = []
     try:
         for item in sorted(resolved.iterdir()):
-            if _should_skip(item.name):
+            # Checked first: is_dir() and stat() follow the link, which would
+            # reveal whether a path outside the sandbox exists, what it is and
+            # its size.
+            escapes = item.is_symlink() and not _link_target_allowed(root_resolved, item)
+            # SKIP_DIRS names directories, so a file called `.env` is listed.
+            if not escapes and _should_skip(item.name) and item.is_dir():
                 continue
             entry: dict[str, Any] = {"name": item.name}
-            if item.is_symlink() and not _link_target_allowed(root_resolved, item):
-                # is_dir() and stat() follow the link, which would reveal
-                # whether a path outside the sandbox exists and its size.
+            if escapes:
                 entry["type"] = "symlink"
             elif item.is_dir():
                 entry["type"] = "directory"
@@ -248,17 +264,40 @@ def list_references() -> str:
     return json.dumps(_list(), indent=2)
 
 
+def _grep_incomplete_marker(match_count: int) -> dict[str, Any]:
+    """Describe a search the time limit cut short, for the model to act on."""
+    found = (
+        f"The {match_count} match(es) after this item are only what was found so far."
+        if match_count
+        else "No matches were found so far, but this is not a no-matches result."
+    )
+    return {
+        "incomplete": True,
+        "warning": (
+            f"Search stopped at the {GREP_DEADLINE_SECONDS:g}-second limit, so some "
+            f"content was not searched. {found} Narrow the pattern or search a "
+            "subdirectory."
+        ),
+    }
+
+
 def grep_content(
     root: Path, pattern: str, path: str = ".", max_results: int = MAX_GREP_RESULTS
 ) -> str:
     """Search file contents for a regex pattern. Returns matches with context.
 
     LLM-supplied patterns can trigger catastrophic backtracking, hanging the
-    agent loop. Patterns longer than ``MAX_GREP_PATTERN_LEN`` or containing a
-    nested-quantifier ReDoS shape are rejected; each line is truncated to
-    ``MAX_GREP_LINE_LEN`` before matching to bound input for polynomial
-    patterns that slip past the heuristic.
+    agent loop. Python's ``re`` can't be interrupted, so matching uses ``regex``
+    with its ``timeout`` argument, and ``GREP_DEADLINE_SECONDS`` covers the whole
+    call rather than each line. When it runs out the result is the matches so
+    far, led by an ``incomplete`` item. That item comes first because context
+    compression keeps only the start of a long tool result.
+
+    Patterns longer than ``MAX_GREP_PATTERN_LEN`` or whose counted repeats
+    exceed ``MAX_GREP_REPEAT_PRODUCT`` are rejected, and each line is truncated
+    to ``MAX_GREP_LINE_LEN`` before matching to bound input.
     """
+    deadline = time.monotonic() + GREP_DEADLINE_SECONDS
     resolved = _resolve_safe_path(root, path)
     root_resolved = root.resolve()
 
@@ -267,15 +306,15 @@ def grep_content(
             f"Error: regex pattern too long ({len(pattern)} > "
             f"{MAX_GREP_PATTERN_LEN}). Use a simpler pattern."
         )
-    if _NESTED_QUANTIFIER_RE.search(pattern):
+    repeats = math.prod(max(int(n), 1) for n in _COUNTED_REPEAT_RE.findall(pattern))
+    if repeats > MAX_GREP_REPEAT_PRODUCT:
         return (
-            "Error: regex pattern uses a nested-quantifier shape "
-            "(e.g. `(a+)+`) that risks catastrophic backtracking. "
-            "Rewrite without quantified groups inside quantified groups."
+            f"Error: regex pattern's counted repeats multiply to {repeats} "
+            f"(limit {MAX_GREP_REPEAT_PRODUCT}). Use smaller repeat counts."
         )
     try:
-        compiled = re.compile(pattern, re.IGNORECASE)
-    except re.error as e:
+        compiled = regex.compile(pattern, regex.IGNORECASE)
+    except regex.error as e:
         return f"Error: invalid regex: {e}"
 
     results: list[dict[str, Any]] = []
@@ -309,7 +348,14 @@ def grep_content(
             for i, line in enumerate(text.splitlines(), 1):
                 # Truncate to bound the input the regex engine has to walk.
                 search_line = line if len(line) <= MAX_GREP_LINE_LEN else line[:MAX_GREP_LINE_LEN]
-                if compiled.search(search_line):
+                try:
+                    # Clamped because `regex` reads a negative timeout as none.
+                    matched = compiled.search(
+                        search_line, timeout=max(0, deadline - time.monotonic())
+                    )
+                except TimeoutError:
+                    return json.dumps([_grep_incomplete_marker(len(results)), *results])
+                if matched:
                     rel = str(full.relative_to(root_resolved))
                     results.append({"file": rel, "line": i, "content": line.strip()[:200]})
                     if len(results) >= max_results:
@@ -436,7 +482,10 @@ AGENT_TOOLS: list[dict[str, Any]] = [
                 f"at {MAX_GREP_RESULTS}; a final "
                 '{"truncated": true, ...} item means the cap was reached and '
                 "there may be more matches, so narrow the pattern or search a "
-                "subdirectory."
+                f"subdirectory. Each search has a {GREP_DEADLINE_SECONDS:g}-second "
+                'limit; a first {"incomplete": true, ...} item means it was '
+                "stopped early and the results can't be treated as complete, "
+                "even if no matches are listed."
             ),
             "parameters": {
                 "type": "object",

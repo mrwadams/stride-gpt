@@ -35,6 +35,11 @@ from stride_gpt.agent.tools import resolve_safe_path
 MAX_SNIPPET_CHARS = 2_000
 MAX_SNIPPET_LINES = 60
 
+# Below this a snippet identifies nothing: `d` or `}` matches almost any file.
+# Five keeps the shortest statements (`x = 1`) and refuses bare tokens such as
+# `def`, `pass` or `try:`. Counted on the normalised text, across all its lines.
+MIN_SNIPPET_CHARS = 5
+
 # ``read_file`` caps its *output* at 50 KB but pages, so the model can legally
 # cite line 4000 of a 300 KB file. Verification reads whole files and needs
 # its own, larger ceiling.
@@ -167,6 +172,14 @@ def verify_one(root: Path, path: str, snippet: str) -> EvidenceCheck:
     needles = _candidate_needles(snippet)
     if not needles:
         return _unverified(clean_path, snippet, "snippet is empty")
+    needles = [n for n in needles if sum(map(len, n)) >= MIN_SNIPPET_CHARS]
+    if not needles:
+        return _unverified(
+            clean_path,
+            snippet,
+            "snippet is too short to identify the code — quote the whole line or lines "
+            "where the weakness lives",
+        )
 
     match = None
     for needle in needles:

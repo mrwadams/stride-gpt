@@ -974,6 +974,23 @@ class TestToolReportedThreats:
 
         assert finding.files_analyzed == ["app.py", "src/auth.py"]
 
+    @pytest.mark.parametrize("path", ["does-not-exist.py", "src", ".git/HEAD"])
+    def test_a_repeated_failed_read_is_not_listed(self, model_pair, sandbox_dir, path):
+        """The repeat gets the "already have this" reply, not the original
+        error, and that reply must not count as having read the file."""
+        steps = [_tool_turn(_read("a", path)), _tool_turn(_read("b", path)), _FINAL]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert finding.files_analyzed == []
+
+    def test_a_repeated_successful_read_is_listed_once(self, model_pair, sandbox_dir):
+        steps = [_tool_turn(_read("a")), _tool_turn(_read("b")), _FINAL]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert finding.files_analyzed == ["app.py"]
+
     def test_no_evidence_threat_is_shaped_like_a_pre_change_one(
         self, model_pair, sandbox_dir
     ):

@@ -848,11 +848,13 @@ class _SubsystemRun:
             result = execute_tool(self.target_path, tc, loaded_refs=self.loaded_refs)
             self._cache[key] = result
             self.progress.tool_call(tc.function_name, _brief_args(tc.arguments), cached=False)
+            # Only here: a repeat gets the reply above whether the first call
+            # worked or not, and a first call that worked is already recorded.
+            if tc.function_name == "read_file" and not result.startswith("Error"):
+                self._record_file(tc.arguments.get("path"))
 
         self.tool_calls += 1
         self.explore_calls += 1
-        if tc.function_name == "read_file" and not result.startswith("Error"):
-            self._record_file(tc.arguments.get("path"))
         return result
 
     def _record_file(self, path: Any) -> None:

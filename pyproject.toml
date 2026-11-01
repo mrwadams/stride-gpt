@@ -25,6 +25,7 @@ dependencies = [
     "rich>=13.0",
     "prompt_toolkit>=3.0",
     "defusedxml>=0.7.1",
+    "regex>=2026.6.28",
 ]
 
 [project.urls]

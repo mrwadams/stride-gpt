@@ -226,9 +226,9 @@ class TestClassifySynthesis:
         raw = [{
             "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
             "Related Threats": _AUTH,
-            "evidence": [{"path": "app.py", "snippet": "x"}],
+            "evidence": [{"path": "app.py", "snippet": "x = 1"}],
         }]
-        (tmp_path / "app.py").write_text("x\n")
+        (tmp_path / "app.py").write_text("x = 1\n")
         emergent, aggregations = classify_synthesis(raw, self._findings(), tmp_path)
         assert aggregations == []
         assert emergent[0]["Related Threats"] == [_AUTH]
@@ -237,9 +237,9 @@ class TestClassifySynthesis:
         raw = [{
             "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
             "Related Threats": ["nope-T9", {"id": _AUTH}],
-            "evidence": [{"path": "app.py", "snippet": "x"}],
+            "evidence": [{"path": "app.py", "snippet": "x = 1"}],
         }]
-        (tmp_path / "app.py").write_text("x\n")
+        (tmp_path / "app.py").write_text("x = 1\n")
         emergent, _ = classify_synthesis(raw, self._findings(), tmp_path)
         assert "Related Threats" not in emergent[0]
 
@@ -273,12 +273,12 @@ class TestClassifySynthesis:
         ]
 
     def test_emergent_with_some_verified_evidence_is_kept(self, tmp_path):
-        (tmp_path / "app.py").write_text("x\n")
+        (tmp_path / "app.py").write_text("x = 1\n")
         raw = [{
             "Classification": "emergent", "Threat Type": "Tampering", "Scenario": "s",
             "evidence": [
-                {"path": "does/not/exist.py", "snippet": "x"},
-                {"path": "app.py", "snippet": "x"},
+                {"path": "does/not/exist.py", "snippet": "x = 1"},
+                {"path": "app.py", "snippet": "x = 1"},
             ],
         }]
         (threat,), _ = classify_synthesis(raw, self._findings(), tmp_path)
