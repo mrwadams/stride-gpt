@@ -101,6 +101,37 @@ class TestClassifyByMessage:
         assert error_class == "provider_error"
         assert "memory constraints" in reason
 
+    @pytest.mark.parametrize(
+        ("exc_class", "status"),
+        [
+            (litellm.BadRequestError, 400),
+            (litellm.InternalServerError, 500),
+            (litellm.APIConnectionError, 500),
+        ],
+    )
+    def test_llama_cpp_context_overflow_through_litellm(self, exc_class, status):
+        """Local runtimes reach us wrapped in a generic litellm exception."""
+        exc = _litellm(exc_class, message="n_keep: 5000 >= n_ctx: 4096", status=status)
+        error_class, reason = classify_error(exc)
+        assert error_class == "context_overflow"
+        assert "n_ctx" in reason
+
+    @pytest.mark.parametrize(
+        ("exc_class", "status", "expected"),
+        [
+            (litellm.RateLimitError, 429, "rate_limited"),
+            (litellm.AuthenticationError, 401, "auth"),
+            (litellm.BadRequestError, 401, "auth"),
+        ],
+    )
+    def test_the_text_never_overrides_a_specific_class(self, exc_class, status, expected):
+        exc = _litellm(exc_class, message="n_keep and n_ctx in passing", status=status)
+        assert classify_error(exc)[0] == expected
+
+    def test_one_of_the_two_markers_is_not_an_overflow(self):
+        exc = _litellm(litellm.BadRequestError, message="bad n_keep value")
+        assert classify_error(exc)[0] == "provider_error"
+
     def test_anything_else_is_unexpected(self):
         error_class, reason = classify_error(ValueError("something odd"))
         assert error_class == "unexpected"

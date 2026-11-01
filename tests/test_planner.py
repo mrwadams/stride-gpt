@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from stride_gpt.agent.planner import (
     _build_plan,
     _diverse_key_files,
@@ -70,6 +72,25 @@ class TestBuildPlan:
             "/tmp/test",
         )
         assert plan.detected_app_type == "web"
+
+    def test_null_subsystem_fields_get_the_fallbacks(self):
+        data = {"subsystems": [
+            {"name": None, "description": None, "key_files": None, "focus_areas": None},
+        ]}
+        sub = _build_plan(data, "/tmp/test").subsystems[0]
+        assert sub.name == "Unnamed"
+        assert sub.description == ""
+        assert sub.key_files == []
+        assert sub.focus_areas == []
+
+    def test_null_subsystems_falls_back_to_full_codebase(self):
+        plan = _build_plan({"subsystems": None}, "/tmp/test")
+        assert [s.name for s in plan.subsystems] == ["Full Codebase"]
+
+    @pytest.mark.parametrize("data", [{"overall_description": None}, {}])
+    def test_null_or_missing_description_is_empty(self, data):
+        plan = _build_plan({**data, "subsystems": [{"name": "A"}]}, "/tmp/test")
+        assert plan.overall_description == ""
 
 # ---------------------------------------------------------------------------
 # key-file discovery — truncation marker filtering (#180)

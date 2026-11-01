@@ -84,16 +84,21 @@ def classify_error(exc: BaseException) -> tuple[ErrorClass, str]:
     # arrives as a BadRequestError carrying 401, which is an auth failure, not
     # a malformed request.
     error_class = _by_type(exc) or _by_status(exc) or _by_provider_error(exc)
+
+    # llama.cpp says "n_keep"/"n_ctx" when the prompt won't fit. That arrives as
+    # a plain string, or wrapped in a generic litellm exception with whatever
+    # status the runtime chose, so the text refines a generic failure. It never
+    # overrides a specific class.
+    if error_class in (None, "provider_error") and "n_keep" in err_str and "n_ctx" in err_str:
+        error_class = "context_overflow"
+
     if error_class is not None:
         reason = _REASONS[error_class]
         return error_class, f"{reason} ({err_str})" if err_str else reason
 
     # Last resort — a provider that wraps its errors, or a local runtime that
-    # reports them as plain strings. llama.cpp says "n_keep"/"n_ctx" when the
-    # prompt won't fit, and LM Studio says the model "crashed" when it is
-    # killed for memory.
-    if "n_keep" in err_str and "n_ctx" in err_str:
-        return "context_overflow", _REASONS["context_overflow"]
+    # reports them as plain strings. LM Studio says the model "crashed" when it
+    # is killed for memory.
     if "crashed" in err_str.lower():
         return "provider_error", "The model crashed, likely due to memory constraints."
 

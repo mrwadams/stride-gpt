@@ -5,15 +5,19 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from stride_gpt.agent.quick import (
     QUICK_TOOLS,
     _build_user_content,
+    _flatten_for_plain_call,
     _parse_threat_model,
     _retry_as_json,
-    _strip_tool_artifacts,
     run_quick_analysis,
 )
+from stride_gpt.core.prompts.variants import load_reference
 from stride_gpt.core.schemas import LLMResponse, ToolCallResult
+from tests.fakes import QUICK_TOOL_NAMES, ScriptedLLM, call_tools, check_protocol, reply
 
 # ---------------------------------------------------------------------------
 # Tool set
@@ -211,8 +215,8 @@ class TestRunQuickAnalysis:
             thinking=None, reasoning=None, model="t",
         )
         out = run_quick_analysis(model_pair, "Description.", max_llm_calls=2)
-        # Two tool-using turns then forced JSON retry — the cap holds.
-        assert mock_tools.call_count == 2
+        # One tool-using turn, then the forced JSON call — the cap holds.
+        assert mock_tools.call_count == 1
         assert mock_llm.call_count == 1
         assert out.improvement_suggestions == ["partial"]
 
@@ -242,19 +246,36 @@ class TestParseThreatModel:
         assert _parse_threat_model("not json at all") is None
 
 
-class TestStripToolArtifacts:
-    def test_removes_tool_messages(self):
+class TestFlattenForPlainCall:
+    def test_tool_results_become_text_in_a_valid_conversation(self):
         msgs = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
-            {"role": "tool", "tool_call_id": "1", "content": "result"},
+            {"role": "tool", "tool_call_id": "1", "name": "load_reference", "content": "CARD ONE"},
+            {"role": "assistant", "content": "next card", "tool_calls": [{"id": "2"}]},
+            {"role": "tool", "tool_call_id": "2", "name": "load_reference", "content": "CARD TWO"},
             {"role": "user", "content": "next"},
         ]
-        cleaned = _strip_tool_artifacts(msgs)
-        roles = [m["role"] for m in cleaned]
-        assert "tool" not in roles
-        assert not any("tool_calls" in m for m in cleaned)
+        flat = _flatten_for_plain_call(msgs)
+
+        assert check_protocol(flat, tools_offered=False) == []
+        assert not any("tool_calls" in m for m in flat)
+        assert all(m["content"] for m in flat)
+        text = "\n".join(m["content"] for m in flat)
+        for kept in ("hi", "CARD ONE", "next card", "CARD TWO", "next"):
+            assert kept in text
+
+    def test_does_not_modify_the_conversation_it_was_given(self):
+        msgs = [
+            {"role": "user", "content": "one"},
+            {"role": "user", "content": "two"},
+        ]
+        _flatten_for_plain_call(msgs)
+        assert msgs == [
+            {"role": "user", "content": "one"},
+            {"role": "user", "content": "two"},
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -356,3 +377,93 @@ class TestMalformedToolArguments:
         assert tool_msgs[0]["tool_call_id"] == "bad"
         assert tool_msgs[0]["content"].startswith("Error: arguments were not valid JSON")
         assert out.tool_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# Call cap and the forced-JSON call
+# ---------------------------------------------------------------------------
+
+
+_EMPTY_MODEL = json.dumps({"threat_model": [], "improvement_suggestions": []})
+_CARDS = ("genai", "agentic", "insider_threat", "mitre_atlas")
+
+
+def _load_round(card: str):
+    tc = ToolCallResult(id=f"id-{card}", function_name="load_reference", arguments={"name": card})
+    return call_tools(tc, tools=QUICK_TOOL_NAMES)
+
+
+def _sent_text(request) -> str:
+    return "\n".join(m["content"] for m in request.messages)
+
+
+class TestCallCap:
+    @pytest.mark.parametrize("cap", [1, 2, 4])
+    def test_the_cap_includes_the_forced_json_call(self, model_pair, cap):
+        """A model that never stops calling tools uses exactly ``cap`` calls,
+        the last of them the forced-JSON call."""
+        steps = [_load_round(card) for card in _CARDS[:cap - 1]]
+
+        with ScriptedLLM([*steps, reply(_EMPTY_MODEL)]) as fake:
+            out = run_quick_analysis(model_pair, "A RAG chatbot.", max_llm_calls=cap)
+
+        assert len(fake.requests) == cap
+        assert out.llm_calls == cap
+        assert fake.requests[-1].kind == "plain"
+
+    def test_a_parse_failure_on_the_last_turn_still_fits_inside_the_cap(self, model_pair):
+        steps = [
+            _load_round("genai"),
+            _load_round("agentic"),
+            reply("Here is my analysis in prose.", tools=QUICK_TOOL_NAMES),
+            reply(_EMPTY_MODEL),
+        ]
+
+        with ScriptedLLM(steps) as fake:
+            out = run_quick_analysis(model_pair, "A RAG chatbot.", max_llm_calls=4)
+
+        assert len(fake.requests) == 4
+        assert out.llm_calls == 4
+
+
+class TestForcedJsonKeepsCards:
+    def test_cards_reach_the_final_call_when_the_cap_is_hit(self, model_pair):
+        steps = [_load_round(card) for card in _CARDS[:3]]
+
+        with ScriptedLLM([*steps, reply(_EMPTY_MODEL)]) as fake:
+            out = run_quick_analysis(model_pair, "A RAG chatbot.")
+
+        final = fake.requests[-1]
+        assert final.kind == "plain"
+        assert all(m["content"] for m in final.messages)
+        for card in _CARDS[:3]:
+            assert load_reference(card) in _sent_text(final)
+        assert out.references_loaded == sorted(_CARDS[:3])
+
+    def test_cards_reach_the_retry_after_a_parse_failure(self, model_pair):
+        steps = [
+            _load_round("genai"),
+            _load_round("agentic"),
+            reply("not json", tools=QUICK_TOOL_NAMES),
+            reply(_EMPTY_MODEL),
+        ]
+
+        with ScriptedLLM(steps) as fake:
+            out = run_quick_analysis(model_pair, "A RAG chatbot.")
+
+        for card in ("genai", "agentic"):
+            assert load_reference(card) in _sent_text(fake.requests[-1])
+        assert out.references_loaded == ["agentic", "genai"]
+
+    def test_a_failed_load_is_not_claimed_as_loaded(self, model_pair):
+        steps = [
+            _load_round("genai"),
+            _load_round("no_such_card"),
+            reply("not json", tools=QUICK_TOOL_NAMES),
+            reply(_EMPTY_MODEL),
+        ]
+
+        with ScriptedLLM(steps):
+            out = run_quick_analysis(model_pair, "A RAG chatbot.")
+
+        assert out.references_loaded == ["genai"]
