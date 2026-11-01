@@ -214,18 +214,18 @@ def _build_plan(data: dict, target_path: str) -> AnalysisPlan:
 
     subsystems = [
         Subsystem(
-            name=s.get("name", "Unnamed"),
-            description=s.get("description", ""),
-            key_files=s.get("key_files", []),
-            focus_areas=s.get("focus_areas", []),
+            name=s.get("name") or "Unnamed",
+            description=s.get("description") or "",
+            key_files=s.get("key_files") or [],
+            focus_areas=s.get("focus_areas") or [],
         )
-        for s in data.get("subsystems", [])
+        for s in data.get("subsystems") or []
         if isinstance(s, dict)
     ]
 
     return AnalysisPlan(
         target_path=target_path,
-        overall_description=data.get("overall_description", ""),
+        overall_description=data.get("overall_description") or "",
         detected_app_type=coerce_app_type(data.get("detected_app_type")),
         subsystems=subsystems or [
             Subsystem(

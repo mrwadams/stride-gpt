@@ -47,8 +47,9 @@ def run_quick_analysis(
             Passed to the model as a hint in the user message — the model
             still decides which reference cards to load.
         max_llm_calls: Hard cap on LLM calls (including any tool-handling
-            turns and a final retry). 4 is typically plenty: one turn to
-            load cards, one to emit JSON, plus headroom.
+            turns and a final retry). The last call is kept for that retry,
+            so the agent gets ``max_llm_calls - 1`` turns. 4 is typically
+            plenty: one turn to load cards, one to emit JSON, plus headroom.
 
     Returns:
         ``ThreatModelOutput`` with ``threat_model`` (list of threat dicts)
@@ -73,7 +74,9 @@ def run_quick_analysis(
 
     target_path = Path("/")  # load_reference ignores the root parameter
 
-    while llm_calls < max_llm_calls:
+    # One call stays in reserve: whichever way this loop ends, it needs at most
+    # one forced-JSON call, and that call counts against the cap.
+    while llm_calls < max_llm_calls - 1:
         response = call_llm_with_tools(models.for_architect(), messages, QUICK_TOOLS)
         llm_calls += 1
 
@@ -117,7 +120,7 @@ def run_quick_analysis(
             llm_calls += 1
         return _attach_counts(parsed, llm_calls, tool_calls, tools_used, loaded_refs)
 
-    # Hit the call cap before getting a final JSON — coerce one last attempt.
+    # Out of agent turns before getting a final JSON — coerce one last attempt.
     messages.append({
         "role": "user",
         "content": (
@@ -170,17 +173,19 @@ def _parse_threat_model(content: str) -> ThreatModelOutput | None:
 def _retry_as_json(config: LLMConfig, messages: list[dict]) -> ThreatModelOutput:
     """Retry with forced JSON mode after a parse failure.
 
-    Strips tool-call artefacts so the plain-LLM call doesn't choke on
-    function-calling metadata.
+    A plain call can't carry function-calling metadata, so the conversation is
+    flattened first. The loaded reference cards stay in it as text.
     """
-    clean = _strip_tool_artifacts(messages)
-    clean.append({
-        "role": "user",
-        "content": (
-            "Respond with ONLY a valid JSON object matching the schema in your "
-            "instructions. No prose, no markdown fences, no commentary."
-        ),
-    })
+    clean = _flatten_for_plain_call([
+        *messages,
+        {
+            "role": "user",
+            "content": (
+                "Respond with ONLY a valid JSON object matching the schema in your "
+                "instructions. No prose, no markdown fences, no commentary."
+            ),
+        },
+    ])
     json_config = config.model_copy(update={"response_format": "json"})
     response = call_llm(json_config, clean)
     parsed = _parse_threat_model(response.content)
@@ -192,14 +197,22 @@ def _retry_as_json(config: LLMConfig, messages: list[dict]) -> ThreatModelOutput
     )
 
 
-def _strip_tool_artifacts(messages: list[dict]) -> list[dict]:
-    """Drop tool messages and tool_calls metadata so a plain LLM call works."""
-    cleaned: list[dict] = []
+def _flatten_for_plain_call(messages: list[dict]) -> list[dict]:
+    """Rewrite a tool conversation as plain alternating text messages.
+
+    Tool results become user text, so reference cards survive. Empty assistant
+    turns are dropped and adjacent messages from the same role are merged, since
+    a plain call may not carry tool artefacts or repeat a role.
+    """
+    flat: list[dict] = []
     for msg in messages:
-        if msg.get("role") == "tool":
+        role, content = msg["role"], msg.get("content") or ""
+        if role == "tool":
+            role, content = "user", f"Result of {msg['name']}:\n\n{content}"
+        if not content:
             continue
-        if "tool_calls" in msg:
-            cleaned.append({"role": msg["role"], "content": msg.get("content", "")})
+        if flat and flat[-1]["role"] == role:
+            flat[-1] = {"role": role, "content": f"{flat[-1]['content']}\n\n{content}"}
         else:
-            cleaned.append(msg)
-    return cleaned
+            flat.append({"role": role, "content": content})
+    return flat
