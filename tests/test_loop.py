@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+from rich.console import Console
 
 from stride_gpt.agent.budget import llm_call_ceiling
 from stride_gpt.agent.context import ContextManager
@@ -17,6 +19,7 @@ from stride_gpt.agent.loop import (
     _synthesize,
     run_analysis,
 )
+from stride_gpt.agent.progress import RichProgress
 from stride_gpt.core.schemas import (
     AnalysisPlan,
     Subsystem,
@@ -165,6 +168,37 @@ class TestRunAnalysis:
         assert "Flask" in tool_msgs[0]["content"]
         # Verify tool call was reported to progress
         progress.tool_call.assert_called()
+
+    def test_grep_pattern_with_markup_characters_does_not_abort_the_run(
+        self, model_pair, sandbox_dir
+    ):
+        plan = AnalysisPlan(
+            target_path=str(sandbox_dir),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name="App", description="Main app",
+                          key_files=["app.py"], focus_areas=["Tampering"]),
+            ],
+        )
+        steps = [
+            call_tools(
+                ToolCallResult(id="tc1", function_name="grep_content",
+                               arguments={"pattern": r"\.\.[/\\]"}),
+                tools=SUBSYSTEM_TOOL_NAMES,
+            ),
+            reply('{"threats": [], "files_analyzed": []}', tools=SUBSYSTEM_TOOL_NAMES),
+            _DFD,
+        ]
+
+        out = io.StringIO()
+        with ScriptedLLM(steps):
+            report = run_analysis(
+                model_pair, sandbox_dir, plan=plan,
+                progress=RichProgress(Console(file=out, width=200)),
+            )
+
+        assert len(report.findings) == 1
+        assert "grep_content" in out.getvalue()
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     @patch("stride_gpt.agent.loop._analyze_subsystem")

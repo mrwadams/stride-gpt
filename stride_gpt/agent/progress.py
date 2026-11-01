@@ -77,13 +77,14 @@ class RichProgress:
         self.console.print(Panel(f"[bold]{phase}: {description}[/bold]", style="blue"))
 
     def status(self, message: str) -> None:
-        self.console.print(f"  [dim]{message}[/dim]")
+        self.console.print(f"  [dim]{escape(message)}[/dim]")
 
     def subsystem_start(self, index: int, total: int, name: str, description: str) -> None:
-        self.console.print(f"\n[bold cyan]({index}/{total}) Analyzing: {name}[/bold cyan]")
-        self.console.print(f"  {description}")
+        self.console.print(f"\n[bold cyan]({index}/{total}) Analyzing: {escape(name)}[/bold cyan]")
+        self.console.print(f"  {escape(description)}")
 
     def subsystem_done(self, name: str, threat_count: int, outcome: str) -> None:
+        name = escape(name)
         if outcome == "completed":
             self.console.print(f"  [green]Found {threat_count} threats in {name}[/green]")
         elif outcome == "budget_exhausted":
@@ -99,15 +100,15 @@ class RichProgress:
 
     def subsystems_skipped(self, names: list[str]) -> None:
         self.console.print(
-            f"  [yellow]Skipped {len(names)} subsystems: {', '.join(names)}[/yellow]"
+            f"  [yellow]Skipped {len(names)} subsystems: {escape(', '.join(names))}[/yellow]"
         )
 
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         suffix = " (cached)" if cached else ""
-        self.console.print(f"    [dim]{name}({args_brief}){suffix}[/dim]")
+        self.console.print(f"    [dim]{escape(name)}({escape(args_brief)}){suffix}[/dim]")
 
     def error(self, name: str, reason: str) -> None:
-        self.console.print(f"  [red]Error analyzing {name}: {reason}[/red]")
+        self.console.print(f"  [red]Error analyzing {escape(name)}: {escape(reason)}[/red]")
 
     def limit_reached(self, kind: str, current: int, maximum: int) -> None:
         self.console.print(
@@ -125,7 +126,7 @@ class RichProgress:
 
     def no_tool_use_warning(self, subsystem: str) -> None:
         self.console.print(
-            f"  [yellow]Warning: No tool calls made for {subsystem} — "
+            f"  [yellow]Warning: No tool calls made for {escape(subsystem)} — "
             f"the model may not support function calling. "
             f"Threats are based on file names only, not actual code.[/yellow]"
         )

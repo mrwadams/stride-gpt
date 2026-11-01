@@ -102,3 +102,38 @@ class TestRichProgress:
         assert "Synthesis failed" in text
         assert "Error analyzing" not in text
         assert "Unexpected error: bad key [x]" in text
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            r"pattern='\\.\\.[/\\\\]'",  # a path-traversal grep aborted the run
+            "app/[id]/page.tsx",  # silently dropped as a markup tag
+            "[/dim] closes nothing",
+            "ends in a backslash\\",
+        ],
+    )
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda p, text: p.tool_call("grep_content", text, cached=False),
+            lambda p, text: p.tool_call(text, "path='a.py'", cached=True),
+            lambda p, text: p.error(text, "boom"),
+            lambda p, text: p.error("Auth", text),
+            lambda p, text: p.status(text),
+            lambda p, text: p.subsystem_start(1, 2, text, "desc"),
+            lambda p, text: p.subsystem_start(1, 2, "Auth", text),
+            lambda p, text: p.subsystem_done(text, 1, "completed"),
+            lambda p, text: p.subsystem_done(text, 1, "budget_exhausted"),
+            lambda p, text: p.subsystem_done(text, 1, "parse_failed"),
+            lambda p, text: p.subsystems_skipped(["Auth", text]),
+            lambda p, text: p.no_tool_use_warning(text),
+        ],
+    )
+    def test_model_supplied_text_renders_literally(self, call, text):
+        # Model output, repo paths and exception text are not Rich markup: a
+        # stray tag raises MarkupError, which aborted the whole run because the
+        # error handler printed the same text.
+        out = io.StringIO()
+        p = RichProgress(Console(file=out, width=300))
+        call(p, text)
+        assert text in out.getvalue()
