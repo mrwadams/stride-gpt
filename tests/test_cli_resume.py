@@ -5,14 +5,16 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
 
 from stride_gpt import cli
+from stride_gpt.agent.loop import run_analysis
 from stride_gpt.agent.persistence import build_checkpoint, write_checkpoint
 from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, ModelPair, Subsystem, SubsystemFinding
-from tests.fakes import SUBSYSTEM_TOOL_NAMES, ScriptedLLM, reply
+from tests.fakes import SUBSYSTEM_TOOL_NAMES, ScriptedLLM, fail, reply
 
 runner = CliRunner()
 
@@ -40,15 +42,16 @@ def _plan(target: Path) -> AnalysisPlan:
 
 
 def _write_checkpoint_for(
-    target: Path, path: Path, *, model_name: str = "claude-x", findings=None
+    target: Path, path: Path, *, model_name: str = "claude-x", findings=None, plan=None
 ) -> None:
     models = ModelPair(
         worker=LLMConfig(provider="Anthropic API", model_name=model_name, api_key="sk-x")
     )
     checkpoint = build_checkpoint(
-        plan=_plan(target),
+        plan=plan or _plan(target),
         findings=findings or [],
         target=target,
+        output=path.with_name("report.md"),
         models=models,
         app_type_source="planner",
         started_at=datetime.now(UTC),
@@ -123,6 +126,97 @@ class TestResumeFlag:
         findings = json.loads((tmp_path / "report.findings.json").read_text())
         assert [f["subsystem"] for f in findings["findings"]] == ["Auth"]
         assert findings["findings"][0]["threats"][0]["Threat Type"] == "Spoofing"
+
+
+class TestResumeRefusesAnotherTarget:
+    def test_sibling_directory_is_refused_before_any_llm_call(self, git_repo):
+        checkpoint_path = git_repo / "report.checkpoint.json"
+        _write_checkpoint_for(git_repo / "svc_a", checkpoint_path)
+
+        with ScriptedLLM([]) as fake:
+            result = runner.invoke(cli.app, [
+                "analyze", str(git_repo / "svc_b"),
+                "--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-test",
+                "--resume", str(checkpoint_path), "--force",
+            ])
+
+        assert result.exit_code == 1
+        assert "Cannot resume" in result.stdout
+        assert fake.requests == []
+
+
+_FINDING_JSON = json.dumps({"threats": [], "improvement_suggestions": [], "files_analyzed": []})
+
+
+def _four_subsystem_plan(target: Path) -> AnalysisPlan:
+    return AnalysisPlan(
+        target_path=str(target),
+        overall_description="d",
+        subsystems=[
+            Subsystem(name=name, description="d", key_files=[], focus_areas=[])
+            for name in ("A", "B", "C", "D")
+        ],
+    )
+
+
+def _finding(name: str, outcome: str) -> SubsystemFinding:
+    return SubsystemFinding(subsystem=name, threats=[], outcome=outcome)
+
+
+class TestResumeKeepsFindingsNotYetReached:
+    """A failed, B completed, C failed, D completed. Rerunning A used to
+    rewrite the checkpoint as [A], so a kill before D lost a paid-for finding."""
+
+    def test_every_write_keeps_resumed_findings_ahead_of_the_loop(self, tmp_path, model_pair):
+        resumed = {name: _finding(name, "completed") for name in ("B", "D")}
+        writes: list[list[str]] = []
+
+        with ScriptedLLM([
+            reply(_FINDING_JSON, tools=SUBSYSTEM_TOOL_NAMES),
+            fail(RuntimeError("boom"), tools=SUBSYSTEM_TOOL_NAMES),
+            reply(json.dumps({"cross_cutting_threats": []})),
+            _DFD,
+        ]):
+            run_analysis(
+                model_pair, tmp_path,
+                plan=_four_subsystem_plan(tmp_path),
+                progress=MagicMock(),
+                resume_findings=resumed,
+                on_checkpoint=lambda findings: writes.append([f.subsystem for f in findings]),
+            )
+
+        assert len(writes) == 4
+        for names in writes:
+            assert {"B", "D"} <= set(names)
+            assert len(names) == len(set(names))
+        assert writes[-1] == ["A", "B", "C", "D"]
+
+    def test_a_run_killed_mid_rerun_leaves_the_later_finding_on_disk(self, tmp_path):
+        checkpoint_path = tmp_path / "report.checkpoint.json"
+        _write_checkpoint_for(
+            tmp_path, checkpoint_path,
+            plan=_four_subsystem_plan(tmp_path),
+            findings=[
+                _finding("A", "error"), _finding("B", "completed"),
+                _finding("C", "error"), _finding("D", "completed"),
+            ],
+        )
+
+        with ScriptedLLM([
+            reply(_FINDING_JSON, tools=SUBSYSTEM_TOOL_NAMES),
+            fail(KeyboardInterrupt(), tools=SUBSYSTEM_TOOL_NAMES),
+        ]):
+            result = runner.invoke(cli.app, [
+                "analyze", str(tmp_path),
+                "--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-test",
+                "--resume", str(checkpoint_path), "--force",
+                "-o", str(tmp_path / "report.md"),
+            ])
+
+        assert result.exit_code != 0
+        stored = json.loads(checkpoint_path.read_text())
+        completed = {f["subsystem"] for f in stored["findings"] if f["outcome"] == "completed"}
+        assert completed == {"A", "B", "D"}
 
 
 class TestResumedRunLooksLikeAnUninterruptedOne:

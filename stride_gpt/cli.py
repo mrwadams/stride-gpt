@@ -466,7 +466,7 @@ def _resolve_analysis_plan(
 
 
 def _make_checkpoint_writer(
-    checkpoint_path: Path, *, plan: AnalysisPlan, target: Path, models: ModelPair,
+    checkpoint_path: Path, *, plan: AnalysisPlan, target: Path, output: Path, models: ModelPair,
     app_type_source: str, started_at: datetime,
 ):
     """Build a callback that atomically checkpoints the findings so far."""
@@ -476,7 +476,7 @@ def _make_checkpoint_writer(
         write_checkpoint(
             checkpoint_path,
             build_checkpoint(
-                plan=plan, findings=findings, target=target, models=models,
+                plan=plan, findings=findings, target=target, output=output, models=models,
                 app_type_source=app_type_source, started_at=started_at,
             ),
         )
@@ -608,7 +608,7 @@ def _handle_analyze(config: dict, args_str: str) -> None:
     if output_path is not None:
         checkpoint_path = resume_path if checkpoint is not None else checkpoint_path_for(output_path)
         on_checkpoint = _make_checkpoint_writer(
-            checkpoint_path, plan=plan, target=target_path, models=models,
+            checkpoint_path, plan=plan, target=target_path, output=output_path, models=models,
             app_type_source=app_type_source, started_at=run_started_at,
         )
         if checkpoint is None:
@@ -1075,7 +1075,7 @@ def analyze(
     if output is not None:
         checkpoint_path = resume if checkpoint is not None else checkpoint_path_for(output)
         on_checkpoint = _make_checkpoint_writer(
-            checkpoint_path, plan=plan, target=target, models=models,
+            checkpoint_path, plan=plan, target=target, output=output, models=models,
             app_type_source=app_type_source, started_at=run_started_at,
         )
         if checkpoint is None:

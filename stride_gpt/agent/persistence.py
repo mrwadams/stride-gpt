@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import subprocess
+from collections.abc import Collection
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -338,6 +339,21 @@ def discover_git_sha(target: Path) -> str | None:
     return sha or None
 
 
+def discover_target_repo_path(target: Path) -> str | None:
+    """``target``'s path inside its git repository, or ``None`` outside one.
+
+    Unlike a redacted path, this stays the same when the run starts from a
+    different directory or the repository moves on disk.
+    """
+    root = _git_toplevel(target)
+    if root is None:
+        return None
+    try:
+        return target.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Sibling writers
 # ---------------------------------------------------------------------------
@@ -346,6 +362,16 @@ def discover_git_sha(target: Path) -> str | None:
 def _sibling_stem(output: Path) -> Path:
     """Strip the last suffix from ``output`` to get the sibling-file stem."""
     return output.with_suffix("") if output.suffix else output
+
+
+def _sibling_path(output: Path, suffix: str) -> Path:
+    """``output``'s sibling for ``suffix``, keeping every dot in the stem.
+
+    ``with_suffix`` would strip a second suffix here, so ``report.v1.md`` and
+    ``report.v2.md`` would share one set of siblings.
+    """
+    stem = _sibling_stem(output)
+    return stem.with_name(stem.name + suffix)
 
 
 def _redact_subsystem(sub: Subsystem) -> Subsystem:
@@ -409,7 +435,6 @@ def write_intermediates(
     Returns the list of paths written.
     """
     written: list[Path] = []
-    stem = _sibling_stem(output)
 
     if plan is not None:
         redacted_plan = plan.model_copy(
@@ -418,7 +443,7 @@ def write_intermediates(
                 "subsystems": [_redact_subsystem(s) for s in plan.subsystems],
             }
         )
-        plan_path = stem.with_suffix(".plan.json")
+        plan_path = _sibling_path(output, ".plan.json")
         _write_json(plan_path, redacted_plan.model_dump_json(indent=2))
         written.append(plan_path)
 
@@ -430,11 +455,11 @@ def write_intermediates(
             "systemic_observations": list(systemic_observations or []),
             "data_flow_diagram": data_flow_diagram,
         }
-        findings_path = stem.with_suffix(".findings.json")
+        findings_path = _sibling_path(output, ".findings.json")
         _write_json(findings_path, json.dumps(findings_payload, indent=2))
         written.append(findings_path)
 
-    run_path = stem.with_suffix(".run.json")
+    run_path = _sibling_path(output, ".run.json")
     _write_json(run_path, manifest.model_dump_json(indent=2))
     written.append(run_path)
 
@@ -448,7 +473,7 @@ def checkpoint_path_for(output: Path) -> Path:
     checkpoint sits alongside the ``.plan.json`` / ``.findings.json`` /
     ``.run.json`` siblings.
     """
-    return _sibling_stem(output).with_suffix(".checkpoint.json")
+    return _sibling_path(output, ".checkpoint.json")
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +648,13 @@ class Checkpoint(BaseModel):
     # Redacted per ``redact_path``, like the run manifest's ``target_path``.
     target_path: str
     target_git_sha: str | None
+    # Where the target sits inside its git repository, ``"."`` at the root and
+    # ``None`` outside one. ``target_path`` depends on the working directory
+    # the run started from, so this is what identifies the target on resume.
+    target_repo_path: str | None
+    # File name of the run's ``-o`` report. The report and its siblings sit
+    # next to the checkpoint, so resume can tell them from real code changes.
+    report_name: str
     # Identifies the model/prompt pair this checkpoint was produced under.
     # See ``compute_checkpoint_config_hash`` for why this isn't the same
     # hash the run manifest records.
@@ -656,6 +688,7 @@ def build_checkpoint(
     plan: AnalysisPlan,
     findings: list[SubsystemFinding],
     target: Path,
+    output: Path,
     models: ModelPair,
     app_type_source: str,
     started_at: datetime,
@@ -677,6 +710,8 @@ def build_checkpoint(
         updated_at=datetime.now(UTC),
         target_path=redact_path(target),
         target_git_sha=discover_git_sha(target),
+        target_repo_path=discover_target_repo_path(target),
+        report_name=output.name,
         config_hash=compute_checkpoint_config_hash(models),
         app_type_source=app_type_source,
         plan=redacted_plan,
@@ -779,23 +814,42 @@ def _restore_threat_paths(threat: dict) -> dict:
     return restored
 
 
-def is_git_dirty(target: Path, *, ignore: Path | None = None) -> bool:
+def _run_outputs(checkpoint: Checkpoint, checkpoint_path: Path) -> set[Path]:
+    """Every file the checkpointed run writes next to its checkpoint."""
+    report = checkpoint_path.with_name(checkpoint.report_name)
+    return {
+        checkpoint_path,
+        checkpoint_path.with_name(checkpoint_path.name + ".tmp"),
+        report,
+        report.with_suffix(".html"),
+        _sibling_path(report, ".plan.json"),
+        _sibling_path(report, ".findings.json"),
+        _sibling_path(report, ".run.json"),
+    }
+
+
+def is_git_dirty(target: Path, *, ignore: Collection[Path] = ()) -> bool:
     """Whether ``target``'s git working tree has uncommitted changes.
 
     Best-effort like :func:`discover_git_sha`, but errs the other way: a
     failure to run ``git status`` is treated as "dirty" so resume refuses by
     default rather than silently trusting code that might have moved on.
 
-    ``ignore`` names one path that doesn't count as a change — the run's own
-    checkpoint. ``analyze . -o report.md`` writes the checkpoint inside the
-    repository being analysed, so without this the feature blocks itself: the
-    file that makes resume possible is the untracked file that makes resume
-    refuse, and the only way through is ``--force``, which also switches off
-    the "the code moved on" protection this check exists to give.
+    ``ignore`` names the paths that don't count as a change: the run's own
+    outputs. ``analyze . -o report.md`` writes them inside the repository
+    being analysed, so without this the feature blocks itself: the file that
+    makes resume possible is the untracked file that makes resume refuse, and
+    the only way through is ``--force``, which also switches off the "the code
+    moved on" protection this check exists to give.
+
+    ``--untracked-files=all`` lists the files inside a new directory. Git
+    otherwise reports just ``?? out/``, which can't be told apart from a new
+    source directory, and matching exact files means a source file added
+    beside the outputs still counts.
     """
     try:
         result = subprocess.run(
-            ["git", "-C", str(target), "status", "--porcelain"],
+            ["git", "-C", str(target), "status", "--porcelain", "--untracked-files=all"],
             capture_output=True,
             check=False,
             text=True,
@@ -805,15 +859,13 @@ def is_git_dirty(target: Path, *, ignore: Path | None = None) -> bool:
         return True
     if result.returncode != 0:
         return True
-    changed = _porcelain_paths(result.stdout, target)
-    if ignore is not None:
+    ignored = set()
+    for path in ignore:
         try:
-            ignored = ignore.resolve()
+            ignored.add(path.resolve())
         except OSError:
-            ignored = None
-        if ignored is not None:
-            changed = [p for p in changed if p != ignored]
-    return bool(changed)
+            continue
+    return any(p not in ignored for p in _porcelain_paths(result.stdout, target))
 
 
 def _porcelain_paths(stdout: str, target: Path) -> list[Path]:
@@ -869,12 +921,14 @@ def validate_checkpoint_for_resume(
 ) -> None:
     """Raise :class:`CheckpointValidationError` if resuming would be unsound.
 
-    A changed git SHA or config hash always refuses — those mean the
-    checkpointed findings describe code or a model that no longer matches
-    this invocation, and ``--force`` can't make stale findings sound. A
-    dirty working tree, or a target with no discoverable git SHA at all, is
-    weaker evidence (the code *might* still match what was analysed) so
-    ``--force`` can override either of those.
+    A changed git SHA, config hash or repository-relative target always
+    refuses — those mean the checkpointed findings describe code or a model
+    that no longer matches this invocation, and ``--force`` can't make stale
+    findings sound. A dirty working tree, or a target with no discoverable
+    git SHA at all, is weaker evidence (the code *might* still match what was
+    analysed) so ``--force`` can override either of those. Outside git the
+    only record of the target is a path relative to the working directory the
+    run started from, so a mismatch there is weak evidence too.
     """
     current_sha = discover_git_sha(target)
     if checkpoint.target_git_sha != current_sha:
@@ -890,13 +944,26 @@ def validate_checkpoint_for_resume(
             "the checkpointed run."
         )
 
+    current_repo_path = discover_target_repo_path(target)
+    if checkpoint.target_repo_path != current_repo_path:
+        raise CheckpointValidationError(
+            "target changed: checkpoint was "
+            f"{checkpoint.target_repo_path!r}, current is {current_repo_path!r}."
+        )
+
     if force:
         return
+    if current_sha is None and checkpoint.target_path != redact_path(target):
+        raise CheckpointValidationError(
+            f"target changed: checkpoint was {checkpoint.target_path!r}, current is "
+            f"{redact_path(target)!r}; pass --force to resume anyway."
+        )
     if current_sha is None:
         raise CheckpointValidationError(
             "target has no discoverable git SHA; pass --force to resume anyway."
         )
-    if is_git_dirty(target, ignore=checkpoint_path):
+    ignore = _run_outputs(checkpoint, checkpoint_path) if checkpoint_path else ()
+    if is_git_dirty(target, ignore=ignore):
         raise CheckpointValidationError(
             "target has uncommitted changes; pass --force to resume anyway."
         )

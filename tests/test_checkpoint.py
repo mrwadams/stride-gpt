@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +20,7 @@ from stride_gpt.agent.persistence import (
     restore_checkpoint_paths,
     validate_checkpoint_for_resume,
     write_checkpoint,
+    write_intermediates,
 )
 from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, ModelPair, Subsystem, SubsystemFinding
 
@@ -74,6 +77,7 @@ class TestBuildAndWriteCheckpoint:
             plan=sample_plan,
             findings=[sample_finding],
             target=tmp_path,
+            output=tmp_path / "report.md",
             models=model_pair,
             app_type_source="planner",
             started_at=datetime(2026, 6, 15, 12, 0, tzinfo=UTC),
@@ -92,7 +96,8 @@ class TestBuildAndWriteCheckpoint:
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: None)
 
         checkpoint = build_checkpoint(
-            plan=sample_plan, findings=[], target=tmp_path, models=model_pair,
+            plan=sample_plan, findings=[], target=tmp_path, output=tmp_path / "report.md",
+            models=model_pair,
             app_type_source="planner", started_at=datetime.now(UTC),
         )
         path = tmp_path / "out.checkpoint.json"
@@ -107,14 +112,16 @@ class TestBuildAndWriteCheckpoint:
         path = tmp_path / "out.checkpoint.json"
 
         first = build_checkpoint(
-            plan=sample_plan, findings=[], target=tmp_path, models=model_pair,
+            plan=sample_plan, findings=[], target=tmp_path, output=tmp_path / "report.md",
+            models=model_pair,
             app_type_source="planner", started_at=datetime.now(UTC),
         )
         write_checkpoint(path, first)
 
         second_finding = SubsystemFinding(subsystem="Auth", threats=[])
         second = build_checkpoint(
-            plan=sample_plan, findings=[second_finding], target=tmp_path, models=model_pair,
+            plan=sample_plan, findings=[second_finding], target=tmp_path, output=tmp_path / "report.md",
+            models=model_pair,
             app_type_source="planner", started_at=datetime.now(UTC),
         )
         write_checkpoint(path, second)
@@ -135,7 +142,8 @@ class TestBuildAndWriteCheckpoint:
 
         finding = SubsystemFinding(subsystem="Auth", threats=[], files_analyzed=[absolute])
         checkpoint = build_checkpoint(
-            plan=sample_plan, findings=[finding], target=tmp_path, models=model_pair,
+            plan=sample_plan, findings=[finding], target=tmp_path, output=tmp_path / "report.md",
+            models=model_pair,
             app_type_source="planner", started_at=datetime.now(UTC),
         )
 
@@ -147,7 +155,8 @@ class TestBuildAndWriteCheckpoint:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: None)
         checkpoint = build_checkpoint(
-            plan=sample_plan, findings=[], target=tmp_path, models=model_pair,
+            plan=sample_plan, findings=[], target=tmp_path, output=tmp_path / "report.md",
+            models=model_pair,
             app_type_source="planner", started_at=datetime.now(UTC),
         )
         # sample_plan.target_path is "/tmp/test-app", outside tmp_path/HOME,
@@ -177,6 +186,8 @@ def _checkpoint(*, target_git_sha: str | None, config_hash: str, sample_plan) ->
         updated_at=datetime.now(UTC),
         target_path="./",
         target_git_sha=target_git_sha,
+        target_repo_path=None,
+        report_name="report.md",
         config_hash=config_hash,
         app_type_source="planner",
         plan=sample_plan,
@@ -226,6 +237,7 @@ class TestValidateCheckpointForResume:
                 validate_checkpoint_for_resume(checkpoint, target=tmp_path, models=model_pair, force=force)
 
     def test_missing_git_sha_refuses_without_force(self, tmp_path, monkeypatch, sample_plan, model_pair):
+        monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(persistence, "discover_git_sha", lambda target: None)
         monkeypatch.setattr(persistence, "is_git_dirty", lambda target, **kw: False)
         checkpoint = _checkpoint(
@@ -365,6 +377,7 @@ class TestRestoreCheckpointPaths:
             plan=plan,
             findings=[finding],
             target=tmp_path / "app",
+            output=tmp_path / "report.md",
             models=model_pair,
             app_type_source="planner",
             started_at=datetime.now(UTC),
@@ -416,11 +429,11 @@ class TestIsGitDirtyIgnoresTheCheckpoint:
 
     def test_only_the_checkpoint_untracked_is_not_dirty(self, tmp_path, monkeypatch):
         self._stub_git(monkeypatch, tmp_path, "?? report.checkpoint.json\n")
-        assert is_git_dirty(tmp_path, ignore=tmp_path / "report.checkpoint.json") is False
+        assert is_git_dirty(tmp_path, ignore={tmp_path / "report.checkpoint.json"}) is False
 
     def test_a_real_change_beside_the_checkpoint_is_still_dirty(self, tmp_path, monkeypatch):
         self._stub_git(monkeypatch, tmp_path, "?? report.checkpoint.json\n M src/auth.py\n")
-        assert is_git_dirty(tmp_path, ignore=tmp_path / "report.checkpoint.json") is True
+        assert is_git_dirty(tmp_path, ignore={tmp_path / "report.checkpoint.json"}) is True
 
     def test_without_ignore_the_checkpoint_still_counts(self, tmp_path, monkeypatch):
         self._stub_git(monkeypatch, tmp_path, "?? report.checkpoint.json\n")
@@ -428,4 +441,183 @@ class TestIsGitDirtyIgnoresTheCheckpoint:
 
     def test_a_checkpoint_outside_the_repo_changes_nothing(self, tmp_path, monkeypatch):
         self._stub_git(monkeypatch, tmp_path, " M src/auth.py\n")
-        assert is_git_dirty(tmp_path, ignore=tmp_path.parent / "elsewhere.checkpoint.json") is True
+        assert is_git_dirty(tmp_path, ignore={tmp_path.parent / "elsewhere.checkpoint.json"}) is True
+
+
+# ---------------------------------------------------------------------------
+# Resume against the wrong target
+# ---------------------------------------------------------------------------
+
+
+def _checkpoint_for(target: Path, output: Path, sample_plan, model_pair) -> Checkpoint:
+    return build_checkpoint(
+        plan=sample_plan, findings=[], target=target, output=output, models=model_pair,
+        app_type_source="planner", started_at=datetime.now(UTC),
+    )
+
+
+class TestResumeTargetMustMatch:
+    """A git SHA and a config hash are the same for every directory in a
+    repository, so neither can tell ``analyze svc_a`` from ``analyze svc_b``."""
+
+    @pytest.mark.parametrize("force", [False, True])
+    def test_another_directory_of_the_same_repo_refuses(
+        self, git_repo, sample_plan, model_pair, force
+    ):
+        checkpoint = _checkpoint_for(git_repo / "svc_a", git_repo / "r.md", sample_plan, model_pair)
+        with pytest.raises(CheckpointValidationError, match="target changed"):
+            validate_checkpoint_for_resume(
+                checkpoint, target=git_repo / "svc_b", models=model_pair, force=force
+            )
+
+    def test_the_same_target_from_another_working_directory_passes(
+        self, git_repo, monkeypatch, sample_plan, model_pair
+    ):
+        monkeypatch.chdir(git_repo)
+        checkpoint = _checkpoint_for(Path("svc_a"), git_repo / "r.md", sample_plan, model_pair)
+        monkeypatch.chdir(git_repo / "svc_a")
+        validate_checkpoint_for_resume(checkpoint, target=Path(), models=model_pair, force=False)
+
+    def test_the_same_target_in_a_moved_repository_passes(
+        self, git_repo, tmp_path, sample_plan, model_pair
+    ):
+        checkpoint = _checkpoint_for(git_repo / "svc_a", git_repo / "r.md", sample_plan, model_pair)
+        moved = tmp_path / "moved"
+        shutil.move(git_repo, moved)
+        validate_checkpoint_for_resume(
+            checkpoint, target=moved / "svc_a", models=model_pair, force=False
+        )
+
+    def test_outside_git_another_path_refuses_until_forced(
+        self, tmp_path, sample_plan, model_pair
+    ):
+        """Without git the redacted path is the only evidence, and it depends
+        on the working directory, so ``--force`` can override it."""
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        checkpoint = _checkpoint_for(tmp_path / "a", tmp_path / "r.md", sample_plan, model_pair)
+
+        with pytest.raises(CheckpointValidationError, match="target changed"):
+            validate_checkpoint_for_resume(
+                checkpoint, target=tmp_path / "b", models=model_pair, force=False
+            )
+        validate_checkpoint_for_resume(
+            checkpoint, target=tmp_path / "b", models=model_pair, force=True
+        )
+
+
+# ---------------------------------------------------------------------------
+# Sibling file names
+# ---------------------------------------------------------------------------
+
+
+class TestSiblingNamesKeepTheWholeStem:
+    def test_versioned_reports_do_not_share_siblings(self, tmp_path, monkeypatch, sample_plan, sample_finding):
+        monkeypatch.chdir(tmp_path)
+        manifest = persistence.RunManifest.model_validate(_MANIFEST)
+        first = write_intermediates(
+            tmp_path / "report.v1.md", manifest=manifest, plan=sample_plan, findings=[sample_finding]
+        )
+        second = write_intermediates(
+            tmp_path / "report.v2.md", manifest=manifest, plan=sample_plan, findings=[sample_finding]
+        )
+        assert len(first) == 3
+        assert not set(first) & set(second)
+
+    def test_every_suffix_follows_the_report_name(self, tmp_path, monkeypatch, sample_plan, sample_finding):
+        monkeypatch.chdir(tmp_path)
+        written = write_intermediates(
+            tmp_path / "threat-model.2026.md",
+            manifest=persistence.RunManifest.model_validate(_MANIFEST),
+            plan=sample_plan,
+            findings=[sample_finding],
+        )
+        assert {p.name for p in written} == {
+            "threat-model.2026.plan.json",
+            "threat-model.2026.findings.json",
+            "threat-model.2026.run.json",
+        }
+
+    def test_checkpoints_do_not_collide(self, tmp_path):
+        v1 = checkpoint_path_for(tmp_path / "report.v1.md")
+        v2 = checkpoint_path_for(tmp_path / "report.v2.md")
+        assert v1 != v2
+        assert v1.name == "report.v1.checkpoint.json"
+
+
+_MANIFEST = {
+    "stride_gpt_version": "0.0.0-test",
+    "python_version": "3.12.0",
+    "started_at": "2026-06-15T12:00:00Z",
+    "finished_at": "2026-06-15T12:01:00Z",
+    "architect": {"provider": "Anthropic API", "model_name": "claude-x"},
+    "worker": {"provider": "Anthropic API", "model_name": "claude-x"},
+    "detected_app_type": "web",
+    "app_type_source": "planner",
+    "target_path": "./",
+    "target_git_sha": None,
+    "config_hash": "0" * 64,
+    "references_loaded": [],
+    "run_summary": {"status": "completed", "llm_calls": 1, "tool_calls": 0},
+    "mode": "analyze",
+}
+
+
+# ---------------------------------------------------------------------------
+# Dirtiness against a real repository
+# ---------------------------------------------------------------------------
+
+
+class TestRunOutputsAreNotDirtiness:
+    """``git status`` collapses a new directory to ``?? out/``, so an exact
+    match on the checkpoint file misses it, and a finished run leaves its
+    report and siblings behind too."""
+
+    def _resumable(self, repo, output, sample_plan, model_pair):
+        output.parent.mkdir(exist_ok=True)
+        checkpoint = _checkpoint_for(repo, output, sample_plan, model_pair)
+        path = checkpoint_path_for(output)
+        write_checkpoint(path, checkpoint)
+        return checkpoint, path
+
+    def _validate(self, checkpoint, path, repo, model_pair):
+        validate_checkpoint_for_resume(
+            checkpoint, target=repo, models=model_pair, force=False, checkpoint_path=path
+        )
+
+    def test_checkpoint_in_a_new_directory(self, git_repo, sample_plan, model_pair):
+        checkpoint, path = self._resumable(git_repo, git_repo / "out" / "r.md", sample_plan, model_pair)
+        self._validate(checkpoint, path, git_repo, model_pair)
+
+    def test_everything_a_finished_run_left_behind(self, git_repo, sample_plan, model_pair):
+        output = git_repo / "out" / "r.v1.json"
+        checkpoint, path = self._resumable(git_repo, output, sample_plan, model_pair)
+        for name in (
+            "r.v1.json", "r.v1.html", "r.v1.plan.json", "r.v1.findings.json", "r.v1.run.json",
+            "r.v1.checkpoint.json.tmp",
+        ):
+            (output.parent / name).write_text("{}")
+        self._validate(checkpoint, path, git_repo, model_pair)
+
+    def test_outputs_beside_the_repo_root(self, git_repo, sample_plan, model_pair):
+        output = git_repo / "r.md"
+        checkpoint, path = self._resumable(git_repo, output, sample_plan, model_pair)
+        output.write_text("# report")
+        self._validate(checkpoint, path, git_repo, model_pair)
+
+    @pytest.mark.parametrize("name", ["evil.py", "r.py"])
+    def test_a_new_source_file_in_the_output_directory_still_counts(
+        self, git_repo, sample_plan, model_pair, name
+    ):
+        output = git_repo / "out" / "r.md"
+        checkpoint, path = self._resumable(git_repo, output, sample_plan, model_pair)
+        (output.parent / name).write_text("print('new')\n")
+        with pytest.raises(CheckpointValidationError, match="uncommitted"):
+            self._validate(checkpoint, path, git_repo, model_pair)
+
+    def test_a_changed_tracked_file_still_counts(self, git_repo, sample_plan, model_pair):
+        output = git_repo / "out" / "r.md"
+        checkpoint, path = self._resumable(git_repo, output, sample_plan, model_pair)
+        (git_repo / "svc_a" / "app.py").write_text("print('changed')\n")
+        with pytest.raises(CheckpointValidationError, match="uncommitted"):
+            self._validate(checkpoint, path, git_repo, model_pair)

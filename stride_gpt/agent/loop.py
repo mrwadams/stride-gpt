@@ -156,8 +156,9 @@ def run_analysis(
             in the plan runs as normal.
         on_checkpoint: Called with the findings list so far every time it
             changes (a subsystem finished, was skipped, or was reused), so
-            the caller can persist a checkpoint. Not called for /quick-style
-            callers that don't pass it.
+            the caller can persist a checkpoint. A resumed run's list also
+            holds the ``resume_findings`` not reached yet. Not called for
+            /quick-style callers that don't pass it.
         planning_usage: Token usage already spent on planning, when ``plan``
             was built externally via ``create_analysis_plan(usage=...)``.
             Folded into the run's ``"planning"`` phase total so it isn't lost
@@ -232,6 +233,8 @@ def run_analysis(
     findings: list[SubsystemFinding] = []
     resumed_names: list[str] = []
     rerun_names: list[str] = []
+    if on_checkpoint and resume_findings:
+        on_checkpoint = _keeping_unreached(on_checkpoint, resume_findings)
 
     for i, subsystem in enumerate(plan.subsystems, 1):
         # A subsystem the checkpoint already completed costs nothing to
@@ -534,6 +537,25 @@ def _run_summary_text(
     lines.append(f"LLM calls: {llm_calls} | Tool calls: {tool_calls}")
     lines.append(_format_token_usage_line(token_usage))
     return "\n".join(lines)
+
+
+def _keeping_unreached(
+    on_checkpoint: Callable[[list[SubsystemFinding]], None],
+    resume_findings: dict[str, SubsystemFinding],
+) -> Callable[[list[SubsystemFinding]], None]:
+    """Wrap ``on_checkpoint`` so a write keeps the resumed findings ahead of it.
+
+    Each write replaces the checkpoint, and the loop's list only holds what it
+    has reached. A run killed partway through a resume would otherwise lose
+    every completed finding later in the plan.
+    """
+
+    def write(findings: list[SubsystemFinding]) -> None:
+        reached = {f.subsystem for f in findings}
+        unreached = [f for name, f in resume_findings.items() if name not in reached]
+        on_checkpoint([*findings, *unreached])
+
+    return write
 
 
 def _stop_remaining(

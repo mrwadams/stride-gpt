@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -206,3 +207,23 @@ def sandbox_dir(tmp_path) -> Path:
         b"import os\r\n\r\ndef run(cmd):\r\n    os.system(cmd)\r\n"
     )
     return tmp_path
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    """A committed git repository holding two services side by side."""
+    root = tmp_path / "repo"
+    for service in ("svc_a", "svc_b"):
+        (root / service).mkdir(parents=True)
+        (root / service / "app.py").write_text("print('hello')\n")
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            cwd=root, check=True, capture_output=True,
+        )
+
+    git("init")
+    git("add", ".")
+    git("commit", "-m", "init")
+    return root
