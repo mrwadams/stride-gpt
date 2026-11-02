@@ -279,44 +279,6 @@ class TestRunAnalysis:
             assert call.kwargs["max_llm_calls"] == 0
             assert call.kwargs["max_tool_calls"] == 0
 
-    @patch("stride_gpt.agent.loop.create_plan")
-    def test_cancelled_analysis(self, mock_plan, model_pair, tmp_path):
-        """Test cancellation via console.input (backward compat path)."""
-        mock_plan.return_value = AnalysisPlan(
-            target_path=str(tmp_path),
-            overall_description="Test",
-            subsystems=[Subsystem(name="A", description="A", key_files=[], focus_areas=[])],
-        )
-
-        console = MagicMock()
-        console.input.return_value = "n"
-
-        report = run_analysis(model_pair, tmp_path, auto_approve=False, console=console)
-        assert report.metadata.get("status") == "cancelled"
-        assert report.findings == []
-
-    @patch("stride_gpt.agent.loop.create_plan")
-    def test_approval_prompt_states_the_call_ceiling(self, mock_plan, model_pair, tmp_path):
-        mock_plan.return_value = AnalysisPlan(
-            target_path=str(tmp_path),
-            overall_description="Test",
-            subsystems=[
-                Subsystem(name=n, description=n, key_files=[], focus_areas=[])
-                for n in ("A", "B", "C")
-            ],
-        )
-        console = MagicMock()
-        console.input.return_value = "q"
-        progress = MagicMock()
-
-        run_analysis(
-            model_pair, tmp_path, auto_approve=False, console=console,
-            progress=progress, max_llm_calls=10,
-        )
-
-        statuses = [c.args[0] for c in progress.status.call_args_list]
-        assert any("ceiling" in s and "not an estimate" in s and "36" in s for s in statuses)
-
 
 # ---------------------------------------------------------------------------
 # Resuming from a checkpoint (#197)
@@ -540,7 +502,7 @@ class TestTierRouting:
     def test_tiered_routes_to_correct_tiers(self, tiered_pair, tmp_path):
         """planner → architect; tool-loop → worker; synthesis and DFD → architect."""
         with ScriptedLLM(_two_subsystem_run()) as fake:
-            report = run_analysis(tiered_pair, tmp_path, progress=MagicMock(), auto_approve=True)
+            report = run_analysis(tiered_pair, tmp_path, progress=MagicMock())
 
         assert [f.subsystem for f in report.findings] == ["A", "B"]
         worker = tiered_pair.worker.model_name
@@ -556,7 +518,7 @@ class TestTierRouting:
     def test_single_tier_uses_worker_everywhere(self, model_pair, tmp_path):
         """With architect=None, every call routes to worker."""
         with ScriptedLLM(_two_subsystem_run()) as fake:
-            run_analysis(model_pair, tmp_path, progress=MagicMock(), auto_approve=True)
+            run_analysis(model_pair, tmp_path, progress=MagicMock())
 
         worker_name = model_pair.worker.model_name
         assert len(fake.requests) == 5

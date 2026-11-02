@@ -11,7 +11,6 @@ from typing import Any
 
 from rich.console import Console
 
-from stride_gpt.agent.budget import format_llm_call_ceiling, prompt_plan_approval
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.errors import classify_error
 from stride_gpt.agent.evidence import (
@@ -127,9 +126,7 @@ def run_analysis(
     plan: AnalysisPlan | None = None,
     max_llm_calls: int = 0,
     max_tool_calls: int = 0,
-    auto_approve: bool = False,
     progress: ProgressCallback | None = None,
-    console: Console | None = None,
     resume_findings: dict[str, SubsystemFinding] | None = None,
     on_checkpoint: Callable[[list[SubsystemFinding]], None] | None = None,
     planning_usage: TokenUsage | None = None,
@@ -154,9 +151,7 @@ def run_analysis(
             is skipped. Reporting a threat doesn't spend it: the cap bounds
             reading the code, and a model mid-report must not be cut off.
             ``metadata["tool_calls"]`` still counts every call the model made.
-        auto_approve: Skip interactive plan approval (only used when plan is None).
         progress: Progress callback for UI updates. Falls back to Rich console.
-        console: Deprecated — use progress instead. Kept for backward compat.
         resume_findings: Subsystem name -> its checkpointed finding, from a
             ``--resume`` run. A subsystem present here is reused verbatim
             (no LLM call) instead of being analysed; every other subsystem
@@ -175,7 +170,7 @@ def run_analysis(
         Complete AnalysisReport.
     """
     if progress is None:
-        progress = RichProgress(console or Console())
+        progress = RichProgress(Console())
 
     ctx = ContextManager(config=models.worker)
     llm_calls = 0
@@ -196,28 +191,6 @@ def run_analysis(
         llm_calls += 1
 
         progress.status(format_plan_for_display(plan))
-
-        if not auto_approve:  # noqa: SIM102 (trailing comment below belongs to this block)
-            # When no plan is provided and auto_approve is False,
-            # the caller should have handled approval. For backward compat
-            # with CLI, we use Rich console input if available.
-            if console is not None:
-                progress.status(format_llm_call_ceiling(len(plan.subsystems), max_llm_calls))
-                if not prompt_plan_approval(console):
-                    progress.complete("Analysis cancelled.")
-                    cancel_meta = _build_metadata(
-                        models, plan, llm_calls=llm_calls, tool_calls=tool_calls,
-                        findings=[], status="cancelled",
-                    )
-                    cancel_meta["references_loaded"] = sorted(loaded_refs)
-                    cancel_meta["token_usage"] = _token_usage_metadata(phase_usage)
-                    return AnalysisReport(
-                        plan=plan,
-                        findings=[],
-                        metadata=cancel_meta,
-                    )
-            # If no console and not auto_approve, proceed anyway
-            # (caller should use the split API for interactive approval)
 
     # Report token budget so the user knows what context limit is in effect
     progress.token_budget(models.worker.model_name, ctx.context_window, source=ctx.budget_source.value)
