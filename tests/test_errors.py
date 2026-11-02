@@ -136,3 +136,34 @@ class TestClassifyByMessage:
         error_class, reason = classify_error(ValueError("something odd"))
         assert error_class == "unexpected"
         assert reason == "Unexpected error: something odd"
+
+
+class TestProviderMessage:
+    """The reason quotes the provider's own message, not litellm's wrapping (#305)."""
+
+    def test_deepseek_bad_key_shows_only_the_provider_message(self):
+        """The UAT shape: the whole JSON body and a request id used to be printed."""
+        exc = _litellm(
+            litellm.BadRequestError,
+            message='DeepseekException - {"error":{"message":"Authentication Fails, '
+            'Your api key: ****alid is invalid (request_id: 0a1b-2c3d)",'
+            '"type":"authentication_error","param":null,"code":"invalid_request_error"}}',
+            status=401,
+        )
+        assert classify_error(exc) == (
+            "auth",
+            "The provider rejected the credentials for this model. "
+            "(Authentication Fails, Your api key: ****alid is invalid)",
+        )
+
+    def test_a_nested_error_message_is_extracted(self):
+        exc = _litellm(
+            litellm.AuthenticationError,
+            message='AnthropicException - {"type":"error","error":'
+            '{"type":"authentication_error","message":"invalid x-api-key"}}',
+        )
+        assert classify_error(exc)[1].endswith("(invalid x-api-key)")
+
+    def test_a_plain_text_body_keeps_its_text_without_the_prefixes(self):
+        exc = _litellm(litellm.APIConnectionError, message="OpenAIException - Connection error.")
+        assert classify_error(exc)[1] == "The provider failed to answer. (Connection error.)"
