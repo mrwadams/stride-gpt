@@ -144,7 +144,7 @@ class TestRenderSarif:
 
 
 class TestOutcomeReporting:
-    """A crashed or skipped subsystem must not read as a clean one."""
+    """A crashed subsystem must not read as a clean one."""
 
     def _report(self, sample_plan, findings) -> AnalysisReport:
         return AnalysisReport(plan=sample_plan, findings=findings, metadata={})
@@ -163,17 +163,6 @@ class TestOutcomeReporting:
         assert "context window was exceeded" in md
         assert "- **Subsystems analyzed**: 0/1" in md
         assert "- **Not analyzed**: 1 error" in md
-
-    def test_markdown_explains_a_skipped_subsystem(self, sample_plan):
-        report = self._report(sample_plan, [
-            SubsystemFinding(subsystem="Auth", threats=[]),
-            SubsystemFinding(subsystem="API", threats=[], outcome="skipped"),
-        ])
-
-        md = render_markdown(report)
-
-        assert "> **Status**: skipped" in md
-        assert "- **Subsystems analyzed**: 1/2" in md
 
     def test_markdown_says_nothing_extra_when_every_subsystem_completed(
         self, sample_report: AnalysisReport

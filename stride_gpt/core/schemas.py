@@ -163,9 +163,8 @@ class AnalysisPlan(BaseModel):
 # * ``unfinished`` — the model ended on text without calling ``finish`` after
 #   reporting threats. The threats are kept; the analysis may be incomplete.
 # * ``error`` — the subsystem raised; see ``error_class``.
-# * ``skipped`` — the run budget ran out before this subsystem started.
 SubsystemOutcome = Literal[
-    "completed", "budget_exhausted", "parse_failed", "unfinished", "error", "skipped"
+    "completed", "budget_exhausted", "parse_failed", "unfinished", "error"
 ]
 
 # What kind of failure an ``error`` outcome was, classified from the exception
@@ -193,8 +192,7 @@ class SubsystemFinding(BaseModel):
     error_class: ErrorClass | None = None
     # Token usage this subsystem's own LLM calls incurred (exploration,
     # compression, and the grace round). ``TokenUsage()`` (unavailable) for
-    # findings recorded before this existed, and for a ``skipped`` subsystem
-    # that never made a call.
+    # findings recorded before this existed.
     token_usage: TokenUsage = TokenUsage()
 
 

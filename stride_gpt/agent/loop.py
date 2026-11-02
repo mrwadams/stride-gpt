@@ -162,7 +162,7 @@ def run_analysis(
             (no LLM call) instead of being analysed; every other subsystem
             in the plan runs as normal.
         on_checkpoint: Called with the findings list so far every time it
-            changes (a subsystem finished, was skipped, or was reused), so
+            changes (a subsystem finished or was reused), so
             the caller can persist a checkpoint. A resumed run's list also
             holds the ``resume_findings`` not reached yet. Not called for
             /quick-style callers that don't pass it.
@@ -318,9 +318,6 @@ def run_analysis(
             if on_checkpoint:
                 on_checkpoint(findings)
 
-    # Skipped subsystems are placeholders, not findings — synthesis and the
-    # DFD must reason about what was actually looked at.
-    analysed = [f for f in findings if f.outcome != "skipped"]
     # Ids go on before synthesis so the architect can link to them. An id
     # depends only on its own threat's text, so the pass below that adds the
     # cross-cutting threats leaves these unchanged and the links still resolve.
@@ -331,14 +328,14 @@ def run_analysis(
     systemic: list[dict[str, Any]] = []
     synthesis_error_class: str | None = None
     synthesis_dropped: list[dict[str, str]] = []
-    if len(analysed) > 1:
+    if len(findings) > 1:
         progress.phase_start("Phase 3", "Synthesizing Cross-Cutting Threats")
         progress.status("Identifying cross-cutting threats...")
         synth_counts = {"llm": 0}
         synth_notes: dict[str, bool] = {}
         try:
             raw_synthesis = _synthesize(
-                models, analysed, usage=phase_usage["synthesis"], call_counts=synth_counts,
+                models, findings, usage=phase_usage["synthesis"], call_counts=synth_counts,
                 notes=synth_notes,
             )
         except Exception as exc:
@@ -354,7 +351,7 @@ def run_analysis(
             progress.synthesis_failed(reason)
         else:
             cross_cutting, systemic = classify_synthesis(
-                raw_synthesis, analysed, target_path, dropped=synthesis_dropped,
+                raw_synthesis, findings, target_path, dropped=synthesis_dropped,
                 evidence_stripped=synth_notes.get("evidence_stripped", False),
             )
             if systemic:
@@ -368,10 +365,10 @@ def run_analysis(
     # boundaries. Wrapped in try/except so a bad DFD never nukes a good
     # report. Skipped when no findings exist.
     data_flow_diagram: str | None = None
-    if analysed:
+    if findings:
         progress.status("Generating system-level Data Flow Diagram...")
         try:
-            data_flow_diagram = _generate_system_dfd(models, plan, analysed, usage=phase_usage["dfd"])
+            data_flow_diagram = _generate_system_dfd(models, plan, findings, usage=phase_usage["dfd"])
             llm_calls += 1
         except Exception:
             data_flow_diagram = None
@@ -556,8 +553,7 @@ def _build_metadata(
     """Build the metadata block stored on an AnalysisReport.
 
     ``subsystems_analyzed`` counts the subsystems the model really analysed,
-    not the findings recorded: a crashed or skipped subsystem now has a
-    finding too.
+    not the findings recorded: a crashed subsystem has a finding too.
     """
     counts = count_outcomes(findings)
     meta: dict[str, Any] = {

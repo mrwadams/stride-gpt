@@ -40,14 +40,6 @@ class TestQueueProgress:
         assert event["threat_count"] == 3
         assert event["outcome"] == "completed"
 
-    def test_subsystems_skipped(self):
-        q: queue.Queue = queue.Queue()
-        p = QueueProgress(q)
-        p.subsystems_skipped(["API", "Storage"])
-        event = q.get_nowait()
-        assert event["type"] == "subsystems_skipped"
-        assert event["names"] == ["API", "Storage"]
-
     @pytest.mark.parametrize("cached", [False, True])
     def test_tool_call(self, cached):
         q: queue.Queue = queue.Queue()
@@ -126,7 +118,6 @@ class TestRichProgress:
             lambda p, text: p.subsystem_done(text, 1, "budget_exhausted"),
             lambda p, text: p.subsystem_done(text, 1, "parse_failed"),
             lambda p, text: p.subsystem_done(text, 1, "unfinished"),
-            lambda p, text: p.subsystems_skipped(["Auth", text]),
             lambda p, text: p.no_tool_use_warning(text),
         ],
     )
