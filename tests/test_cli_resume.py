@@ -228,6 +228,91 @@ class TestResumeKeepsFindingsNotYetReached:
         assert completed == {"A", "B", "D"}
 
 
+class TestInterruptPrintsResumeCommand:
+    """Ctrl-C used to leave a checkpoint without saying where it was (#303)."""
+
+    _PLAN = reply(json.dumps({
+        "detected_app_type": "web",
+        "overall_description": "d",
+        "subsystems": [
+            {"name": "Auth", "description": "d", "key_files": [], "focus_areas": []}
+        ],
+    }))
+
+    def test_fresh_run_names_its_checkpoint_and_the_resume_command(self, tmp_path, monkeypatch):
+        output = tmp_path / "out" / "report.json"
+        args = [
+            "analyze", str(tmp_path), "-y", "-f", "json", "-o", str(output),
+            "--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-secret",
+        ]
+        monkeypatch.setattr("sys.argv", ["/usr/bin/stride-gpt", *args])
+
+        with ScriptedLLM([self._PLAN, fail(KeyboardInterrupt(), tools=SUBSYSTEM_TOOL_NAMES)]):
+            result = runner.invoke(cli.app, args)
+
+        assert result.exit_code != 0
+        checkpoint = tmp_path / "out" / "report.checkpoint.json"
+        assert checkpoint.is_file()
+        assert str(checkpoint) in result.stdout
+        command = next(line for line in result.stdout.splitlines() if line.startswith("Resume with:"))
+        assert command == (
+            f"Resume with: stride-gpt analyze {tmp_path} -y -f json -o {output} "
+            f"--worker-model anthropic/claude-x --worker-api-key '<api-key>' "
+            f"--resume {checkpoint}"
+        )
+        assert "sk-secret" not in result.stdout
+
+    def test_resumed_run_replaces_its_resume_flag(self, tmp_path, monkeypatch):
+        checkpoint = tmp_path / "report.checkpoint.json"
+        _write_checkpoint_for(tmp_path, checkpoint)
+        args = [
+            "analyze", str(tmp_path), f"--resume={checkpoint}", "--force",
+            "--worker-model", "anthropic/claude-x", "--worker-api-key=sk-secret",
+            "-o", str(tmp_path / "report.md"),
+        ]
+        monkeypatch.setattr("sys.argv", ["stride-gpt", *args])
+
+        with ScriptedLLM([fail(KeyboardInterrupt(), tools=SUBSYSTEM_TOOL_NAMES)]):
+            result = runner.invoke(cli.app, args)
+
+        assert result.exit_code != 0
+        command = next(line for line in result.stdout.splitlines() if line.startswith("Resume with:"))
+        assert command.count("--resume") == 1
+        assert command.endswith(f"--resume {checkpoint}")
+        assert "sk-secret" not in result.stdout
+
+    def test_run_without_output_has_no_checkpoint_to_name(self, tmp_path, monkeypatch):
+        args = [
+            "analyze", str(tmp_path), "-y",
+            "--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-test",
+        ]
+        monkeypatch.setattr("sys.argv", ["stride-gpt", *args])
+
+        with ScriptedLLM([self._PLAN, fail(KeyboardInterrupt(), tools=SUBSYSTEM_TOOL_NAMES)]):
+            result = runner.invoke(cli.app, args)
+
+        assert result.exit_code != 0
+        assert "Resume with" not in result.stdout
+
+    def test_repl_prints_the_slash_command(self, tmp_path, monkeypatch):
+        output = tmp_path / "report.md"
+        config = {"worker": {"provider": "Anthropic API", "model": "claude-x", "api_key": "sk-test"}}
+        monkeypatch.setattr(cli, "config_to_model_pair", lambda _c: ModelPair(
+            worker=LLMConfig(provider="Anthropic API", model_name="claude-x", api_key="sk-test"),
+        ))
+        monkeypatch.setattr(cli, "_check_tier_api_keys", lambda *_a: True)
+
+        with (
+            ScriptedLLM([self._PLAN, fail(KeyboardInterrupt(), tools=SUBSYSTEM_TOOL_NAMES)]),
+            cli.console.capture() as captured,
+            pytest.raises(KeyboardInterrupt),
+        ):
+            cli._handle_analyze(config, f"{tmp_path} -y -o {output}")
+
+        checkpoint = tmp_path / "report.checkpoint.json"
+        assert f"Resume with: /analyze {tmp_path} -y -o {output} --resume {checkpoint}" in captured.get()
+
+
 class TestResumedRunLooksLikeAnUninterruptedOne:
     """The checkpoint stores redacted paths; the report renders live ones. A
     resumed run used to hand the redacted copies straight to the report, so
