@@ -602,33 +602,6 @@ def test_build_analyze_manifest_status_completed_when_all_subsystems_analyzed(
     assert manifest.run_summary.tool_calls == 12
 
 
-def test_build_analyze_manifest_status_partial_when_cap_truncates(
-    tmp_path, monkeypatch, sample_plan, model_pair,
-):
-    # A call cap stopped analysis after 1 of the plan's 2 subsystems.
-    monkeypatch.chdir(tmp_path)
-    findings = _findings_for(sample_plan)
-    findings[1] = findings[1].model_copy(update={"outcome": "skipped"})
-    manifest = build_analyze_manifest(
-        models=model_pair,
-        plan=sample_plan,
-        target=tmp_path,
-        started_at=datetime.now(UTC),
-        finished_at=datetime.now(UTC),
-        app_type_source="planner",
-        system_prompt="hello",
-        references_loaded=[],
-        llm_calls=8,
-        tool_calls=8,
-        findings=findings,
-    )
-
-    assert manifest.run_summary.status == "partial"
-    assert manifest.run_summary.subsystems_planned == 2
-    assert manifest.run_summary.subsystems_analyzed == 1
-    assert manifest.run_summary.subsystem_outcomes == {"completed": 1, "skipped": 1}
-
-
 def test_build_analyze_manifest_is_completed_when_a_subsystem_took_the_grace_round(
     tmp_path, monkeypatch, sample_plan, model_pair,
 ):

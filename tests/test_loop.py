@@ -373,8 +373,6 @@ class TestResume:
         )
 
         progress = MagicMock()
-        # A budget this small would normally make a fresh subsystem get
-        # skipped outright — reuse must not be gated on it at all.
         with ScriptedLLM([_DFD]):
             report = run_analysis(
                 model_pair, tmp_path, plan=plan, progress=progress,
@@ -384,7 +382,6 @@ class TestResume:
 
         assert report.findings == [reused_finding]
         assert report.metadata["resumed_subsystems"] == ["Auth"]
-        progress.limit_reached.assert_not_called()
 
     def test_non_resumed_run_has_empty_resumed_list_and_full_rerun_list(self, model_pair, tmp_path):
         plan = AnalysisPlan(
@@ -1158,7 +1155,6 @@ class TestSubsystemOutcomes:
 
         assert [f.outcome for f in report.findings] == ["budget_exhausted"] * 3
         assert all(len(f.threats) == 1 for f in report.findings)
-        progress.subsystems_skipped.assert_not_called()
 
     def test_the_llm_call_cap_bounds_every_subsystem_and_skips_none(
         self, model_pair, sandbox_dir
@@ -1184,7 +1180,6 @@ class TestSubsystemOutcomes:
 
         assert [f.outcome for f in report.findings] == ["budget_exhausted"] * 3
         assert all(len(f.threats) == 1 for f in report.findings)
-        progress.subsystems_skipped.assert_not_called()
         # 3 subsystems x (2 rounds + 1 grace) + synthesis + DFD, one under
         # the ceiling, which also allows for synthesis retrying.
         assert report.metadata["llm_calls"] == 11

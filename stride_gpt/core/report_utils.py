@@ -46,7 +46,6 @@ _OUTCOME_NOTES: dict[str, str] = {
         "be incomplete"
     ),
     "error": "the analysis stopped with an error",
-    "skipped": "the run budget ran out before this subsystem was analysed",
 }
 
 _ERROR_CLASS_NOTES: dict[str, str] = {

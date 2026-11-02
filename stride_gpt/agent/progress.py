@@ -35,17 +35,11 @@ class ProgressCallback(Protocol):
         it stopped without calling finish.
         """
 
-    def subsystems_skipped(self, names: list[str]) -> None:
-        """The run budget ran out before these subsystems started."""
-
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         """A tool was called during exploration."""
 
     def error(self, name: str, reason: str) -> None:
         """An error occurred analyzing a subsystem."""
-
-    def limit_reached(self, kind: str, current: int, maximum: int) -> None:
-        """A hard limit (LLM calls or tool calls) was reached."""
 
     def synthesis_done(self, count: int) -> None:
         """Cross-cutting threat synthesis completed."""
@@ -104,22 +98,12 @@ class RichProgress:
                 f"Recorded {threat_count} threats.[/yellow]"
             )
 
-    def subsystems_skipped(self, names: list[str]) -> None:
-        self.console.print(
-            f"  [yellow]Skipped {len(names)} subsystems: {escape(', '.join(names))}[/yellow]"
-        )
-
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         suffix = " (cached)" if cached else ""
         self.console.print(f"    [dim]{escape(name)}({escape(args_brief)}){suffix}[/dim]")
 
     def error(self, name: str, reason: str) -> None:
         self.console.print(f"  [red]Error analyzing {escape(name)}: {escape(reason)}[/red]")
-
-    def limit_reached(self, kind: str, current: int, maximum: int) -> None:
-        self.console.print(
-            f"[yellow]Reached {kind} limit ({current}/{maximum}). Stopping early.[/yellow]"
-        )
 
     def token_budget(self, model: str, limit: int, source: str) -> None:
         if source == "queried" or source == "explicit":
@@ -179,17 +163,11 @@ class QueueProgress:
         self._put({"type": "subsystem_done", "name": name,
                     "threat_count": threat_count, "outcome": outcome})
 
-    def subsystems_skipped(self, names: list[str]) -> None:
-        self._put({"type": "subsystems_skipped", "names": list(names)})
-
     def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
         self._put({"type": "tool_call", "name": name, "args_brief": args_brief, "cached": cached})
 
     def error(self, name: str, reason: str) -> None:
         self._put({"type": "error", "name": name, "reason": reason})
-
-    def limit_reached(self, kind: str, current: int, maximum: int) -> None:
-        self._put({"type": "limit_reached", "kind": kind, "current": current, "maximum": maximum})
 
     def token_budget(self, model: str, limit: int, source: str) -> None:
         self._put({"type": "token_budget", "model": model, "limit": limit,
