@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import regex
 
 from stride_gpt.agent.tools import (
     AGENT_TOOLS,
@@ -235,6 +237,44 @@ class TestListDirectory:
         dirs = [e for e in result if e["name"] == "src"]
         assert dirs[0]["type"] == "directory"
 
+    @pytest.mark.parametrize("name", [".env", "build", "target", "dist"])
+    def test_file_named_like_a_skipped_directory_is_listed(self, sandbox_dir: Path, name: str):
+        """SKIP_DIRS is about directories. A `.env` file is exactly what a threat
+        model should know about."""
+        (sandbox_dir / name).write_text("API_KEY=hunter2\n")
+
+        entries = {e["name"]: e for e in json.loads(list_directory(sandbox_dir))}
+
+        assert entries[name] == {"name": name, "type": "file", "size": 16}
+
+    @pytest.mark.parametrize("name", [".env", "venv", "dist"])
+    def test_directory_of_a_skipped_name_stays_hidden(self, sandbox_dir: Path, name: str):
+        (sandbox_dir / name).mkdir()
+
+        names = {e["name"] for e in json.loads(list_directory(sandbox_dir))}
+
+        assert name not in names
+
+    def test_listing_a_dotenv_file_leaves_its_read_access_unchanged(self, sandbox_dir: Path):
+        (sandbox_dir / ".env").write_text("API_KEY=hunter2\n")
+
+        assert "API_KEY=hunter2" in read_file(sandbox_dir, ".env")
+
+    def test_link_out_of_the_sandbox_with_a_skipped_name_reveals_nothing(
+        self, sandbox_dir: Path, tmp_path_factory
+    ):
+        """Hiding only links to directories would say what the target is, so
+        such a link is listed the same way whatever it points to."""
+        outside = tmp_path_factory.mktemp("outside")
+        (outside / "secrets").write_text("x" * 1234)
+        (sandbox_dir / ".env").symlink_to(outside / "secrets")
+        (sandbox_dir / "venv").symlink_to(outside)
+
+        entries = {e["name"]: e for e in json.loads(list_directory(sandbox_dir))}
+
+        assert entries[".env"] == {"name": ".env", "type": "symlink"}
+        assert entries["venv"] == {"name": "venv", "type": "symlink"}
+
 
 # ---------------------------------------------------------------------------
 # search_files
@@ -311,19 +351,58 @@ class TestGrepContent:
         assert result.startswith("Error:")
         assert "too long" in result
 
-    def test_rejects_nested_quantifier(self, sandbox_dir: Path):
-        """ReDoS guard: the textbook catastrophic-backtracking shape `(a+)+`
-        is rejected by the heuristic, never compiled and run."""
-        result = grep_content(sandbox_dir, "(a+)+")
-        assert result.startswith("Error:")
-        assert "nested-quantifier" in result
+    @pytest.mark.parametrize(
+        "pattern",
+        ["(Flask)+", "(?:Flask)+", "(?:Flask|Django)+", "(?:from|import)+", "(a+)+", "(a+){2,}"],
+    )
+    def test_quantified_groups_run(self, sandbox_dir: Path, pattern: str):
+        """No pattern is refused for its shape: the time limit handles the
+        slow ones, so harmless ones like `(?:GET|POST)+` must run."""
+        assert isinstance(json.loads(grep_content(sandbox_dir, pattern)), list)
 
-    def test_ordinary_quantified_group_still_allowed(self, sandbox_dir: Path):
-        """The guard must not block benign patterns like `(foo)+` — a single
-        quantifier on a non-quantified group is fine and should run normally."""
-        result = grep_content(sandbox_dir, "(Flask)+")
-        # Valid JSON result (a match list), not an Error string.
-        assert isinstance(json.loads(result), list)
+    def test_alternation_under_a_quantifier_finds_matches(self, sandbox_dir: Path):
+        (sandbox_dir / "routes.py").write_text("methods = 'GETPOST'\n")
+        result = json.loads(grep_content(sandbox_dir, "(?:GET|POST)+", path="routes.py"))
+        assert [r["line"] for r in result] == [1]
+
+    @pytest.mark.parametrize("pattern", ["[invalid", "(", ")", "*", "a{2,1}", r"\q", "(?P<n"])
+    def test_invalid_pattern_is_reported_not_raised(self, sandbox_dir: Path, pattern: str):
+        result = grep_content(sandbox_dir, pattern)
+        assert result.startswith("Error:")
+        assert "invalid regex" in result
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "(a{4000}){4000}",
+            "((a{1000}){1000}){1000}",
+            "((a{2,}){1000}){1000}",
+            "((a{1000,2000}){1000}){1000}",
+            "a{0}((b{1000}){1000})",
+            r"(a\\{1000}){1000}",
+        ],
+    )
+    def test_refuses_repeats_that_exhaust_memory_at_compile_time(
+        self, sandbox_dir: Path, pattern: str
+    ):
+        """`regex` expands counted repeats when compiling, in C, before any
+        timeout applies. The patterns are short but need gigabytes."""
+        result = grep_content(sandbox_dir, pattern)
+        assert result.startswith("Error:")
+        assert "repeat" in result
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+            "[A-Za-z0-9]{40}",
+            "((a{1,1000}){1,1000}){1,1000}",
+            r"\{1000\}\{1000\}",
+        ],
+    )
+    def test_ordinary_counted_repeats_run(self, sandbox_dir: Path, pattern: str):
+        assert isinstance(json.loads(grep_content(sandbox_dir, pattern)), list)
 
     def test_symlink_escape_blocked(self, sandbox_dir: Path, tmp_path_factory):
         """A symlinked file pointing outside the root must not be read. read_file
@@ -363,6 +442,121 @@ class TestGrepContent:
         result = json.loads(grep_content(sandbox_dir, "Flask"))
         files = {r["file"] for r in result}
         assert {"app.py", "app_link.py"} <= files
+
+
+class TestGrepTimeLimit:
+    """`(a|a)+$` on a 41-character line used to hang the whole run."""
+
+    # Under MAX_GREP_LINE_LEN, so truncation can't remove the `!` that forces
+    # the backtracking.
+    EVIL_LINE = "a" * 500 + "!"
+
+    @pytest.fixture
+    def short_deadline(self, monkeypatch):
+        monkeypatch.setattr("stride_gpt.agent.tools.GREP_DEADLINE_SECONDS", 0.05)
+
+    @pytest.fixture
+    def evil_file(self, sandbox_dir: Path) -> str:
+        (sandbox_dir / "evil.txt").write_text(f"{self.EVIL_LINE}\n")
+        return "evil.txt"
+
+    @pytest.mark.usefixtures("short_deadline")
+    @pytest.mark.parametrize("pattern", ["(a|a)+$", "(a|aa)+$"])
+    def test_catastrophic_pattern_is_stopped_and_flagged(
+        self, sandbox_dir: Path, evil_file: str, pattern: str
+    ):
+        result = json.loads(grep_content(sandbox_dir, pattern, path=evil_file))
+
+        assert result[0]["incomplete"] is True
+        assert "narrow" in result[0]["warning"].lower()
+
+    @pytest.mark.usefixtures("short_deadline")
+    def test_no_matches_yet_does_not_read_as_no_matches(self, sandbox_dir: Path, evil_file: str):
+        result = json.loads(grep_content(sandbox_dir, "(a|a)+$", path=evil_file))
+
+        assert result != []
+        assert not any("file" in item for item in result)
+        warning = result[0]["warning"].lower()
+        assert "no matches" in warning
+        assert "not" in warning
+
+    @pytest.mark.usefixtures("short_deadline")
+    def test_keeps_matches_found_before_the_limit(self, sandbox_dir: Path):
+        (sandbox_dir / "mixed.txt").write_text(f"needle\n{self.EVIL_LINE}\nneedle\n")
+
+        result = json.loads(grep_content(sandbox_dir, "needle|(a|a)+$", path="mixed.txt"))
+
+        assert result[0]["incomplete"] is True
+        assert [item["line"] for item in result[1:]] == [1]
+
+    @pytest.mark.usefixtures("short_deadline")
+    def test_warning_precedes_the_matches(self, sandbox_dir: Path):
+        """Context compression keeps only the start of a long tool result, so
+        a warning after the matches could be lost and the search would then
+        read as complete."""
+        body = "".join(f"needle {'x' * 150}\n" for _ in range(15))
+        (sandbox_dir / "mixed.txt").write_text(f"{body}{self.EVIL_LINE}\n")
+
+        raw = grep_content(sandbox_dir, "needle|(a|a)+$", path="mixed.txt")
+
+        assert '"incomplete"' in raw[:200]
+        assert len(json.loads(raw)) == 16
+
+    def test_one_limit_covers_the_whole_call(self, sandbox_dir: Path, monkeypatch):
+        """A per-line limit would spend 0.05s on each of 400 lines, 20 seconds."""
+        monkeypatch.setattr("stride_gpt.agent.tools.GREP_DEADLINE_SECONDS", 0.05)
+        (sandbox_dir / "evil.txt").write_text(f"{self.EVIL_LINE}\n" * 400)
+
+        started = time.monotonic()
+        result = json.loads(grep_content(sandbox_dir, "(a|a)+$", path="evil.txt"))
+
+        assert time.monotonic() - started < 2
+        assert result[0]["incomplete"] is True
+
+    def test_limit_spans_files(self, sandbox_dir: Path, monkeypatch):
+        monkeypatch.setattr("stride_gpt.agent.tools.GREP_DEADLINE_SECONDS", 0.05)
+        for i in range(40):
+            (sandbox_dir / f"evil{i}.txt").write_text(f"{self.EVIL_LINE}\n")
+
+        started = time.monotonic()
+        result = json.loads(grep_content(sandbox_dir, "(a|a)+$"))
+
+        assert time.monotonic() - started < 1
+        assert result[0]["incomplete"] is True
+
+    def test_remaining_time_is_never_negative(self, sandbox_dir: Path, monkeypatch):
+        """`regex` treats a negative timeout as no timeout at all, so an
+        overrun deadline must reach it as zero. Stubbed because the regression
+        this guards against is a hang."""
+        monkeypatch.setattr("stride_gpt.agent.tools.GREP_DEADLINE_SECONDS", -1)
+        (sandbox_dir / "two.txt").write_text("one\ntwo\n")
+        seen: list[float] = []
+
+        class Recorder:
+            def search(self, _line: str, timeout: float):
+                seen.append(timeout)
+                raise TimeoutError
+
+        monkeypatch.setattr("stride_gpt.agent.tools.regex.compile", lambda *_a, **_k: Recorder())
+
+        result = json.loads(grep_content(sandbox_dir, "one", path="two.txt"))
+
+        assert seen == [0]
+        assert result[0]["incomplete"] is True
+
+    def test_real_regex_timeout_of_zero_stops_a_catastrophic_match(self, sandbox_dir: Path):
+        """Pins the library behaviour the clamp above depends on."""
+        with pytest.raises(TimeoutError):
+            regex.compile("(a|a)+$").search(self.EVIL_LINE, timeout=0)
+
+    def test_complete_search_carries_no_warning(self, sandbox_dir: Path):
+        result = json.loads(grep_content(sandbox_dir, "Flask"))
+        assert result
+        assert not any("incomplete" in item for item in result)
+
+    def test_tool_description_explains_the_marker(self):
+        grep_tool = next(t for t in AGENT_TOOLS if t["function"]["name"] == "grep_content")
+        assert "incomplete" in grep_tool["function"]["description"]
 
 
 # ---------------------------------------------------------------------------

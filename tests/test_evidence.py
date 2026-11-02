@@ -15,6 +15,7 @@ import pytest
 from stride_gpt.agent.evidence import (
     MAX_COMMENT_SKIP,
     MAX_SNIPPET_CHARS,
+    MIN_SNIPPET_CHARS,
     EvidenceCheck,
     normalise_path,
     summarise_checks,
@@ -217,6 +218,33 @@ class TestRefuses:
     def test_empty_snippet(self, sandbox_dir, snippet):
         check = verify_one(sandbox_dir, AUTH, snippet)
         assert (check.verified, check.reason) == (False, "snippet is empty")
+
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            pytest.param("d", id="fragment-one-char"),
+            pytest.param("def", id="fragment-keyword"),
+            pytest.param("user", id="fragment-just-under"),
+            pytest.param("}", id="whole-line"),
+            pytest.param("}\n}", id="multi-line"),
+            pytest.param("  d  ", id="padding-does-not-count"),
+            pytest.param("1\tdef", id="gutter-does-not-count"),
+        ],
+    )
+    def test_too_short_to_identify_code(self, sandbox_dir, snippet):
+        """A few characters occur almost anywhere, so finding them proves
+        nothing about the code the threat is meant to live in."""
+        (sandbox_dir / "braces.js").write_text("function f() {\n  }\n}\n")
+        path = "braces.js" if "}" in snippet else AUTH
+        check = verify_one(sandbox_dir, path, snippet)
+        assert not check.verified
+        assert check.start_line is None
+        assert "too short" in check.reason
+
+    def test_shortest_accepted_snippet(self, sandbox_dir):
+        snippet = "login"
+        assert len(snippet) == MIN_SNIPPET_CHARS
+        assert verify_one(sandbox_dir, AUTH, snippet).verified
 
     def test_oversized_snippet_is_refused_not_truncated(self, sandbox_dir):
         check = verify_one(sandbox_dir, AUTH, "x" * (MAX_SNIPPET_CHARS + 1))
