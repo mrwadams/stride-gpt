@@ -466,7 +466,7 @@ def _ask_architect(
         answer = _CancellableConfirm.ask(
             "Configure a separate architect model for planning, synthesis, and "
             "context summarization? (Recommended: a stronger reasoning model)",
-            default=False,
+            default=True,
         )
         if answer is None:
             _cancel(console)
