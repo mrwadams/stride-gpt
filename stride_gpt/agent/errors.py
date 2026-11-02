@@ -9,6 +9,8 @@ HTTP status, so the type is the reliable signal and the text is the fallback.
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
 
 from stride_gpt.core.schemas import ErrorClass
@@ -75,6 +77,36 @@ def _by_status(exc: BaseException) -> ErrorClass | None:
     return None
 
 
+# litellm renders a provider failure as "litellm.<Class>: <Provider>Exception -
+# <body>", where the body is often the provider's JSON error response.
+_LITELLM_PREFIX = re.compile(r"^litellm\.\w+:\s*")
+_PROVIDER_PREFIX = re.compile(r"^\w+Exception\s*-\s*")
+_REQUEST_ID = re.compile(r"\s*\(request[_ ]id:[^)]*\)", re.IGNORECASE)
+
+
+def provider_message(exc: BaseException) -> str:
+    """The provider's own error message, without litellm's wrapping.
+
+    Falls back to the exception text, minus the prefixes, when the body isn't
+    a JSON error with a message. Request ids are dropped: they mean nothing to
+    the user and make the line long.
+    """
+    text = _PROVIDER_PREFIX.sub("", _LITELLM_PREFIX.sub("", str(exc), count=1), count=1)
+    try:
+        body = json.loads(text)
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict) and isinstance(error.get("message"), str):
+            text = error["message"]
+        elif isinstance(error, str):
+            text = error
+        elif isinstance(body.get("message"), str):
+            text = body["message"]
+    return _REQUEST_ID.sub("", text).strip()
+
+
 def classify_error(exc: BaseException) -> tuple[ErrorClass, str]:
     """Return the error class for ``exc`` and the reason to show the user."""
     err_str = str(exc)
@@ -94,7 +126,8 @@ def classify_error(exc: BaseException) -> tuple[ErrorClass, str]:
 
     if error_class is not None:
         reason = _REASONS[error_class]
-        return error_class, f"{reason} ({err_str})" if err_str else reason
+        message = provider_message(exc)
+        return error_class, f"{reason} ({message})" if message else reason
 
     # Last resort — a provider that wraps its errors, or a local runtime that
     # reports them as plain strings. LM Studio says the model "crashed" when it

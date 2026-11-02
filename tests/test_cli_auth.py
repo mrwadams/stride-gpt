@@ -20,7 +20,9 @@ def no_saved_config(monkeypatch):
 
 def _auth_error():
     return litellm.AuthenticationError(
-        message="Incorrect API key provided", model="claude-x", llm_provider="anthropic"
+        message='AnthropicException - {"type":"error","error":'
+        '{"type":"authentication_error","message":"invalid x-api-key"}}',
+        model="claude-x", llm_provider="anthropic",
     )
 
 
@@ -33,6 +35,8 @@ def test_analyze_with_bad_key_prints_auth_failure(tmp_path):
         ])
     assert result.exit_code == 1
     assert "Authentication failed" in result.stdout
+    assert "(invalid x-api-key)" in result.stdout
+    assert "AnthropicException" not in result.stdout
     assert "Traceback" not in result.stdout
 
 
@@ -46,6 +50,8 @@ def test_quick_with_bad_key_prints_auth_failure(tmp_path):
         ])
     assert result.exit_code == 1
     assert "Authentication failed" in result.stdout
+    assert "(invalid x-api-key)" in result.stdout
+    assert "AnthropicException" not in result.stdout
     assert "Traceback" not in result.stdout
 
 
