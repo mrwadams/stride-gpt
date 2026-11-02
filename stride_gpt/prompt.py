@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application import get_app
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import (
     CompleteEvent,
@@ -19,7 +20,7 @@ from prompt_toolkit.completion import (
     PathCompleter,
 )
 from prompt_toolkit.document import Document
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import HTML, fragment_list_width, to_formatted_text
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
@@ -151,11 +152,14 @@ def build_session(
             )
         else:
             tier_line = f" <b>{worker_provider}</b> / <ansigreen>{worker_model}</ansigreen>"
-        return HTML(
-            f"{tier_line}  "
-            f"<ansicyan>cwd:</ansicyan> {cwd}  "
-            f"<ansibrightblack>·  Tab to complete  ·  Ctrl+L to clear  ·  /help</ansibrightblack>"
-        )
+        toolbar = f"{tier_line}  <ansicyan>cwd:</ansicyan> {cwd}"
+        columns = get_app().output.get_size().columns
+        for hint in ("Tab to complete", "Ctrl+L to clear", "/help"):
+            candidate = f"{toolbar}<ansibrightblack>  ·  {hint}</ansibrightblack>"
+            if fragment_list_width(to_formatted_text(HTML(candidate))) > columns:
+                break
+            toolbar = candidate
+        return HTML(toolbar)
 
     style = Style.from_dict({
         "prompt": "ansigreen bold",
