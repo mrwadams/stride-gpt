@@ -48,6 +48,16 @@ def test_q_at_the_architect_prompt_cancels_setup(monkeypatch):
     assert "Setup cancelled." in console.file.getvalue()
 
 
+def test_enter_at_the_architect_prompt_follows_the_recommendation(monkeypatch):
+    """The prompt recommends an architect, so Enter must start its setup (#304)."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setattr(config, "save_config", lambda _c: pytest.fail("setup saved after q"))
+    console = _recording_console()
+    _answer(monkeypatch, [_DEEPSEEK, "1", "", "q"])
+    assert config.run_setup(console) is None
+    assert config.TIER_BLURB["architect"][:40] in console.file.getvalue()
+
+
 def test_q_at_the_keep_architect_prompt_cancels_setup(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     monkeypatch.setattr(config, "save_config", lambda _c: pytest.fail("setup saved after q"))
