@@ -28,6 +28,7 @@ load_dotenv(CONFIG_DIR / ".env")  # Load API keys from ~/.stride-gpt/.env
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
@@ -484,6 +485,42 @@ def _make_checkpoint_writer(
     return _write
 
 
+_API_KEY_FLAGS = ("--worker-api-key", "--architect-api-key")
+
+
+def _resume_command(args: list[str], checkpoint_path: Path) -> str:
+    """The command that resumes an interrupted run from ``checkpoint_path``.
+
+    ``args`` is the interrupted command line. Any ``--resume`` it had is
+    replaced, and API key values are replaced with a placeholder so the
+    printed command doesn't echo a secret.
+    """
+    import shlex
+
+    kept: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        flag = arg.split("=", 1)[0]
+        if flag == "--resume":
+            i += 1 if "=" in arg else 2
+            continue
+        if flag in _API_KEY_FLAGS:
+            kept += [flag, "<api-key>"]
+            i += 1 if "=" in arg else 2
+            continue
+        kept.append(arg)
+        i += 1
+    return shlex.join([*kept, "--resume", str(checkpoint_path)])
+
+
+def _print_resume_hint(checkpoint_path: Path, command: str) -> None:
+    """Tell an interrupted run where its checkpoint is and how to resume."""
+    console.print(f"\n[yellow]Interrupted. Completed subsystems are saved in {escape(str(checkpoint_path))}.[/yellow]")
+    # soft_wrap keeps a long command on one line so it can be copied whole.
+    console.print(f"Resume with: [cyan]{escape(command)}[/cyan]", soft_wrap=True)
+
+
 _REPL_VALUE_FLAGS = {"-o", "--output", "-f", "--format", "--resume", "-i", "--input", "-t", "--type"}
 
 
@@ -615,16 +652,23 @@ def _handle_analyze(config: dict, args_str: str) -> None:
             on_checkpoint([])
 
     # Phases 2+3: Analyze with pre-approved plan
-    report = run_analysis(
-        models=models,
-        target_path=target_path,
-        plan=plan,
-        progress=progress,
-        resume_findings=resume_findings,
-        on_checkpoint=on_checkpoint,
-        planning_usage=planning_usage,
-        max_llm_calls=DEFAULT_MAX_LLM_CALLS,
-    )
+    try:
+        report = run_analysis(
+            models=models,
+            target_path=target_path,
+            plan=plan,
+            progress=progress,
+            resume_findings=resume_findings,
+            on_checkpoint=on_checkpoint,
+            planning_usage=planning_usage,
+            max_llm_calls=DEFAULT_MAX_LLM_CALLS,
+        )
+    except KeyboardInterrupt:
+        if on_checkpoint is not None:
+            _print_resume_hint(
+                checkpoint_path, "/analyze " + _resume_command(parts, checkpoint_path)
+            )
+        raise
     finished_at = datetime.now(UTC)
 
     # Auto-save (skip cancelled runs)
@@ -1082,17 +1126,24 @@ def analyze(
             on_checkpoint([])
 
     # Phases 2+3: Analyze with pre-approved plan
-    report = run_analysis(
-        models=models,
-        target_path=target,
-        plan=plan,
-        max_llm_calls=max_llm_calls,
-        max_tool_calls=max_tool_calls,
-        progress=progress,
-        resume_findings=resume_findings,
-        on_checkpoint=on_checkpoint,
-        planning_usage=planning_usage,
-    )
+    try:
+        report = run_analysis(
+            models=models,
+            target_path=target,
+            plan=plan,
+            max_llm_calls=max_llm_calls,
+            max_tool_calls=max_tool_calls,
+            progress=progress,
+            resume_findings=resume_findings,
+            on_checkpoint=on_checkpoint,
+            planning_usage=planning_usage,
+        )
+    except KeyboardInterrupt:
+        if on_checkpoint is not None:
+            _print_resume_hint(
+                checkpoint_path, "stride-gpt " + _resume_command(sys.argv[1:], checkpoint_path)
+            )
+        raise
     finished_at = datetime.now(UTC)
 
     # Auto-save
