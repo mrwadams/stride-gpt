@@ -13,8 +13,15 @@ from typer.testing import CliRunner
 from stride_gpt import cli
 from stride_gpt.agent.loop import run_analysis
 from stride_gpt.agent.persistence import build_checkpoint, write_checkpoint
-from stride_gpt.core.schemas import AnalysisPlan, LLMConfig, ModelPair, Subsystem, SubsystemFinding
-from tests.fakes import SUBSYSTEM_TOOL_NAMES, ScriptedLLM, fail, reply
+from stride_gpt.core.schemas import (
+    AnalysisPlan,
+    LLMConfig,
+    ModelPair,
+    Subsystem,
+    SubsystemFinding,
+    ToolCallResult,
+)
+from tests.fakes import SUBSYSTEM_TOOL_NAMES, ScriptedLLM, call_tools, fail, reply
 
 runner = CliRunner()
 
@@ -145,7 +152,9 @@ class TestResumeRefusesAnotherTarget:
         assert fake.requests == []
 
 
-_FINDING_JSON = json.dumps({"threats": [], "improvement_suggestions": [], "files_analyzed": []})
+_FINISH = call_tools(
+    ToolCallResult(id="f", function_name="finish", arguments={}), tools=SUBSYSTEM_TOOL_NAMES,
+)
 
 
 def _four_subsystem_plan(target: Path) -> AnalysisPlan:
@@ -172,7 +181,7 @@ class TestResumeKeepsFindingsNotYetReached:
         writes: list[list[str]] = []
 
         with ScriptedLLM([
-            reply(_FINDING_JSON, tools=SUBSYSTEM_TOOL_NAMES),
+            _FINISH,
             fail(RuntimeError("boom"), tools=SUBSYSTEM_TOOL_NAMES),
             reply(json.dumps({"cross_cutting_threats": []})),
             _DFD,
@@ -203,7 +212,7 @@ class TestResumeKeepsFindingsNotYetReached:
         )
 
         with ScriptedLLM([
-            reply(_FINDING_JSON, tools=SUBSYSTEM_TOOL_NAMES),
+            _FINISH,
             fail(KeyboardInterrupt(), tools=SUBSYSTEM_TOOL_NAMES),
         ]):
             result = runner.invoke(cli.app, [
@@ -285,13 +294,10 @@ class TestAppTypeProvenance:
                 {"name": "Auth", "description": "d", "key_files": [], "focus_areas": []}
             ],
         })
-        finding_json = json.dumps({
-            "threats": [], "improvement_suggestions": [], "files_analyzed": [],
-        })
         output_path = tmp_path / "report.md"
         with ScriptedLLM([
             reply(plan_json),
-            reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES),
+            _FINISH,
             _DFD,
         ]):
             result = runner.invoke(cli.app, [

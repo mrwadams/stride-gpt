@@ -9,7 +9,8 @@ import pytest
 from typer.testing import CliRunner
 
 from stride_gpt import cli
-from tests.fakes import QUICK_TOOL_NAMES, SUBSYSTEM_TOOL_NAMES, ScriptedLLM, fail, reply
+from stride_gpt.core.schemas import ToolCallResult
+from tests.fakes import QUICK_TOOL_NAMES, SUBSYSTEM_TOOL_NAMES, ScriptedLLM, call_tools, fail, reply
 
 runner = CliRunner()
 
@@ -18,9 +19,8 @@ _PLAN = reply(json.dumps({
     "overall_description": "d",
     "subsystems": [{"name": "Auth", "description": "d", "key_files": [], "focus_areas": []}],
 }))
-_FINDING = reply(
-    json.dumps({"threats": [], "improvement_suggestions": [], "files_analyzed": []}),
-    tools=SUBSYSTEM_TOOL_NAMES,
+_FINDING = call_tools(
+    ToolCallResult(id="f", function_name="finish", arguments={}), tools=SUBSYSTEM_TOOL_NAMES,
 )
 _DFD = reply("```mermaid\nflowchart LR\n  A --> B\n```")
 _MODEL_ARGS = ["--worker-model", "anthropic/claude-x", "--worker-api-key", "sk-test"]

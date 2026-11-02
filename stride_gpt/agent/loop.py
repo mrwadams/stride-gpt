@@ -14,7 +14,12 @@ from rich.console import Console
 from stride_gpt.agent.budget import format_llm_call_ceiling, prompt_plan_approval
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.errors import classify_error
-from stride_gpt.agent.evidence import normalise_path, summarise_checks, verify_evidence
+from stride_gpt.agent.evidence import (
+    EvidenceCheck,
+    normalise_path,
+    summarise_checks,
+    verify_evidence,
+)
 from stride_gpt.agent.planner import create_plan, format_plan_for_display
 from stride_gpt.agent.progress import ProgressCallback, RichProgress
 from stride_gpt.agent.tools import (
@@ -361,11 +366,12 @@ def run_analysis(
         except Exception as exc:
             synthesis_error_class = type(exc).__name__
             error_class, reason = classify_error(exc)
-            # A provider error explains itself. Anything else is likely a bug
-            # in synthesis, and its traceback is all there is to debug from.
+            # A provider error or an unreadable reply explains itself. Anything
+            # else is likely a bug in synthesis, and its traceback is all there
+            # is to debug from.
             logger.warning(
                 "Synthesis failed (%s)", synthesis_error_class,
-                exc_info=error_class == "unexpected",
+                exc_info=error_class == "unexpected" and not isinstance(exc, SynthesisParseError),
             )
             progress.synthesis_failed(reason)
         else:
@@ -647,9 +653,10 @@ GRACE_ROUND_PROMPT = (
 )
 
 NUDGE_PROMPT = (
-    "You replied with text but did not call finish. Report each threat you found "
-    "with report_threat, then call finish with your improvement suggestions. "
-    "Threats written as prose or JSON are not recorded."
+    "You replied with text but did not call a tool, and this subsystem is not "
+    "finished. If there is more to check, continue with the tools. Otherwise "
+    "report each threat you found with report_threat, then call finish with your "
+    "improvement suggestions. Threats written as prose or JSON are not recorded."
 )
 
 # Arguments that fill the three always-present threat fields; everything else
@@ -791,18 +798,37 @@ class _SubsystemRun:
         )
 
     def _handle_report(self, tc: ToolCallResult) -> str:
-        args = tc.arguments
+        message, checks = self._record_threat(tc.arguments)
+        if checks is None:
+            return message
+        self.tool_calls += 1
+
+        verified = sum(1 for c in checks if c.verified)
+        brief = f"type={self.threats[-1]['Threat Type']!r}"
+        if checks:
+            brief += f", evidence={verified}/{len(checks)} verified"
+        self.progress.tool_call("report_threat", brief, cached=False)
+        return message
+
+    def _record_threat(self, args: dict[str, Any]) -> tuple[str, list[EvidenceCheck] | None]:
+        """Validate, dedupe, cap and verify one threat, then record it.
+
+        Returns the message for the model and the evidence checks, or ``None``
+        in place of the checks when nothing was recorded. Shared with the
+        plain-text fallback, so a threat written as prose gets the same checks
+        as one reported through the tool.
+        """
         scenario = str(_threat_arg(args, "scenario") or "").strip()
         if not scenario:
             return (
                 "Error: report_threat requires a non-empty 'scenario'. "
                 "Nothing was recorded."
-            )
+            ), None
         if len(self.threats) >= MAX_THREATS_PER_SUBSYSTEM:
             return (
                 f"Error: the per-subsystem limit of {MAX_THREATS_PER_SUBSYSTEM} threats "
                 "has been reached. Call finish now."
-            )
+            ), None
 
         threat_type = str(_threat_arg(args, "threat_type") or "Unknown")
         # Compression summarises away the model's own report_threat turns, so
@@ -813,7 +839,7 @@ class _SubsystemRun:
             return (
                 "This threat is already recorded; no duplicate was added. "
                 "Report a different threat or call finish."
-            )
+            ), None
         self._seen.add(signature)
 
         threat: dict[str, Any] = {
@@ -834,17 +860,10 @@ class _SubsystemRun:
         if checks:
             threat["evidence"] = [c.to_dict() for c in checks]
         self.threats.append(threat)
-        self.tool_calls += 1
-
-        verified = sum(1 for c in checks if c.verified)
-        brief = f"type={threat_type!r}"
-        if checks:
-            brief += f", evidence={verified}/{len(checks)} verified"
-        self.progress.tool_call("report_threat", brief, cached=False)
         return (
             f"Recorded threat #{len(self.threats)} ({threat_type}). "
             + summarise_checks(checks)
-        )
+        ), checks
 
     def _handle_exploration(self, tc: ToolCallResult) -> str:
         if self.max_tool_calls and self.explore_calls >= self.max_tool_calls:
@@ -908,11 +927,15 @@ class _SubsystemRun:
             self.lost_text = True
             return False
         # Only when nothing came through the tools — a model that does both
-        # would otherwise have every threat counted twice.
+        # would otherwise have every threat counted twice. Each one goes
+        # through the same checks as report_threat, so a "verified" flag or a
+        # line number written in the prose is never taken on trust.
         if not self.threats:
             threats = data.get("threats")
             if isinstance(threats, list):
-                self.threats.extend(t for t in threats if isinstance(t, dict))
+                for t in threats:
+                    if isinstance(t, dict):
+                        self._record_threat(t)
         suggestions = data.get("improvement_suggestions")
         if isinstance(suggestions, list):
             self.suggestions.extend(str(s) for s in suggestions if s)
@@ -927,12 +950,17 @@ class _SubsystemRun:
 
         Checked in this order because an unparseable text answer that left no
         threats is the one case where the finding is empty and untrustworthy —
-        that matters more than which budget ran out first.
+        that matters more than which budget ran out first. A run that ran out
+        of budget says so even if its final round was text; otherwise a text
+        ending after recorded threats means the model stopped without
+        finishing.
         """
         if self.lost_text and not self.threats:
             return "parse_failed"
         if self.grace_ran:
             return "budget_exhausted"
+        if self.lost_text:
+            return "unfinished"
         return "completed"
 
     def finding(self) -> SubsystemFinding:
@@ -1018,13 +1046,19 @@ The files listed above belong to those subsystems. You can read them to understa
                 phase_usage["exploration"].record(response)
 
             if not response.tool_calls:
-                if run.take_text_fallback(response.content) or run.threats or nudged:
+                if nudged:
+                    # Two text replies in a row: this one is the final answer.
+                    run.take_text_fallback(response.content)
                     return run.finding()
-                # One nudge on the real conversation, where _retry_as_json
-                # used to spend two calls on a summarised copy of it.
+                # One nudge per tool round, on the real conversation and with
+                # the model's own reply in it, so a model that narrates between
+                # tool calls isn't cut off and can see what it was told about.
                 nudged = True
+                if (response.content or "").strip():
+                    messages.append({"role": "assistant", "content": response.content})
                 messages = _append_user(messages, NUDGE_PROMPT)
                 continue
+            nudged = False
 
             messages.append({
                 "role": "assistant",
@@ -1058,13 +1092,19 @@ The files listed above belong to those subsystems. You can read them to understa
             # reached keeps a subsystem within cap + 1 (the grace round).
             if (not max_llm_calls or run.llm_calls < max_llm_calls) and ctx.needs_compression(messages):
                 compress_usage = TokenUsage()
-                compressed = ctx.compress(models.for_architect(), messages, usage=compress_usage)
+                compress_counts = {"llm": 0}
+                compressed = ctx.compress(
+                    models.for_architect(), messages,
+                    usage=compress_usage, call_counts=compress_counts,
+                )
                 if compressed is not messages:
                     # The cache points the model at earlier tool responses,
                     # which the summary has just replaced.
                     run.clear_tool_cache()
                     messages = compressed
-                run.llm_calls += 1  # Compression uses an LLM call
+                # Only a summary that was asked for costs a call; nothing
+                # old enough to compress costs none.
+                run.llm_calls += compress_counts["llm"]
                 run.token_usage.merge(compress_usage)
                 if phase_usage is not None:
                     phase_usage["compression"].merge(compress_usage)
@@ -1285,6 +1325,10 @@ def _findings_summary(
     )
 
 
+class SynthesisParseError(ValueError):
+    """The architect's synthesis reply was not JSON, even after a retry."""
+
+
 def _synthesize(
     models: ModelPair,
     findings: list[SubsystemFinding],
@@ -1342,7 +1386,11 @@ def _synthesize(
         data = extract_json_object(response.content)
 
     if data is None:
-        return []
+        # Raised rather than returning [], which looked identical to a
+        # synthesis that found nothing cross-cutting.
+        raise SynthesisParseError(
+            "The architect's synthesis reply was not valid JSON, even after a retry."
+        )
     return data.get("cross_cutting_threats", [])
 
 

@@ -31,7 +31,8 @@ class ProgressCallback(Protocol):
 
         ``outcome`` is a ``SubsystemOutcome`` — "completed" when the model
         finished on its own terms, "budget_exhausted" when it took the final
-        round, "parse_failed" when its answer was unusable.
+        round, "parse_failed" when its answer was unusable, "unfinished" when
+        it stopped without calling finish.
         """
 
     def subsystems_skipped(self, names: list[str]) -> None:
@@ -91,6 +92,11 @@ class RichProgress:
             self.console.print(
                 f"  [yellow]Found {threat_count} threats in {name} "
                 f"(budget ran out; reported in a final round)[/yellow]"
+            )
+        elif outcome == "unfinished":
+            self.console.print(
+                f"  [yellow]Found {threat_count} threats in {name} "
+                f"(the model stopped without finishing)[/yellow]"
             )
         else:
             self.console.print(

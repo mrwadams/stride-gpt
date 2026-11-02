@@ -89,7 +89,12 @@ class ContextManager:
         return tokens > int(self.context_window * COMPRESSION_THRESHOLD)
 
     def compress(
-        self, config: LLMConfig, messages: list[dict], *, usage: TokenUsage | None = None
+        self,
+        config: LLMConfig,
+        messages: list[dict],
+        *,
+        usage: TokenUsage | None = None,
+        call_counts: dict[str, int] | None = None,
     ) -> list[dict]:
         """Compress older turns into a summary.
 
@@ -105,6 +110,9 @@ class ContextManager:
 
         Returns ``messages`` itself (the same object) when there is nothing
         to compress or the summary couldn't be produced.
+        ``call_counts["llm"]`` is set to the calls made: one when a summary was
+        requested, even if it failed, and none when there was nothing to
+        compress.
 
         `config` is the LLM used to *perform* the summarization (an architect-
         tier reasoning task). The context window the ContextManager tracks is
@@ -141,6 +149,8 @@ class ContextManager:
         to_compress = [msg for turn in turns[:keep_from] for msg in turn]
         to_keep = [msg for turn in turns[keep_from:] for msg in turn]
 
+        if call_counts is not None:
+            call_counts["llm"] = 1
         try:
             summary = self._summarize(config, to_compress, previous_summary or None, usage=usage)
         except Exception:

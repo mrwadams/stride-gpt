@@ -14,12 +14,15 @@ from stride_gpt.agent.budget import llm_call_ceiling
 from stride_gpt.agent.context import ContextManager
 from stride_gpt.agent.loop import (
     MAX_THREATS_PER_SUBSYSTEM,
+    NUDGE_PROMPT,
     SubsystemAbortedError,
+    SynthesisParseError,
     _append_user,
     _synthesize,
     run_analysis,
 )
 from stride_gpt.agent.progress import RichProgress
+from stride_gpt.core.report_utils import outcome_note
 from stride_gpt.core.schemas import (
     AnalysisPlan,
     Subsystem,
@@ -76,14 +79,15 @@ class TestSynthesize:
         assert len(result) == 1
         assert result[0]["Threat Type"] == "Tampering"
 
-    def test_returns_empty_on_parse_failure(self, model_pair):
+    def test_raises_on_parse_failure(self, model_pair):
+        """An unreadable synthesis is a failure, not an empty result: the run
+        reports it through synthesis_failed instead of 0 cross-cutting threats."""
         findings = [SubsystemFinding(subsystem="A", threats=[])]
         with ScriptedLLM([
             reply("I can't produce valid JSON right now"),
             reply("Still no JSON"),
-        ]) as fake:
-            result = _synthesize(model_pair, findings)
-        assert result == []
+        ]) as fake, pytest.raises(SynthesisParseError):
+            _synthesize(model_pair, findings)
         # The retry carries the failed answer, then asks again
         assert [m["role"] for m in fake.requests[1].messages] == [
             "system", "user", "assistant", "user",
@@ -107,16 +111,15 @@ class TestRunAnalysis:
             ],
         )
 
-        # Agent loop: return findings directly (no tool calls)
-        finding_json = json.dumps({
-            "threats": [{"Threat Type": "Spoofing", "Scenario": "Weak auth", "Potential Impact": "Takeover"}],
-            "improvement_suggestions": ["Use MFA"],
-            "files_analyzed": ["auth.py"],
-        })
+        # Agent loop: report and finish straight away (no exploration)
+        finding = _tool_turn(
+            _report("r", threat_type="Spoofing", scenario="Weak auth", impact="Takeover"),
+            _finish("f", "Use MFA"),
+        )
 
         # Synthesis skipped (only 1 subsystem)
         progress = MagicMock()
-        with ScriptedLLM([reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
+        with ScriptedLLM([finding, _DFD]):
             report = run_analysis(model_pair, tmp_path, plan=plan, progress=progress)
 
         assert len(report.findings) == 1
@@ -141,19 +144,18 @@ class TestRunAnalysis:
             ],
         )
 
-        finding_json = json.dumps({
-            "threats": [{"Threat Type": "Information Disclosure", "Scenario": "Debug mode", "Potential Impact": "Leak"}],
-            "improvement_suggestions": ["Disable debug"],
-            "files_analyzed": ["app.py"],
-        })
         steps = [
             # First call: agent makes a tool call
             call_tools(
                 ToolCallResult(id="tc1", function_name="read_file", arguments={"path": "app.py"}),
                 content="Let me read the file", tools=SUBSYSTEM_TOOL_NAMES,
             ),
-            # Second call: agent returns findings
-            reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES),
+            # Second call: agent reports its finding and finishes
+            _tool_turn(
+                _report("r", threat_type="Information Disclosure", scenario="Debug mode",
+                        impact="Leak"),
+                _finish("f", "Disable debug"),
+            ),
             _DFD,
         ]
 
@@ -186,7 +188,7 @@ class TestRunAnalysis:
                                arguments={"pattern": r"\.\.[/\\]"}),
                 tools=SUBSYSTEM_TOOL_NAMES,
             ),
-            reply('{"threats": [], "files_analyzed": []}', tools=SUBSYSTEM_TOOL_NAMES),
+            _tool_turn(_finish("f")),
             _DFD,
         ]
 
@@ -375,15 +377,14 @@ class TestResume:
         reused_finding = SubsystemFinding(
             subsystem="Auth", threats=[{"Threat Type": "Spoofing"}], outcome="completed",
         )
-        api_finding_json = json.dumps({
-            "threats": [{"Threat Type": "Tampering", "Scenario": "s", "Potential Impact": "i"}],
-            "improvement_suggestions": [], "files_analyzed": [],
-        })
+        api_finding = _tool_turn(
+            _report("r", threat_type="Tampering", scenario="s", impact="i"), _finish("f"),
+        )
 
         checkpoints: list[list[SubsystemFinding]] = []
         progress = MagicMock()
         synthesis_reply = reply(json.dumps({"cross_cutting_threats": []}))
-        with ScriptedLLM([reply(api_finding_json, tools=SUBSYSTEM_TOOL_NAMES), synthesis_reply, _DFD]):
+        with ScriptedLLM([api_finding, synthesis_reply, _DFD]):
             report = run_analysis(
                 model_pair, tmp_path, plan=plan, progress=progress,
                 resume_findings={"Auth": reused_finding},
@@ -484,11 +485,7 @@ class TestResume:
             overall_description="Test app",
             subsystems=[Subsystem(name="Auth", description="Auth", key_files=[], focus_areas=[])],
         )
-        finding_json = json.dumps({
-            "threats": [], "improvement_suggestions": [], "files_analyzed": [],
-        })
-
-        with ScriptedLLM([reply(finding_json, tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
+        with ScriptedLLM([_tool_turn(_finish("f")), _DFD]):
             report = run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
 
         assert report.metadata["resumed_subsystems"] == []
@@ -507,7 +504,7 @@ class TestWorkerScope:
                 Subsystem(name="Worker", description="d", key_files=["worker/jobs.py"], focus_areas=[]),
             ],
         )
-        finding = reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES)
+        finding = _tool_turn(_finish("f"))
 
         with ScriptedLLM([finding, finding, reply(json.dumps({"cross_cutting_threats": []})), _DFD]) as fake:
             run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
@@ -524,9 +521,6 @@ class TestWorkerScope:
 # ---------------------------------------------------------------------------
 # App-type propagation (planner hint → agent prompt → metadata)
 # ---------------------------------------------------------------------------
-
-_EMPTY_FINDING = '{"threats": [], "improvement_suggestions": [], "files_analyzed": []}'
-
 
 class TestAppTypeFlow:
     @pytest.mark.parametrize("app_type", ["agentic", "genai", "web"])
@@ -547,7 +541,7 @@ class TestAppTypeFlow:
             ],
         )
 
-        with ScriptedLLM([reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES), _DFD]) as fake:
+        with ScriptedLLM([_tool_turn(_finish("f")), _DFD]) as fake:
             run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
 
         messages = fake.requests[0].messages
@@ -566,7 +560,7 @@ class TestAppTypeFlow:
             ],
         )
 
-        with ScriptedLLM([reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES), _DFD]):
+        with ScriptedLLM([_tool_turn(_finish("f")), _DFD]):
             report = run_analysis(model_pair, tmp_path, plan=plan, progress=MagicMock())
         assert report.metadata["app_type"] == "agentic"
 
@@ -588,9 +582,10 @@ class TestAppTypeFlow:
                                arguments={"name": "agentic"}),
                 content="I need the agentic card", tools=SUBSYSTEM_TOOL_NAMES,
             ),
-            reply(
-                '{"threats": [{"Threat Type": "Tampering", "Scenario": "ASI06 memory poisoning", "Potential Impact": "Bad", "OWASP_ASI": "ASI06"}], "improvement_suggestions": [], "files_analyzed": []}',
-                tools=SUBSYSTEM_TOOL_NAMES,
+            _tool_turn(
+                _report("r", threat_type="Tampering", scenario="ASI06 memory poisoning",
+                        impact="Bad", owasp_asi="ASI06"),
+                _finish("f"),
             ),
             _DFD,
         ]
@@ -622,8 +617,8 @@ def _two_subsystem_run() -> list:
     }))
     return [
         plan,
-        reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
-        reply(_EMPTY_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
+        _tool_turn(_finish("f")),
+        _tool_turn(_finish("f")),
         reply('{"cross_cutting_threats": []}'),
         _DFD,
     ]
@@ -1205,18 +1200,19 @@ class TestSubsystemOutcomes:
         assert finding.outcome == "parse_failed"
         assert finding.threats == []
 
-    def test_threats_through_the_tools_outrank_a_lost_text_answer(
-        self, model_pair, sandbox_dir
-    ):
-        """An unparseable sign-off doesn't discredit threats already recorded."""
+    def test_ending_on_text_after_threats_is_unfinished(self, model_pair, sandbox_dir):
+        """It never called finish, so the threats are kept but the subsystem
+        isn't reported as a complete analysis."""
         steps = [
             _tool_turn(_report("r", scenario="Found early")),
             reply("that's all folks", tools=SUBSYSTEM_TOOL_NAMES),
+            reply("really, that's all", tools=SUBSYSTEM_TOOL_NAMES),
         ]
 
         _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
 
-        assert finding.outcome == "completed"
+        assert finding.outcome == "unfinished"
+        assert [t["Scenario"] for t in finding.threats] == ["Found early"]
 
     def test_an_exhausted_run_tool_budget_records_the_rest_as_skipped(
         self, model_pair, sandbox_dir
@@ -1631,12 +1627,17 @@ class TestPlainTextFallback:
         with caplog.at_level(logging.WARNING):
             fake, _, finding = _run_subsystem(
                 model_pair, sandbox_dir,
-                [reply(_THREAT_FINDING, tools=SUBSYSTEM_TOOL_NAMES)],
+                [
+                    reply(_THREAT_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
+                    reply(_THREAT_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
+                ],
             )
 
         assert len(finding.threats) == 1
         assert finding.files_analyzed == ["app.py"]
-        assert len(fake.requests) == 1
+        assert finding.outcome == "completed"
+        # The first JSON reply is nudged towards the tools like any other text.
+        assert len(fake.requests) == 2
         assert "deprecated fallback" in caplog.text
 
     def test_text_without_json_is_nudged_once(self, model_pair, sandbox_dir):
@@ -1652,8 +1653,7 @@ class TestPlainTextFallback:
 
         assert len(finding.threats) == 1
         nudge = fake.requests[2].messages[-1]
-        assert nudge["role"] == "user"
-        assert "did not call finish" in nudge["content"]
+        assert nudge == {"role": "user", "content": NUDGE_PROMPT}
         # The nudge went onto the real conversation, tool results intact.
         assert any(m["role"] == "tool" for m in fake.requests[2].messages)
 
@@ -1675,11 +1675,183 @@ class TestPlainTextFallback:
         steps = [
             _tool_turn(_report("r", scenario="Reported by tool")),
             reply(_THREAT_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
+            reply(_THREAT_FINDING, tools=SUBSYSTEM_TOOL_NAMES),
         ]
 
         _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
 
         assert [t["Scenario"] for t in finding.threats] == ["Reported by tool"]
+
+
+class TestTextReplies:
+    """A reply with no tool call is nudged once per tool round. Only two text
+    replies in a row end the subsystem without finish."""
+
+    def test_text_after_threats_is_nudged_not_final(self, model_pair, sandbox_dir):
+        steps = [
+            _tool_turn(_report("r", scenario="First")),
+            reply("Now let me look at the auth module next", tools=SUBSYSTEM_TOOL_NAMES),
+            _tool_turn(_read("a")),
+            _tool_turn(_report("r2", scenario="Second"), _finish("f", "Use MFA")),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert [t["Scenario"] for t in finding.threats] == ["First", "Second"]
+        assert finding.improvement_suggestions == ["Use MFA"]
+        assert finding.outcome == "completed"
+
+    def test_the_nudge_keeps_the_models_own_reply(self, model_pair, sandbox_dir):
+        steps = [
+            _tool_turn(_read("a")),
+            reply("Now let me look at the auth module next", tools=SUBSYSTEM_TOOL_NAMES),
+            _FINAL,
+        ]
+
+        fake, _, _ = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert fake.requests[2].messages[-2:] == [
+            {"role": "assistant", "content": "Now let me look at the auth module next"},
+            {"role": "user", "content": NUDGE_PROMPT},
+        ]
+
+    def test_each_tool_round_earns_a_fresh_nudge(self, model_pair, sandbox_dir):
+        """A model that narrates between tool calls does it more than once."""
+        steps = [
+            _tool_turn(_read("a")),
+            reply("Next I'll check the routes", tools=SUBSYSTEM_TOOL_NAMES),
+            _tool_turn(_read("b", "config.yaml")),
+            reply("Next I'll check the config", tools=SUBSYSTEM_TOOL_NAMES),
+            _FINAL,
+        ]
+
+        fake, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert len(fake.requests) == 5
+        assert finding.outcome == "completed"
+
+    def test_recovering_after_a_nudge_is_completed(self, model_pair, sandbox_dir):
+        """The first text reply isn't the final answer, so it can't make a
+        clean finish with no threats parse_failed."""
+        steps = [
+            reply("Nothing to see here", tools=SUBSYSTEM_TOOL_NAMES),
+            _tool_turn(_read("a")),
+            _tool_turn(_finish("f")),
+        ]
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        assert finding.threats == []
+        assert finding.outcome == "completed"
+
+    def test_prose_evidence_is_verified_not_trusted(self, model_pair, sandbox_dir):
+        prose = json.dumps({"threats": [{
+            "Threat Type": "Spoofing", "Scenario": "Forged login", "Potential Impact": "i",
+            "evidence": [{
+                "path": "no/such/file.py", "snippet": "def login(user, password):",
+                "verified": True, "start_line": 9,
+            }],
+        }]})
+        steps = [reply(prose, tools=SUBSYSTEM_TOOL_NAMES)] * 2
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        [evidence] = finding.threats[0]["evidence"]
+        assert evidence["verified"] is False
+        assert evidence.get("start_line") is None
+
+    def test_prose_threats_are_deduped_and_capped(self, model_pair, sandbox_dir):
+        threats = [
+            {"Threat Type": "Tampering", "Scenario": f"Case {i}", "Potential Impact": "i"}
+            for i in range(MAX_THREATS_PER_SUBSYSTEM + 5)
+        ]
+        threats.insert(1, dict(threats[0]))
+        prose = json.dumps({"threats": threats})
+        steps = [reply(prose, tools=SUBSYSTEM_TOOL_NAMES)] * 2
+
+        _, _, finding = _run_subsystem(model_pair, sandbox_dir, steps)
+
+        scenarios = [t["Scenario"] for t in finding.threats]
+        assert len(scenarios) == MAX_THREATS_PER_SUBSYSTEM
+        assert len(set(scenarios)) == len(scenarios)
+
+    def test_an_unfinished_subsystem_makes_the_run_partial(self, model_pair, sandbox_dir):
+        plan = AnalysisPlan(
+            target_path=str(sandbox_dir),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name="App", description="Main app",
+                          key_files=["app.py"], focus_areas=["Spoofing"]),
+            ],
+        )
+        progress = MagicMock()
+        with ScriptedLLM([
+            _tool_turn(_report("r", scenario="Found early")),
+            reply("that's all folks", tools=SUBSYSTEM_TOOL_NAMES),
+            reply("really, that's all", tools=SUBSYSTEM_TOOL_NAMES),
+            _DFD,
+        ]):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+
+        assert report.findings[0].outcome == "unfinished"
+        assert len(report.findings[0].threats) == 1
+        assert report.metadata["subsystems_analyzed"] == 0
+        progress.subsystem_done.assert_called_with("App", 1, "unfinished")
+        assert outcome_note("unfinished") is not None
+
+
+class TestCompressionAccounting:
+    def test_compression_with_nothing_to_compress_costs_no_call(
+        self, model_pair, sandbox_dir
+    ):
+        ctx = MagicMock()
+        ctx.needs_compression.side_effect = [True, False]
+        ctx.compress.side_effect = lambda _cfg, msgs, **_kwargs: msgs
+
+        fake, counts, _ = _run_subsystem(
+            model_pair, sandbox_dir, [_tool_turn(_read("a")), _FINAL], ctx,
+        )
+
+        assert counts["llm"] == len(fake.requests) == 2
+
+    def test_compression_that_summarises_counts_its_call(self, model_pair, sandbox_dir):
+        ctx = ContextManager(model_pair.worker, context_window=1)
+        steps = [
+            _tool_turn(_read("a")),
+            _tool_turn(_read("b", "config.yaml")),
+            reply("Summary of earlier turns."),
+            _FINAL,
+        ]
+
+        fake, counts, _ = _run_subsystem(model_pair, sandbox_dir, steps, ctx)
+
+        assert counts["llm"] == len(fake.requests)
+
+
+class TestSynthesisParseFailure:
+    def test_an_unreadable_synthesis_is_reported_as_failed(self, model_pair, sandbox_dir):
+        plan = AnalysisPlan(
+            target_path=str(sandbox_dir),
+            overall_description="Test app",
+            subsystems=[
+                Subsystem(name=name, description=name, key_files=["app.py"],
+                          focus_areas=["Spoofing"])
+                for name in ("One", "Two")
+            ],
+        )
+        progress = MagicMock()
+        with ScriptedLLM([
+            _FINAL, _FINAL,
+            reply("not JSON"), reply("still not JSON"),
+            _DFD,
+        ]):
+            report = run_analysis(model_pair, sandbox_dir, plan=plan, progress=progress)
+
+        assert report.metadata["synthesis_error_class"] == "SynthesisParseError"
+        progress.synthesis_failed.assert_called_once()
+        progress.synthesis_done.assert_not_called()
+        assert len(report.findings) == 2
+
 
 class TestAgentLoopProtocol:
     """Every request the loop sends must be one a strict provider accepts.
