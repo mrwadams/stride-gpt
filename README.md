@@ -454,7 +454,7 @@ stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
 | `--no-architect` | Skip the architect tier for this run; the worker handles every call. |
 | `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |
 | `--max-llm-calls` | Cap LLM calls **per subsystem** (`analyze` only; default `25`, `0` = unlimited). Every subsystem gets the same budget and none is skipped for spending it: one that reaches the cap gets one final round to report what it found and is recorded `budget_exhausted`. The plan approval prompt shows the resulting ceiling for the whole run, `subsystems × (cap + 1) + 3` calls (synthesis may retry once, then the diagram). The interactive `/analyze` command uses the default. The default is about twice the measured reference: a complete 6-subsystem run against crAPI's identity service took about 11.8 exploration rounds per subsystem (71 exploration calls of 76 total). |
-| `--max-tool-calls` | Cap code exploration (`analyze` only; `0` = unlimited). Reporting a threat doesn't spend it, so a subsystem that finds more threats doesn't leave less exploration for the next one. |
+| `--max-tool-calls` | Cap code-exploration calls **per subsystem** (`analyze` only; `0` = unlimited). As with `--max-llm-calls`, a subsystem that reaches the cap gets one final round to report what it found and is recorded `budget_exhausted`, so none is skipped. Reporting a threat doesn't spend it. |
 
 Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-tokens` (and the `--architect-*` equivalents). Run `stride-gpt analyze --help` or `stride-gpt quick --help` for the complete list.
 
