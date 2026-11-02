@@ -87,6 +87,30 @@ def test_quick_output_into_a_missing_directory_creates_it(tmp_path, description)
     assert output.exists()
 
 
+def test_quick_report_is_named_after_the_input_files_directory(tmp_path, description):
+    readme = tmp_path / "payments-api" / "README.md"
+    readme.parent.mkdir()
+    readme.write_text("A payments API.")
+    with ScriptedLLM([_QUICK]):
+        result = runner.invoke(cli.app, ["quick", "-i", str(readme), *_MODEL_ARGS])
+    assert result.exit_code == 0, result.stdout
+    saved = list((tmp_path / "reports" / "quick").glob("*.json"))
+    assert [p.name.startswith("payments-api_") for p in saved] == [True]
+
+
+def test_quick_report_from_stdin_is_named_after_the_working_directory(
+    tmp_path, description, monkeypatch
+):
+    project = tmp_path / "inventory"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    with ScriptedLLM([_QUICK]):
+        result = runner.invoke(cli.app, ["quick", *_MODEL_ARGS], input="An inventory service.")
+    assert result.exit_code == 0, result.stdout
+    saved = list((tmp_path / "reports" / "quick").glob("*.json"))
+    assert [p.name.startswith("inventory_") for p in saved] == [True]
+
+
 def test_reports_export_into_a_missing_directory_creates_it(tmp_path, description):
     with ScriptedLLM([_QUICK]):
         assert runner.invoke(cli.app, ["quick", "-i", str(description), *_MODEL_ARGS]).exit_code == 0

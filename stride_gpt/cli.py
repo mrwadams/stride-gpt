@@ -849,6 +849,17 @@ def _handle_reports(args_str: str) -> None:
             console.print(rendered)
 
 
+def _quick_report_name(input_file: Path | None) -> str:
+    """Name a saved quick report after the system it describes.
+
+    That is the directory holding the input file, or the working directory
+    when the description came from stdin. The file's own name is no use:
+    every run from a README.md would be saved as ``README_<timestamp>``.
+    """
+    directory = input_file.resolve().parent if input_file else Path.cwd()
+    return directory.name or "quick-analysis"
+
+
 def _handle_quick(config: dict, args_str: str) -> None:
     """Run quick threat model from a description via the mini agent loop."""
     from stride_gpt.agent.html_report import render_html_from_json
@@ -899,7 +910,6 @@ def _handle_quick(config: dict, args_str: str) -> None:
             console.print(f"[red]Error: {input_file} not found.[/red]")
             return
         app_description = input_file.read_text()
-        report_name = input_file.stem
     else:
         console.print("[bold]Describe your application[/bold] (press Enter twice to finish):")
         lines: list[str] = []
@@ -917,7 +927,6 @@ def _handle_quick(config: dict, args_str: str) -> None:
             except (EOFError, KeyboardInterrupt):
                 break
         app_description = "\n".join(lines)
-        report_name = "quick-analysis"
 
     if not app_description.strip():
         console.print("[red]Error: Empty app description.[/red]")
@@ -956,7 +965,7 @@ def _handle_quick(config: dict, args_str: str) -> None:
 
     saved_path = save_quick_report(
         result,
-        report_name,
+        _quick_report_name(input_file),
         app_type_hint=hint,
         models=models,
     )
@@ -1240,11 +1249,9 @@ def quick(
             console.print(f"[red]Error: {input_file} not found.[/red]")
             raise typer.Exit(1)
         app_description = input_file.read_text()
-        report_name = input_file.stem
     else:
         console.print("[dim]Reading app description from stdin (Ctrl+D to finish)...[/dim]")
         app_description = sys.stdin.read()
-        report_name = "quick-analysis"
 
     if not app_description.strip():
         console.print("[red]Error: Empty app description.[/red]")
@@ -1276,7 +1283,7 @@ def quick(
 
     saved_path = save_quick_report(
         result,
-        report_name,
+        _quick_report_name(input_file),
         app_type_hint=app_type,
         models=models,
     )
