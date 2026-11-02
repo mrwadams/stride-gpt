@@ -371,6 +371,11 @@ def _call_litellm_with_tools(
     message = response.choices[0].message
     content = message.content or ""
 
+    if not content.strip():
+        fallback = getattr(message, "reasoning_content", None)
+        if fallback:
+            content = fallback
+
     tool_calls = None
     if message.tool_calls:
         tool_calls = []

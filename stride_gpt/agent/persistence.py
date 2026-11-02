@@ -171,7 +171,7 @@ def _anchor_forms() -> list[tuple[str, str]]:
     forms: set[tuple[str, str]] = set()
     for base, prefix in ((_safe_cwd(), "./"), (_safe_home(), "~/")):
         for spelling in base:
-            forms.add((spelling.rstrip(os.sep), prefix))
+            forms.add((spelling.replace("\\", "/").rstrip("/"), prefix))
     return sorted(forms, key=lambda f: -len(f[0]))
 
 
@@ -208,20 +208,25 @@ def _spellings(base: Path) -> list[str]:
 def _redact_textually(raw: str) -> str:
     """Apply redact_path's anchors to a path that could not be resolved.
 
-    Resolution failing is no reason to let ``/Users/<name>/...`` reach a
-    manifest, so the same anchors are matched against the string itself.
-    Whatever follows the anchor is kept as-is, malformed bytes included:
-    that part is evidence of what the model emitted, and it carries no
-    identity. A path matching neither anchor is returned unchanged, which
-    is rule 3 on a string rather than on a resolved path.
-    """
+Resolution failing is no reason to let ``/Users/<name>/...`` reach a
+manifest, so the same anchors are matched against the string itself.
+Whatever follows the anchor is kept as-is, malformed bytes included:
+that part is evidence of what the model emitted, and it carries no
+identity. A path matching neither anchor is returned unchanged, which
+is rule 3 on a string rather than on a resolved path.
+"""
     for anchor, prefix in _anchor_forms():
-        if raw == anchor:
-            return prefix
-        if raw.startswith(anchor + os.sep):
-            return prefix + raw[len(anchor) + 1 :]
-    return raw
+        normalized_anchor = anchor.replace("\\", "/").rstrip("/")
+        normalized_raw = raw.replace("\\", "/")
 
+        if normalized_raw == normalized_anchor:
+            return prefix
+
+        if normalized_raw.startswith(normalized_anchor + "/"):
+            remainder = normalized_raw[len(normalized_anchor) + 1 :]
+            return prefix + remainder
+
+    return raw
 
 def redact_path(p: Path | str) -> str:
     """Return a serialisation-safe form of ``p``.
@@ -233,43 +238,46 @@ def redact_path(p: Path | str) -> str:
     1. If ``p`` resolves under the current working directory, return a
        ``"./..."``-prefixed relative path.
     2. Else if ``p`` resolves under ``$HOME``, return ``"~/..."``.
-    3. Else return the absolute path verbatim — rare; the user explicitly
-       pointed outside both anchors.
+    3. Else return the absolute path verbatim.
 
-    A path that cannot be resolved at all gets the same three rules applied
-    textually, so it is redacted rather than serialised verbatim.
+    A path that cannot be resolved is checked textually against the anchors.
     """
+    raw = str(p)
+
+    # Do not resolve paths containing null bytes.
+    if "\x00" in raw:
+        return _redact_textually(raw)
+
     path = Path(p) if not isinstance(p, Path) else p
+
     try:
         resolved = path.resolve()
     except Exception:
-        # An unresolvable path (e.g. ``"stdin"``, or one containing a null
-        # byte from model output) still has to be redacted, and this must
-        # never raise, so any resolution failure falls back to matching the
-        # anchors against the original string.
-        return _redact_textually(str(p))
+        return _redact_textually(raw)
 
     cwd = Path.cwd().resolve()
+
     try:
         rel = resolved.relative_to(cwd)
-        return "./" + str(rel) if str(rel) != "." else "./"
+        return "./" + rel.as_posix() if str(rel) != "." else "./"
     except ValueError:
         pass
 
     home_str = os.environ.get("HOME") or str(Path.home())
+
     try:
         home = Path(home_str).resolve()
     except OSError:
         home = None
+
     if home is not None:
         try:
             rel = resolved.relative_to(home)
-            return "~/" + str(rel) if str(rel) != "." else "~/"
+            return "~/" + rel.as_posix() if str(rel) != "." else "~/"
         except ValueError:
             pass
 
     return str(resolved)
-
 
 # ---------------------------------------------------------------------------
 # Config hash

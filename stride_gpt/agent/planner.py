@@ -148,7 +148,15 @@ def create_plan(
     """Scan a codebase and generate an analysis plan via LLM."""
     # Gather codebase structure
     dir_listing = list_directory(target_path, ".")
+
     key_files = _discover_key_files(target_path)
+    key_files = [
+        r.replace("\\", "/") for r in key_files
+    ]
+
+    # Deduplicate and sort
+    key_files = sorted(set(key_files))
+  
     key_files_shown = _diverse_key_files(key_files, KEY_FILE_SAMPLE_LIMIT)
 
     if len(key_files_shown) < len(key_files):
