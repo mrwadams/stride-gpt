@@ -1029,7 +1029,7 @@ def analyze(
     output: Annotated[Path | None, typer.Option("-o", "--output", help="Output file path.")] = None,
     output_format: Annotated[OutputFormat, typer.Option("-f", "--format", help="Output format.")] = OutputFormat.markdown,
     max_llm_calls: Annotated[int, typer.Option(help="Max LLM calls per subsystem; a subsystem that hits it gets one final round to report what it found, so none is skipped. The default is about twice the ~12 rounds per subsystem a measured full run took (0 = unlimited).")] = DEFAULT_MAX_LLM_CALLS,
-    max_tool_calls: Annotated[int, typer.Option(help="Max code-exploration calls; reporting a threat doesn't spend it (0 = unlimited).")] = 0,
+    max_tool_calls: Annotated[int, typer.Option(help="Max code-exploration calls per subsystem; a subsystem that hits it gets one final round to report what it found, so none is skipped. Reporting a threat doesn't spend it (0 = unlimited).")] = 0,
     auto_approve: Annotated[bool, typer.Option("--yes", "-y", help="Auto-approve the analysis plan.")] = False,
     app_type: Annotated[AppTypeOverride, typer.Option("--app-type", help="Override the planner's app-type classification. 'auto' keeps the planner's choice.")] = AppTypeOverride.auto,
     resume: Annotated[Path | None, typer.Option("--resume", help="Resume an interrupted run from a checkpoint file (written next to -o as <stem>.checkpoint.json).")] = None,

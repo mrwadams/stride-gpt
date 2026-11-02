@@ -148,10 +148,12 @@ def run_analysis(
             report what it found — see ``_grace_round`` — and is recorded
             ``budget_exhausted``. ``llm_call_ceiling`` gives the bound this
             puts on the whole run.
-        max_tool_calls: Cap on code exploration (0 = unlimited). Reporting a
-            threat doesn't spend it: the cap bounds reading the code, and a
-            model mid-report must not be cut off. ``metadata["tool_calls"]``
-            still counts every call the model made.
+        max_tool_calls: Cap on code exploration *per subsystem* (0 =
+            unlimited). Like ``max_llm_calls``, a subsystem that reaches it
+            reports what it found and is recorded ``budget_exhausted``; none
+            is skipped. Reporting a threat doesn't spend it: the cap bounds
+            reading the code, and a model mid-report must not be cut off.
+            ``metadata["tool_calls"]`` still counts every call the model made.
         auto_approve: Skip interactive plan approval (only used when plan is None).
         progress: Progress callback for UI updates. Falls back to Rich console.
         console: Deprecated — use progress instead. Kept for backward compat.
@@ -177,12 +179,7 @@ def run_analysis(
 
     ctx = ContextManager(config=models.worker)
     llm_calls = 0
-    # Two counters: ``tool_calls`` is what the run reports (every call the
-    # model made), ``explore_calls`` is what the tool budget bounds. Letting
-    # reporting spend the budget would mean a subsystem that finds more
-    # threats leaves less exploration for the next one.
     tool_calls = 0
-    explore_calls = 0
     # Names the agent loads via the ``load_reference`` tool. Surfaced on
     # ``report.metadata["references_loaded"]`` so the run manifest can record
     # which cards actually shaped the output.
@@ -256,30 +253,13 @@ def run_analysis(
                 on_checkpoint(findings)
             continue
 
-        # A budget that runs out mid-plan used to drop the remaining
-        # subsystems entirely, so the run's own N/M counts couldn't see them.
-        # Each one is recorded as ``skipped`` instead: findings always match
-        # the plan. The LLM call cap never gets here — it is per subsystem.
-        if max_tool_calls and explore_calls >= max_tool_calls:
-            progress.limit_reached("tool call", explore_calls, max_tool_calls)
-            findings.extend(_stop_remaining(
-                plan.subsystems[i - 1:], "tool call", progress,
-                resume_findings=resume_findings, resumed_names=resumed_names,
-            ))
-            if on_checkpoint:
-                on_checkpoint(findings)
-            break
-
         progress.subsystem_start(i, len(plan.subsystems), subsystem.name, subsystem.description)
         rerun_names.append(subsystem.name)
 
-        # The LLM call cap is per subsystem: every subsystem gets the same
-        # rounds, and one that spends them reports through the grace round
-        # as ``budget_exhausted``. A run-level cap truncated the plan
-        # front-to-back instead, leaving later subsystems unanalysed. The
-        # tool budget is still run-level: pass what remains of it.
-        # 0 still means unlimited.
-        remaining_tool = max_tool_calls - explore_calls if max_tool_calls else 0
+        # Both caps are per subsystem: every subsystem gets the same budget,
+        # and one that spends it reports through the grace round as
+        # ``budget_exhausted``. Run-level caps truncated the plan
+        # front-to-back instead, leaving later subsystems unanalysed.
         sub_token_usage = TokenUsage()
 
         try:
@@ -294,7 +274,7 @@ def run_analysis(
                 other_subsystems=[other for other in plan.subsystems if other is not subsystem],
                 ctx=ctx,
                 max_llm_calls=max_llm_calls,
-                max_tool_calls=remaining_tool,
+                max_tool_calls=max_tool_calls,
                 progress=progress,
                 call_counts=sub_counts,
                 loaded_refs=loaded_refs,
@@ -303,7 +283,6 @@ def run_analysis(
             )
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
-            explore_calls += sub_counts["explore"]
             findings.append(finding)
             # Keyed on exploration, not total tool calls: a subsystem that
             # only reported threats still never looked at the code.
@@ -317,7 +296,6 @@ def run_analysis(
             # The counts were recorded before the exception escaped.
             llm_calls += sub_counts["llm"]
             tool_calls += sub_counts["tool"]
-            explore_calls += sub_counts["explore"]
             error_class, reason = classify_error(
                 e.cause if isinstance(e, SubsystemAbortedError) else e
             )
@@ -562,46 +540,6 @@ def _keeping_unreached(
         on_checkpoint([*findings, *unreached])
 
     return write
-
-
-def _stop_remaining(
-    subsystems: list[Subsystem],
-    kind: str,
-    progress: ProgressCallback,
-    *,
-    resume_findings: dict[str, SubsystemFinding] | None,
-    resumed_names: list[str],
-) -> list[SubsystemFinding]:
-    """Close out the subsystems a spent budget stopped, keeping the free ones.
-
-    A subsystem the checkpoint already completed costs nothing to reuse, which
-    is why the loop's reuse branch sits above the budget checks. The budget
-    checks break out of the loop, though, so any reusable subsystem *after*
-    the one that hit the limit never reached that branch: it was recorded as
-    ``skipped`` and the checkpoint was rewritten with the placeholder, which
-    destroyed the very findings ``--resume`` exists to keep. They are reused
-    here instead, in plan order, and only the rest are skipped.
-    """
-    note = f"Analysis skipped — the run's {kind} budget ran out before this subsystem."
-    out: list[SubsystemFinding] = []
-    skipped: list[str] = []
-    for sub in subsystems:
-        if resume_findings and sub.name in resume_findings:
-            out.append(resume_findings[sub.name])
-            resumed_names.append(sub.name)
-            continue
-        out.append(
-            SubsystemFinding(
-                subsystem=sub.name,
-                threats=[],
-                improvement_suggestions=[note],
-                outcome="skipped",
-            )
-        )
-        skipped.append(sub.name)
-    if skipped:
-        progress.subsystems_skipped(skipped)
-    return out
 
 
 def _build_metadata(
@@ -870,7 +808,7 @@ class _SubsystemRun:
             # Answered rather than skipped: a tool call with no result is a
             # malformed conversation, and the grace round sends this history.
             return (
-                "Error: the tool budget for this analysis is exhausted; this call was "
+                "Error: the tool budget for this subsystem is exhausted; this call was "
                 "not executed. Report the threats you already have with report_threat, "
                 "then call finish."
             )
