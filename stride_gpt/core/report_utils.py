@@ -41,6 +41,10 @@ _OUTCOME_NOTES: dict[str, str] = {
         "the model's final answer could not be read, so this subsystem may be "
         "incomplete"
     ),
+    "unfinished": (
+        "the model stopped without finishing its analysis, so this subsystem may "
+        "be incomplete"
+    ),
     "error": "the analysis stopped with an error",
     "skipped": "the run budget ran out before this subsystem was analysed",
 }

@@ -160,10 +160,12 @@ class AnalysisPlan(BaseModel):
 # * ``budget_exhausted`` — the call/tool budget ran out and the grace round ran.
 # * ``parse_failed`` — the model ended on text that carried no usable JSON and
 #   nothing had come through the reporting tools, so the finding is empty.
+# * ``unfinished`` — the model ended on text without calling ``finish`` after
+#   reporting threats. The threats are kept; the analysis may be incomplete.
 # * ``error`` — the subsystem raised; see ``error_class``.
 # * ``skipped`` — the run budget ran out before this subsystem started.
 SubsystemOutcome = Literal[
-    "completed", "budget_exhausted", "parse_failed", "error", "skipped"
+    "completed", "budget_exhausted", "parse_failed", "unfinished", "error", "skipped"
 ]
 
 # What kind of failure an ``error`` outcome was, classified from the exception

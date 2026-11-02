@@ -125,6 +125,7 @@ class TestRichProgress:
             lambda p, text: p.subsystem_done(text, 1, "completed"),
             lambda p, text: p.subsystem_done(text, 1, "budget_exhausted"),
             lambda p, text: p.subsystem_done(text, 1, "parse_failed"),
+            lambda p, text: p.subsystem_done(text, 1, "unfinished"),
             lambda p, text: p.subsystems_skipped(["Auth", text]),
             lambda p, text: p.no_tool_use_warning(text),
         ],
@@ -137,3 +138,11 @@ class TestRichProgress:
         p = RichProgress(Console(file=out, width=300))
         call(p, text)
         assert text in out.getvalue()
+
+    def test_unfinished_subsystem_says_it_stopped_early(self):
+        out = io.StringIO()
+        p = RichProgress(Console(file=out, width=200))
+        p.subsystem_done("Auth", 2, "unfinished")
+        text = out.getvalue()
+        assert "2 threats" in text
+        assert "could not be read" not in text
