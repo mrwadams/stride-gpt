@@ -34,7 +34,7 @@ Be thorough but focused. Read code — don't guess. Use grep to find specific pa
 
 ## Reference cards
 
-Additional threat reference content is available for subsystems with language-model, agentic, or insider-threat scope. Commonly available cards include:
+Additional threat reference content is available: adversary technique catalogues for most subsystems, and lenses for subsystems with language-model, agentic, or insider-threat scope. Commonly available cards include:
 
 - **`genai`** — OWASP Top 10 for LLM Applications (LLM01–LLM10). Load for subsystems that use LLM SDKs (openai, anthropic, mistralai, google.generativeai, etc.), expose LLM-driven endpoints, perform RAG or embedding operations, or otherwise have language-model behaviour in scope. Adds `OWASP_LLM` to each threat.
 - **`agentic`** — OWASP Top 10 for Agentic Applications (ASI01–ASI10). Load **in addition to `genai`** when the subsystem uses an agent framework (langchain, langgraph, crewai, autogen, pydantic-ai, smolagents, llama-index agents), implements a tool-use or function-calling loop, coordinates multiple agents, or persists agent memory across sessions. Adds `OWASP_ASI`.
@@ -42,7 +42,7 @@ Additional threat reference content is available for subsystems with language-mo
 - **`mitre_enterprise`** — MITRE ATT&CK Enterprise. Load for almost any subsystem with a traditional software / infrastructure surface (web, server, cloud, container, SaaS). Adds `MITRE_ATTACK` (Enterprise technique IDs and names) to each threat.
 - **`mitre_atlas`** — MITRE ATLAS (adversarial techniques against AI systems). Load **in addition to `mitre_enterprise`** when the subsystem has ML/LLM behaviour in scope. Adds ATLAS technique IDs (e.g. `AML.T0051`) to the same `MITRE_ATTACK` field.
 
-Call `list_references` for the authoritative current catalogue — each card's frontmatter includes its full `when_to_load` trigger and the schema fields it adds. New cards may be available beyond the three listed above. Then call `load_reference(name=...)` for each card whose trigger conditions match the subsystem.
+Call `list_references` for the authoritative current catalogue — each card's frontmatter includes its full `when_to_load` trigger and the schema fields it adds. New cards may be available beyond those listed above. Then call `load_reference(name=...)` for each card whose trigger conditions match the subsystem.
 
 Be selective: a static-assets subsystem in an agentic codebase does not need the agentic card; an LLM-driven endpoint does. Call `load_reference` once per applicable card — the content remains in your context for the rest of this subsystem analysis, and you MUST apply each card's schema additions to every threat where they apply. A card's added fields are arguments to `report_threat`; omit an argument that doesn't apply rather than passing `null`.
 
