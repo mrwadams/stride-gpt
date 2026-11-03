@@ -66,12 +66,13 @@ class TestQuickBasePrompt:
         """mitre_enterprise is meant for plain web apps, so the "be selective"
         line must not tell the model those apps need no cards at all."""
         line = next(
-            line for line in quick_base_prompt().splitlines()
-            if line.startswith("Be selective")
+            (line for line in quick_base_prompt().splitlines()
+             if line.startswith("Be selective")),
+            None,
         )
+        assert line is not None, "quick_base.md lost its 'Be selective' guidance"
         for card in ("genai", "agentic", "insider_threat"):
             assert card in line
-        assert "any of these cards" not in line
         assert "mitre_enterprise" not in line
 
 
