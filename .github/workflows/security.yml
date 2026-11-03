@@ -138,11 +138,12 @@ jobs:
           # pip ships a CycloneDX SBOM of its own vendored tree. Trivy parses
           # embedded SBOMs, so those pins surface as installed packages
           # (setuptools 70.3.0, msgpack 1.1.2) under a bare `Python` target
-          # even though nothing on the filesystem holds them. Both copies of
-          # the file are skipped; real site-packages metadata is still scanned.
+          # even though nothing on the filesystem holds them. The glob skips
+          # every copy of the file without naming the Python version, so a
+          # base-image bump does not bring the findings back. Real
+          # site-packages metadata is still scanned.
           skip-files: |
-            usr/local/lib/python3.12/site-packages/pip/_vendor/bom.cdx.json
-            home/appuser/venv/lib/python3.12/site-packages/pip/_vendor/bom.cdx.json
+            **/pip/_vendor/bom.cdx.json
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -158,8 +159,7 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
           ignore-unfixed: true
           skip-files: |
-            usr/local/lib/python3.12/site-packages/pip/_vendor/bom.cdx.json
-            home/appuser/venv/lib/python3.12/site-packages/pip/_vendor/bom.cdx.json
+            **/pip/_vendor/bom.cdx.json
 
   dependency-review:
     name: Dependency Review
