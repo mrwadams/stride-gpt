@@ -55,6 +55,7 @@ from dread import (
     get_dread_assessment_lm_studio,
     get_dread_assessment_mistral,
 )
+from generation import get_threat_model_output
 from github import Github, GithubException
 from mitigations import (
     create_mitigations_prompt,
@@ -84,13 +85,6 @@ from threat_model import (
     get_image_analysis,
     get_image_analysis_anthropic,
     get_image_analysis_google,
-    get_threat_model,
-    get_threat_model_anthropic,
-    get_threat_model_deepseek,
-    get_threat_model_google,
-    get_threat_model_groq,
-    get_threat_model_lm_studio,
-    get_threat_model_mistral,
     json_to_markdown,
 )
 
@@ -186,12 +180,13 @@ def build_guided_description_draft():
     return "\n".join(lines)
 
 
-def resolve_active_llm_config(*, response_format="text"):
+def resolve_active_llm_config(*, response_format="text", thinking=False):
     """Build an LLMConfig for the provider/model/key currently in session state.
 
     Reads everything from session state so callers outside ``main()`` (e.g. the
     guided-description builder) can reach the active model. Returns ``None`` when
     no usable key is available, letting callers fall back gracefully.
+    ``thinking=True`` applies the sidebar's Anthropic extended-thinking toggle.
     """
     provider = st.session_state.get("model_provider", "OpenAI API")
     model_name = st.session_state.get("selected_model", "")
@@ -216,6 +211,11 @@ def resolve_active_llm_config(*, response_format="text"):
         api_key=api_key,
         api_base=api_base,
         response_format=response_format,
+        use_thinking=(
+            thinking
+            and provider == "Anthropic API"
+            and st.session_state.get("use_thinking", False)
+        ),
     )
 
 
@@ -1518,29 +1518,17 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
         if model_provider != "Anthropic API" or "thinking" not in selected_model.lower():
             st.session_state.pop("last_thinking_content", None)
 
-        # Show a spinner while generating the threat model
-        with st.spinner("Analysing potential threats..."):
-            max_retries = 3
-            retry_count = 0
-            while retry_count < max_retries:
-                try:
-                    # Call the relevant get_threat_model function with the generated prompt
-                    if model_provider == "OpenAI API":
-                        model_output = get_threat_model(
-                            openai_api_key, selected_model, threat_model_prompt
-                        )
-                    elif model_provider == "Google AI API":
-                        model_output = get_threat_model_google(
-                            google_api_key, selected_model, threat_model_prompt
-                        )
-                    elif model_provider == "Mistral API":
-                        model_output = get_threat_model_mistral(
-                            mistral_api_key, selected_model, threat_model_prompt
-                        )
-                    elif model_provider == "Anthropic API":
-                        model_output = get_threat_model_anthropic(
-                            anthropic_api_key, selected_model, threat_model_prompt
-                        )
+        config = resolve_active_llm_config(thinking=True)
+        if config is None:
+            st.error(f"Please enter your {model_provider} key and choose a model in the sidebar.")
+        else:
+            # Show a spinner while generating the threat model
+            with st.spinner("Analysing potential threats..."):
+                max_retries = 3
+                retry_count = 0
+                while retry_count < max_retries:
+                    try:
+                        model_output = get_threat_model_output(config, threat_model_prompt)
                         # Check if we got a fallback response
                         if (
                             model_output.get("threat_model")
@@ -1553,45 +1541,30 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
                             st.markdown("1. Running the generation again")
                             st.markdown("2. Checking the application logs for more details")
                             st.markdown("3. Using a different model if the issue persists")
-                    elif model_provider == "LM Studio Server":
-                        model_output = get_threat_model_lm_studio(
-                            st.session_state["lm_studio_endpoint"],
-                            selected_model,
-                            threat_model_prompt,
-                            st.session_state.get("lm_studio_api_key", ""),
-                        )
-                    elif model_provider == "Groq API":
-                        model_output = get_threat_model_groq(
-                            groq_api_key, selected_model, threat_model_prompt
-                        )
-                    elif model_provider == "DeepSeek API":
-                        model_output = get_threat_model_deepseek(
-                            deepseek_api_key, selected_model, threat_model_prompt
-                        )
 
-                    # Access the threat model and improvement suggestions from the parsed content
-                    threat_model = model_output.get("threat_model", [])
-                    improvement_suggestions = model_output.get("improvement_suggestions", [])
+                        # Access the threat model and improvement suggestions from the parsed content
+                        threat_model = model_output.get("threat_model", [])
+                        improvement_suggestions = model_output.get("improvement_suggestions", [])
 
-                    # Save the threat model and suggestions to session state for later use
-                    st.session_state["threat_model"] = threat_model
-                    st.session_state["improvement_suggestions"] = improvement_suggestions
+                        # Save the threat model and suggestions to session state for later use
+                        st.session_state["threat_model"] = threat_model
+                        st.session_state["improvement_suggestions"] = improvement_suggestions
 
-                    # Convert to Markdown and store in session state for persistent display
-                    st.session_state["threat_model_markdown"] = json_to_markdown(
-                        threat_model, improvement_suggestions
-                    )
-                    break  # Exit the loop if successful
-                except Exception as e:
-                    retry_count += 1
-                    if retry_count == max_retries:
-                        st.error(f"Error generating threat model after {max_retries} attempts: {e}")
-                        threat_model = []
-                        improvement_suggestions = []
-                    else:
-                        st.warning(
-                            f"Error generating threat model. Retrying attempt {retry_count + 1}/{max_retries}..."
+                        # Convert to Markdown and store in session state for persistent display
+                        st.session_state["threat_model_markdown"] = json_to_markdown(
+                            threat_model, improvement_suggestions
                         )
+                        break  # Exit the loop if successful
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count == max_retries:
+                            st.error(f"Error generating threat model after {max_retries} attempts: {e}")
+                            threat_model = []
+                            improvement_suggestions = []
+                        else:
+                            st.warning(
+                                f"Error generating threat model. Retrying attempt {retry_count + 1}/{max_retries}..."
+                            )
 
 # Display threat model output on tab1 (must be in tab1 context to only show on that tab)
 with tab1:
