@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 import os
 from collections import deque
 from pathlib import Path
@@ -68,6 +69,44 @@ Be specific about which files to examine. In each subsystem's focus areas, cover
 3. Sensitive data handling
 4. External communication
 5. Infrastructure and deployment"""
+
+
+def _directory_overview(target_path: Path) -> str:
+    """The top level of ``target_path`` plus each top-level directory's children.
+
+    A top-level-only listing shows a monorepo's ``services/`` as one entry,
+    so the planner can't see ``services/web`` and ``services/workshop`` as
+    separate subsystem candidates (issue #175). Both levels go through
+    ``list_directory``, so they get its ``SKIP_DIRS`` filtering, symlink
+    sandboxing and per-directory entry cap.
+    """
+    top = list_directory(target_path, ".")
+    try:
+        entries = json.loads(top)
+    except json.JSONDecodeError:  # an "Error: ..." string
+        return top
+    lines: list[str] = []
+    for entry in entries:
+        if entry["type"] != "directory":
+            lines.append(_format_entry(entry))
+            continue
+        lines.append(f"{entry['name']}/")
+        try:
+            children = json.loads(list_directory(target_path, entry["name"]))
+        except (json.JSONDecodeError, ValueError):
+            continue
+        lines.extend(f"  {_format_entry(child)}" for child in children)
+    return "\n".join(lines)
+
+
+def _format_entry(entry: dict) -> str:
+    if entry["type"] == "directory":
+        return f"{entry['name']}/"
+    if entry["type"] == "truncated":
+        return "... (more entries not shown)"
+    if entry["type"] == "symlink":
+        return f"{entry['name']} (symlink)"
+    return entry["name"]
 
 
 def _discover_key_files(target_path: Path) -> list[str]:
@@ -147,7 +186,7 @@ def create_plan(
 ) -> AnalysisPlan:
     """Scan a codebase and generate an analysis plan via LLM."""
     # Gather codebase structure
-    dir_listing = list_directory(target_path, ".")
+    dir_listing = _directory_overview(target_path)
     key_files = _discover_key_files(target_path)
     key_files_shown = _diverse_key_files(key_files, KEY_FILE_SAMPLE_LIMIT)
 
@@ -186,6 +225,7 @@ def create_plan(
             usage.record(retry_response)
         data = extract_json_object(retry_response.content)
 
+    counts = {"key_files_found": len(key_files), "key_files_shown": len(key_files_shown)}
     if data is None:
         # Stash the raw response for debugging
         raw = (response.content or "")[:500].replace("\n", " ")
@@ -203,9 +243,10 @@ def create_plan(
                     focus_areas=["All STRIDE categories"],
                 )
             ],
+            **counts,
         )
 
-    return _build_plan(data, str(target_path))
+    return _build_plan(data, str(target_path)).model_copy(update=counts)
 
 
 def _build_plan(data: dict, target_path: str) -> AnalysisPlan:
