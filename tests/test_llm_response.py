@@ -1,3 +1,4 @@
+
 """Tests for the pure response-parsing helpers in stride_gpt.core.llm.
 
 extract_deepseek_reasoning and process_groq_response are deterministic string
@@ -259,20 +260,21 @@ class TestUsageExtraction:
 
     @patch("stride_gpt.core.llm.litellm.completion")
     def test_deepseek_cache_hit_split_is_recorded(self, mock_completion, llm_config):
-        """DeepSeek reports ``prompt_cache_hit_tokens``/``prompt_cache_miss_tokens``,
-        which litellm's ``Usage`` normalises into ``prompt_tokens_details``."""
+        """DeepSeek reports cache hit and miss tokens."""
         from litellm.types.utils import Usage
 
         message = SimpleNamespace(content="", tool_calls=None)
         mock_completion.return_value = SimpleNamespace(
             choices=[SimpleNamespace(message=message)],
             usage=Usage(
-                prompt_tokens=1000, completion_tokens=50,
-                prompt_cache_hit_tokens=900, prompt_cache_miss_tokens=100,
+                prompt_tokens=1000,
+                completion_tokens=50,
+                prompt_cache_hit_tokens=900,
+                prompt_cache_miss_tokens=100,
             ),
         )
 
-        response = _call_litellm_with_tools(llm_config, [], [])
+        response = _call_litellm(llm_config, [])
 
         assert response.prompt_tokens == 1000
         assert response.cached_prompt_tokens == 900
@@ -284,14 +286,14 @@ class TestUsageExtraction:
         mock_completion.return_value = SimpleNamespace(
             choices=[SimpleNamespace(message=message)],
             usage=SimpleNamespace(
-                prompt_tokens=500, completion_tokens=20,
+                prompt_tokens=500,
+                completion_tokens=20,
                 prompt_tokens_details=SimpleNamespace(cached_tokens=0),
             ),
         )
 
         response = _call_litellm(llm_config, [])
 
-        # A reported zero is a real "no cache hits", not "unknown".
         assert response.cached_prompt_tokens == 0
         assert response.uncached_prompt_tokens == 500
 
@@ -301,7 +303,9 @@ class TestUsageExtraction:
         mock_completion.return_value = SimpleNamespace(
             choices=[SimpleNamespace(message=message)],
             usage=SimpleNamespace(
-                prompt_tokens=300, completion_tokens=20, cache_read_input_tokens=200,
+                prompt_tokens=300,
+                completion_tokens=20,
+                cache_read_input_tokens=200,
             ),
         )
 
@@ -309,3 +313,21 @@ class TestUsageExtraction:
 
         assert response.cached_prompt_tokens == 200
         assert response.uncached_prompt_tokens == 100
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_call_llm_with_tools_uses_reasoning_content_when_content_empty(
+        self, mock_completion, llm_config
+    ):
+        answer = '{"answer": "test"}'
+        message = SimpleNamespace(
+            content="",
+            reasoning_content=answer,
+            tool_calls=None,
+        )
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+        response = _call_litellm_with_tools(llm_config, [], [])
+
+        assert response.content == answer

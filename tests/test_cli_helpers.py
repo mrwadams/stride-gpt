@@ -286,7 +286,7 @@ class TestPlanningUsageIsThreaded:
     """
 
     @staticmethod
-    def _capture(monkeypatch, entry: str):
+    def _capture(monkeypatch, entry: str, tmp_path):
         """Run one entry point with everything after planning stubbed out.
 
         Returns the ``usage`` object handed to ``create_analysis_plan`` and
@@ -298,7 +298,7 @@ class TestPlanningUsageIsThreaded:
 
         seen: dict = {}
         plan = AnalysisPlan(
-            target_path="/tmp", overall_description="d",
+            target_path=str(tmp_path), overall_description="d",
             subsystems=[Subsystem(name="A", description="d", key_files=[], focus_areas=[])],
         )
 
@@ -323,17 +323,17 @@ class TestPlanningUsageIsThreaded:
             monkeypatch.setattr(cli, "config_to_model_pair", lambda _c: models)
             monkeypatch.setattr(cli, "_check_tier_api_keys", lambda *_a, **_k: True)
             monkeypatch.setattr(cli, "_check_lm_studio_context_for", lambda *_a, **_k: None)
-            cli._handle_analyze({}, "/tmp -y")
+            cli._handle_analyze({}, f"{tmp_path} -y")
         else:
             monkeypatch.setattr(cli, "_build_model_pair", lambda **_k: models)
             monkeypatch.setattr(cli, "load_config", lambda: {})
             monkeypatch.setattr(cli, "_check_lm_studio_context_for", lambda *_a, **_k: None)
-            cli.analyze(path=cli.Path("/tmp"), auto_approve=True)
+            cli.analyze(path=tmp_path, auto_approve=True)
         return seen
 
     @pytest.mark.parametrize("entry", ["analyze", "repl"])
-    def test_planning_usage_is_collected_and_passed_on(self, monkeypatch, entry):
-        seen = self._capture(monkeypatch, entry)
+    def test_planning_usage_is_collected_and_passed_on(self, monkeypatch, entry, tmp_path):
+        seen = self._capture(monkeypatch, entry, tmp_path)
         assert seen["create_usage"] is not None, (
             f"{entry}: create_analysis_plan was called without usage="
         )
@@ -343,12 +343,14 @@ class TestPlanningUsageIsThreaded:
         assert seen["planning_usage"].total_tokens == 550
 
     @pytest.mark.parametrize("entry", ["analyze", "repl"])
-    def test_both_entry_points_cap_llm_calls_by_default(self, monkeypatch, entry):
+    def test_both_entry_points_cap_llm_calls_by_default(
+        self, monkeypatch, entry, tmp_path
+    ):
         """The REPL's /analyze takes no --max-llm-calls, so it must still get
         the default cap rather than run_analysis's unlimited 0 (#226)."""
         from stride_gpt.agent.budget import DEFAULT_MAX_LLM_CALLS
 
-        seen = self._capture(monkeypatch, entry)
+        seen = self._capture(monkeypatch, entry, tmp_path)
         assert seen["max_llm_calls"] == DEFAULT_MAX_LLM_CALLS > 0
 
 
