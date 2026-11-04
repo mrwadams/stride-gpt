@@ -3,17 +3,11 @@ from stride_gpt.core.prompts import (
     create_llm_stride_prompt_section,
     create_threat_model_prompt,
 )
-from stride_gpt.core.schemas import LLMConfig
-from stride_gpt.core.threat_model import analyze_image
 
 __all__ = [
     "create_agentic_stride_prompt_section",
-    "create_image_analysis_prompt",
     "create_llm_stride_prompt_section",
     "create_threat_model_prompt",
-    "get_image_analysis",
-    "get_image_analysis_anthropic",
-    "get_image_analysis_google",
     "json_to_markdown",
 ]
 
@@ -78,49 +72,3 @@ def json_to_markdown(threat_model, improvement_suggestions):
         markdown_output += f"- {_md_cell(suggestion)}\n"
 
     return markdown_output
-
-
-def create_image_analysis_prompt():
-    return """
-    You are a Senior Solution Architect tasked with explaining the following architecture diagram to
-    a Security Architect to support the threat modelling of the system.
-
-    In order to complete this task you must:
-
-      1. Analyse the diagram
-      2. Explain the system architecture to the Security Architect. Your explanation should cover the key
-         components, their interactions, and any technologies used.
-
-    Provide a direct explanation of the diagram in a clear, structured format, suitable for a professional
-    discussion.
-
-    IMPORTANT INSTRUCTIONS:
-     - Do not include any words before or after the explanation itself. For example, do not start your
-    explanation with "The image shows..." or "The diagram shows..." just start explaining the key components
-    and other relevant details.
-     - Do not infer or speculate about information that is not visible in the diagram. Only provide information that can be
-    directly determined from the diagram itself.
-    """
-
-
-# Function to get analyse uploaded architecture diagrams.
-def get_image_analysis(api_key, model_name, prompt, base64_image):
-    config = LLMConfig(provider="OpenAI API", model_name=model_name, api_key=api_key)
-    response = analyze_image(config, base64_image)
-    return {"choices": [{"message": {"content": response.content}}]}
-
-
-# Function to get image analysis using Google Gemini models
-def get_image_analysis_google(api_key, model_name, prompt, base64_image):
-    config = LLMConfig(provider="Google AI API", model_name=model_name, api_key=api_key)
-    response = analyze_image(config, base64_image)
-    return {"choices": [{"message": {"content": response.content}}]}
-
-
-# Function to get image analysis using Anthropic Claude models
-def get_image_analysis_anthropic(
-    api_key, model_name, prompt, base64_image, media_type="image/jpeg"
-):
-    config = LLMConfig(provider="Anthropic API", model_name=model_name, api_key=api_key)
-    response = analyze_image(config, base64_image, media_type=media_type)
-    return {"choices": [{"message": {"content": response.content}}]}
