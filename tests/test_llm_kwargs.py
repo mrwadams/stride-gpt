@@ -29,6 +29,21 @@ class TestGeminiKwargs:
         kwargs = _build_litellm_kwargs(cfg)
         assert "safety_settings" in kwargs
 
+    def test_schema_kept_as_json_schema(self):
+        """Only DeepSeek downgrades a schema (#328); Gemini still gets it enforced."""
+        schema = {"type": "object", "properties": {}}
+        cfg = LLMConfig(
+            provider="Google AI API",
+            model_name="gemini-3.8-flash",
+            api_key="fake",
+            response_format=schema,
+        )
+        kwargs = _build_litellm_kwargs(cfg)
+        assert kwargs["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": schema},
+        }
+
 
 class TestAnthropicKwargs:
     def test_thinking_kwarg_never_sent(self):
@@ -66,6 +81,18 @@ class TestDeepSeekKwargs:
         kwargs = _build_litellm_kwargs(cfg)
         assert "max_tokens" not in kwargs
 
+    def test_schema_falls_back_to_json_object(self):
+        """DeepSeek rejects json_schema ("This response_format type is
+        unavailable now"), which failed every /analyze at planning (#328)."""
+        cfg = LLMConfig(
+            provider="DeepSeek API",
+            model_name="deepseek-flash",
+            api_key="fake",
+            response_format={"type": "object", "properties": {}},
+        )
+        kwargs = _build_litellm_kwargs(cfg)
+        assert kwargs["response_format"] == {"type": "json_object"}
+
 
 class TestLMStudioKwargs:
     def test_placeholder_api_key_when_none_configured(self):
@@ -102,3 +129,4 @@ class TestLMStudioKwargs:
         cfg = LLMConfig(provider="OpenAI API", model_name="gpt-5.5", api_key="")
         kwargs = _build_litellm_kwargs(cfg)
         assert kwargs["api_key"] is None
+
