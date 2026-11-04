@@ -1,9 +1,3 @@
-import streamlit as st
-
-from stride_gpt.core.mitigations import generate_mitigations
-from stride_gpt.core.schemas import LLMConfig
-
-
 # Function to create a prompt to generate mitigating controls
 def create_mitigations_prompt(threats, is_genai=False, is_agentic=False):
     prompt = """Act as a cyber security expert with more than 20 years experience of using the STRIDE threat modelling methodology. Your task is to provide potential mitigations for the threats identified in the threat model. It is very important that your responses are tailored to reflect the details of the threats.
@@ -186,69 +180,3 @@ Below is the list of identified threats:
 YOUR RESPONSE (do not wrap in a code block):
 """
     return prompt
-
-
-# Function to get mitigations from the GPT response.
-def get_mitigations(api_key, model_name, prompt):
-    config = LLMConfig(provider="OpenAI API", model_name=model_name, api_key=api_key)
-    content, _response = generate_mitigations(config, prompt)
-    return content
-
-
-# Function to get mitigations from the Google model's response.
-def get_mitigations_google(google_api_key, google_model, prompt):
-    config = LLMConfig(provider="Google AI API", model_name=google_model, api_key=google_api_key)
-    content, response = generate_mitigations(config, prompt)
-    if response.thinking:
-        st.session_state["last_thinking_content"] = response.thinking
-    return content
-
-
-# Function to get mitigations from the Mistral model's response.
-def get_mitigations_mistral(mistral_api_key, mistral_model, prompt):
-    config = LLMConfig(provider="Mistral API", model_name=mistral_model, api_key=mistral_api_key)
-    content, _response = generate_mitigations(config, prompt)
-    return content
-
-
-# Function to get mitigations from the DeepSeek model's response.
-def get_mitigations_deepseek(deepseek_api_key, deepseek_model, prompt):
-    config = LLMConfig(provider="DeepSeek API", model_name=deepseek_model, api_key=deepseek_api_key)
-    content, _response = generate_mitigations(config, prompt)
-    return content
-
-
-# Function to get mitigations from the Anthropic model's response.
-def get_mitigations_anthropic(anthropic_api_key, anthropic_model, prompt):
-    config = LLMConfig(
-        provider="Anthropic API",
-        model_name=anthropic_model,
-        api_key=anthropic_api_key,
-        use_thinking=st.session_state.get("use_thinking", False),
-    )
-    content, response = generate_mitigations(config, prompt)
-    if response.thinking:
-        st.session_state["last_thinking_content"] = response.thinking
-    return content
-
-
-# Function to get mitigations from LM Studio Server response.
-def get_mitigations_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="not-needed"):
-    config = LLMConfig(
-        provider="LM Studio Server",
-        model_name=model_name,
-        api_key=api_key,
-        api_base=lm_studio_endpoint,
-    )
-    content, _response = generate_mitigations(config, prompt)
-    return content
-
-
-# Function to get mitigations from the Groq model's response.
-def get_mitigations_groq(groq_api_key, groq_model, prompt):
-    config = LLMConfig(provider="Groq API", model_name=groq_model, api_key=groq_api_key)
-    content, response = generate_mitigations(config, prompt)
-    if response.reasoning:
-        with st.expander("View model's reasoning process", expanded=False):
-            st.write(response.reasoning)
-    return content

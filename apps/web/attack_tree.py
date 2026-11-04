@@ -1,10 +1,5 @@
 import re
 
-import streamlit as st
-
-from stride_gpt.core.attack_tree import generate_attack_tree
-from stride_gpt.core.schemas import LLMConfig
-
 
 # Function to create a prompt to generate an attack tree
 def create_attack_tree_prompt(
@@ -431,69 +426,3 @@ def create_attack_tree_schema_lm_studio():
             "strict": True,
         },
     }
-
-
-# Function to get attack tree from the GPT response.
-def get_attack_tree(api_key, model_name, prompt):
-    config = LLMConfig(provider="OpenAI API", model_name=model_name, api_key=api_key)
-    mermaid, _response = generate_attack_tree(config, prompt)
-    return mermaid
-
-
-# Function to get attack tree from the Mistral model's response.
-def get_attack_tree_mistral(mistral_api_key, mistral_model, prompt):
-    config = LLMConfig(provider="Mistral API", model_name=mistral_model, api_key=mistral_api_key)
-    mermaid, _response = generate_attack_tree(config, prompt)
-    return mermaid
-
-
-# Function to get attack tree from the DeepSeek model's response.
-def get_attack_tree_deepseek(deepseek_api_key, deepseek_model, prompt):
-    config = LLMConfig(provider="DeepSeek API", model_name=deepseek_model, api_key=deepseek_api_key)
-    mermaid, _response = generate_attack_tree(config, prompt)
-    return mermaid
-
-
-# Function to get attack tree from Anthropic's Claude model.
-def get_attack_tree_anthropic(anthropic_api_key, anthropic_model, prompt):
-    config = LLMConfig(
-        provider="Anthropic API",
-        model_name=anthropic_model,
-        api_key=anthropic_api_key,
-        use_thinking=st.session_state.get("use_thinking", False),
-    )
-    mermaid, response = generate_attack_tree(config, prompt)
-    if response.thinking:
-        st.session_state["last_thinking_content"] = response.thinking
-    return mermaid
-
-
-# Function to get attack tree from LM Studio Server response.
-def get_attack_tree_lm_studio(lm_studio_endpoint, model_name, prompt, api_key="not-needed"):
-    config = LLMConfig(
-        provider="LM Studio Server",
-        model_name=model_name,
-        api_key=api_key,
-        api_base=lm_studio_endpoint,
-    )
-    mermaid, _response = generate_attack_tree(config, prompt)
-    return mermaid
-
-
-# Function to get attack tree from the Groq model's response.
-def get_attack_tree_groq(groq_api_key, groq_model, prompt):
-    config = LLMConfig(provider="Groq API", model_name=groq_model, api_key=groq_api_key)
-    mermaid, response = generate_attack_tree(config, prompt)
-    if response.reasoning:
-        with st.expander("View model's reasoning process", expanded=False):
-            st.write(response.reasoning)
-    return mermaid
-
-
-# Function to get attack tree from the Google model's response.
-def get_attack_tree_google(google_api_key, google_model, prompt):
-    config = LLMConfig(provider="Google AI API", model_name=google_model, api_key=google_api_key)
-    mermaid, response = generate_attack_tree(config, prompt)
-    if response.thinking:
-        st.session_state["last_thinking_content"] = response.thinking
-    return mermaid
