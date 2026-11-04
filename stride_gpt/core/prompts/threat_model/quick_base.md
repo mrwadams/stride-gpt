@@ -40,4 +40,4 @@ Additional threat reference content is available: adversary technique catalogues
 
 Call `list_references` for the authoritative current catalogue — each card's frontmatter includes its full `when_to_load` trigger and the schema fields it adds. New cards may be available beyond those listed above. Then call `load_reference(name=...)` for each card whose trigger conditions match the application described.
 
-Be selective: a plain web/CRUD application does not need any of these cards. Call `load_reference` once per applicable card before producing your final JSON — the content remains in your context for the rest of the analysis, and you MUST apply each card's schema additions to every threat where they apply.
+Be selective: a plain web/CRUD application does not need the `genai`, `agentic` or `insider_threat` cards. Call `load_reference` once per applicable card before producing your final JSON — the content remains in your context for the rest of the analysis, and you MUST apply each card's schema additions to every threat where they apply.
