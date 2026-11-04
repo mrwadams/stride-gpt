@@ -86,9 +86,10 @@ jobs:
       # out of the wheel (package-data only lists *.md in threat_model/) still
       # passes them. Install the wheel into an empty venv and run it from
       # outside the checkout, so nothing can import from the source tree.
-      # --no-config drops [tool.uv]: its lock-only security floors hold litellm
-      # at 1.103 (filelock>=4.2.1), while `pip install stride-gpt` resolves the
-      # newest release. Keep the supply-chain cooldown explicitly (#330).
+      # --no-config drops [tool.uv]: its lock-only filelock>=4.2.1 floor holds
+      # litellm at 1.103 (litellm >=1.104 requires filelock<4), while
+      # `pip install stride-gpt` resolves the newest release (#330). The
+      # cooldown is re-applied by hand and mirrors [tool.uv] exclude-newer.
       - name: Install wheel into a clean venv
         run: |
           uv venv "$RUNNER_TEMP/wheel-venv" --python 3.12
