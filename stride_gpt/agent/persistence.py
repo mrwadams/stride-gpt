@@ -287,7 +287,6 @@ def _model_fingerprint(config: LLMConfig) -> dict[str, Any]:
     return {
         "provider": config.provider,
         "model_name": config.model_name,
-        "use_thinking": config.use_thinking,
         "max_tokens": config.max_tokens,
         "response_format": config.response_format,
     }

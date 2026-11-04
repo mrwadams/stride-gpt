@@ -152,7 +152,6 @@ Models are registered in `stride_gpt/models.py` with provider, default tokens, m
 ### Provider gotchas
 
 - **Gemini does NOT accept the Anthropic-shaped `thinking={"type": "enabled", ...}` kwarg.** litellm rejects it for newer models (e.g. `gemini-3.1-flash-lite`). Thinking-capable Gemini models have thinking on by default and surface it via `thinking_blocks` on the response. Don't send the kwarg.
-- **Anthropic with `use_thinking=True` requires `max_tokens > budget_tokens`.** `_build_litellm_kwargs` enforces 48000 as the floor when thinking is on.
 - **GPT-5 series uses `max_completion_tokens`, not `max_tokens`.** Driven off `model_uses_completion_tokens` in the model registry.
 - **LM Studio only accepts `json_schema` or `text` response_format**, not `json_object`. Branch in `_build_litellm_kwargs`.
 - **Groq DeepSeek emits `<think>` tags inline.** Extracted by `extract_deepseek_reasoning`.

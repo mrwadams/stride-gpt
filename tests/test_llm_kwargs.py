@@ -31,20 +31,11 @@ class TestGeminiKwargs:
 
 
 class TestAnthropicKwargs:
-    def test_thinking_enabled_when_requested(self):
+    def test_thinking_kwarg_never_sent(self):
+        """Current Claude models think by default and reject budget_tokens with a 400."""
         cfg = LLMConfig(
             provider="Anthropic API",
-            model_name="claude-sonnet-4-5-20250929",
-            api_key="fake",
-            use_thinking=True,
-        )
-        kwargs = _build_litellm_kwargs(cfg)
-        assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 16000}
-
-    def test_thinking_omitted_when_not_requested(self):
-        cfg = LLMConfig(
-            provider="Anthropic API",
-            model_name="claude-sonnet-4-5-20250929",
+            model_name="claude-sonnet-5-5",
             api_key="fake",
         )
         kwargs = _build_litellm_kwargs(cfg)
