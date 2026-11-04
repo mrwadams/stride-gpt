@@ -29,6 +29,21 @@ class TestGeminiKwargs:
         kwargs = _build_litellm_kwargs(cfg)
         assert "safety_settings" in kwargs
 
+    def test_schema_kept_as_json_schema(self):
+        """Only DeepSeek downgrades a schema (#328); Gemini still gets it enforced."""
+        schema = {"type": "object", "properties": {}}
+        cfg = LLMConfig(
+            provider="Google AI API",
+            model_name="gemini-3.8-flash",
+            api_key="fake",
+            response_format=schema,
+        )
+        kwargs = _build_litellm_kwargs(cfg)
+        assert kwargs["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": schema},
+        }
+
 
 class TestAnthropicKwargs:
     def test_thinking_kwarg_never_sent(self):
@@ -115,19 +130,3 @@ class TestLMStudioKwargs:
         kwargs = _build_litellm_kwargs(cfg)
         assert kwargs["api_key"] is None
 
-
-class TestSchemaResponseFormat:
-    def test_other_providers_keep_json_schema(self):
-        """Only DeepSeek downgrades a schema; Gemini still gets it enforced."""
-        schema = {"type": "object", "properties": {}}
-        cfg = LLMConfig(
-            provider="Google AI API",
-            model_name="gemini-3.8-flash",
-            api_key="fake",
-            response_format=schema,
-        )
-        kwargs = _build_litellm_kwargs(cfg)
-        assert kwargs["response_format"] == {
-            "type": "json_schema",
-            "json_schema": {"name": "response", "schema": schema},
-        }

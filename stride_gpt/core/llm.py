@@ -99,7 +99,8 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
     # JSON mode
     if isinstance(config.response_format, dict) and config.provider == "DeepSeek API":
         # DeepSeek rejects json_schema ("This response_format type is
-        # unavailable now"). Callers validate the parsed output themselves.
+        # unavailable now"). The planner, the only caller that sends DeepSeek a
+        # schema, already describes the shape in its prompt and parses the reply.
         kwargs["response_format"] = {"type": "json_object"}
     elif isinstance(config.response_format, dict):
         # Caller provided an explicit JSON schema — use json_schema mode.
