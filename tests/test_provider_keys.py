@@ -19,7 +19,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "apps" / "web"))
 
 import provider_keys
-from provider_keys import PROVIDER_API_KEY_STATE, resolve_active_llm_config
 
 from stride_gpt.models import PROVIDERS
 
@@ -31,7 +30,7 @@ def test_every_api_key_provider_is_mapped():
         # optional key, and is handled separately by resolve_active_llm_config.
         if info.needs_api_base or not info.needs_api_key:
             continue
-        assert info.provider_key in PROVIDER_API_KEY_STATE, (
+        assert info.provider_key in provider_keys.PROVIDER_API_KEY_STATE, (
             f"Provider {info.provider_key!r} is in stride_gpt.models.PROVIDERS but "
             f"missing from PROVIDER_API_KEY_STATE (apps/web/provider_keys.py). "
             f"Add its session-state key."
@@ -41,7 +40,7 @@ def test_every_api_key_provider_is_mapped():
 def test_no_stale_mappings():
     """Every mapped provider still exists in the registry."""
     valid_provider_keys = {info.provider_key for info in PROVIDERS.values()}
-    for provider_key in PROVIDER_API_KEY_STATE:
+    for provider_key in provider_keys.PROVIDER_API_KEY_STATE:
         assert provider_key in valid_provider_keys, (
             f"PROVIDER_API_KEY_STATE maps {provider_key!r}, which is not a known "
             f"provider in stride_gpt.models.PROVIDERS."
@@ -55,10 +54,12 @@ def session_state(monkeypatch):
     return state
 
 
-@pytest.mark.parametrize("provider, state_key", sorted(PROVIDER_API_KEY_STATE.items()))
+@pytest.mark.parametrize(
+    "provider, state_key", sorted(provider_keys.PROVIDER_API_KEY_STATE.items())
+)
 def test_resolve_uses_the_providers_key(session_state, provider, state_key):
     session_state.update({"model_provider": provider, "selected_model": "m", state_key: "secret"})
-    config = resolve_active_llm_config(response_format="json")
+    config = provider_keys.resolve_active_llm_config(response_format="json")
     assert (config.provider, config.model_name, config.api_key, config.api_base) == (
         provider,
         "m",
@@ -76,7 +77,7 @@ def test_resolve_lm_studio_uses_endpoint_and_optional_key(session_state):
             "lm_studio_endpoint": "http://box:1234",
         }
     )
-    config = resolve_active_llm_config()
+    config = provider_keys.resolve_active_llm_config()
     assert (config.api_base, config.api_key) == ("http://box:1234", "not-needed")
 
 
@@ -91,4 +92,4 @@ def test_resolve_lm_studio_uses_endpoint_and_optional_key(session_state):
 )
 def test_resolve_returns_none_without_model_or_key(session_state, state):
     session_state.update(state)
-    assert resolve_active_llm_config() is None
+    assert provider_keys.resolve_active_llm_config() is None
