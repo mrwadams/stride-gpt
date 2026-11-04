@@ -377,7 +377,7 @@ The `apps/` directory is the slot for additional deployable frontends — for ex
 stride-gpt analyze .
 
 # Specify a model and auto-approve the analysis plan
-stride-gpt analyze ./my-app --worker-model anthropic/claude-sonnet-5 -y
+stride-gpt analyze ./my-app --worker-model anthropic/claude-sonnet-5-5 -y
 
 # Export as JSON, SARIF, or browser-viewable HTML
 stride-gpt analyze . -o report.json -f json    # also writes report.html alongside
@@ -449,7 +449,7 @@ stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
 | `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
 | `-i`, `--input` | Read the app description from a file (`quick` only) |
 | `-y`, `--yes` | Auto-approve the analysis plan (`analyze` only) |
-| `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-5`). Uses saved config if omitted. |
+| `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-5-5`). Uses saved config if omitted. |
 | `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-6-sol`). Uses saved config if omitted. |
 | `--no-architect` | Skip the architect tier for this run; the worker handles every call. |
 | `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |

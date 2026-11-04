@@ -42,7 +42,7 @@ class ModelInfo:
     default_tokens: int = 64000
     max_tokens: int = 128000
     uses_max_completion_tokens: bool = False  # OpenAI reasoning models
-    supports_thinking: bool = False  # Anthropic/Gemini extended thinking
+    supports_thinking: bool = False  # Gemini: response carries thinking blocks
     supports_tools: bool = True
     help_text: str = ""
 
@@ -192,16 +192,15 @@ MODELS: list[ModelInfo] = [
         help_text="GPT-6 Luna is the most efficient option for focused, high-volume tasks.",
     ),
     # --- Anthropic ---
-    # supports_thinking marks models that accept the legacy extended-thinking
-    # kwarg, thinking={"type": "enabled", "budget_tokens": N}. Claude 4.7 and
-    # later reject it with a 400; those models think adaptively by default and
-    # are steered with the `effort` parameter instead, so the flag stays False.
+    # Thinking is on by default for every model below, so none sets
+    # supports_thinking. They reject the legacy
+    # thinking={"type": "enabled", "budget_tokens": N} kwarg with a 400.
     ModelInfo(
-        model_id="claude-sonnet-5",
+        model_id="claude-sonnet-5-5",
         provider_key="Anthropic API",
         default_tokens=64000,
         max_tokens=1000000,
-        help_text="Claude Sonnet 5 offers the best balance of speed and intelligence.",
+        help_text="Claude Sonnet 5.5 offers the best balance of speed and intelligence.",
     ),
     ModelInfo(
         model_id="claude-opus-5-5",
@@ -225,12 +224,11 @@ MODELS: list[ModelInfo] = [
         help_text="Claude Opus 4.8 is the previous-generation Opus, still available for users mid-engagement.",
     ),
     ModelInfo(
-        model_id="claude-haiku-4-5-20251001",
+        model_id="claude-haiku-5-5",
         provider_key="Anthropic API",
         default_tokens=64000,
-        max_tokens=200000,
-        supports_thinking=True,
-        help_text="Claude Haiku 4.5 is the fastest and most cost-effective Claude model.",
+        max_tokens=1000000,
+        help_text="Claude Haiku 5.5 is the fastest and most cost-effective Claude model.",
     ),
     # --- Google AI ---
     ModelInfo(
