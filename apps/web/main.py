@@ -1924,16 +1924,23 @@ Three ways to use this tab:
 
     st.markdown("---")
     st.markdown("**Mermaid source** (edit freely — the preview updates on rerun):")
+
+    def _sync_dfd_from_editor():
+        st.session_state["dfd_mermaid"] = st.session_state["dfd_editor"]
+
+    # A keyed text_area ignores value= after its first render, so a DFD from
+    # generation or an image upload has to be copied into the editor's state.
+    # User edits reach dfd_mermaid through on_change before this check runs.
+    if st.session_state.get("dfd_editor") != st.session_state.get("dfd_mermaid", ""):
+        st.session_state["dfd_editor"] = st.session_state.get("dfd_mermaid", "")
     dfd_editor_value = st.text_area(
         "DFD Mermaid code",
-        value=st.session_state.get("dfd_mermaid", ""),
         height=260,
         key="dfd_editor",
+        on_change=_sync_dfd_from_editor,
         label_visibility="collapsed",
         placeholder="No DFD yet. Use 'Generate DFD' or upload an image to populate this editor.",
     )
-    # Keep dfd_mermaid in sync with the editor so it survives reruns.
-    st.session_state["dfd_mermaid"] = dfd_editor_value
 
     if dfd_editor_value.strip():
         st.markdown("**Diagram preview:**")
