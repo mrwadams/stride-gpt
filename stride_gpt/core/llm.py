@@ -97,7 +97,12 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
             kwargs["api_base"] = config.api_base
 
     # JSON mode
-    if isinstance(config.response_format, dict):
+    if isinstance(config.response_format, dict) and config.provider == "DeepSeek API":
+        # DeepSeek rejects json_schema ("This response_format type is
+        # unavailable now"). The planner, the only caller that sends DeepSeek a
+        # schema, already describes the shape in its prompt and parses the reply.
+        kwargs["response_format"] = {"type": "json_object"}
+    elif isinstance(config.response_format, dict):
         # Caller provided an explicit JSON schema — use json_schema mode.
         kwargs["response_format"] = {
             "type": "json_schema",
@@ -118,11 +123,6 @@ def _build_litellm_kwargs(config: LLMConfig) -> dict:
         # provider rejects it for newer models (e.g. gemini-3.1-flash-lite).
 
     # --- Anthropic ---
-    elif config.provider == "Anthropic API" and config.use_thinking:
-        kwargs["thinking"] = {"type": "enabled", "budget_tokens": 16000}
-        # max_tokens must exceed budget_tokens; never go below 48000 here.
-        kwargs["max_tokens"] = max(_default_output_tokens(config, 48000), 48000)
-        kwargs["timeout"] = config.timeout or 600
     elif config.provider == "Anthropic API":
         kwargs["max_tokens"] = _default_output_tokens(config, 32768)
         kwargs["timeout"] = config.timeout or 300
@@ -261,29 +261,13 @@ def _extract_thinking(config: LLMConfig, response) -> tuple[str | None, str | No
     thinking = None
     reasoning = None
 
-    if config.provider == "Anthropic API" and config.use_thinking:
-        thinking = _extract_anthropic_thinking(response)
-    elif config.provider == "Google AI API" and model_supports_thinking(config.provider, config.model_name):
+    if config.provider == "Google AI API" and model_supports_thinking(config.provider, config.model_name):
         thinking = _extract_gemini_thinking(response)
     elif config.provider == "Groq API":
         # Groq/DeepSeek reasoning is extracted from content, handled separately
         pass
 
     return thinking, reasoning
-
-
-def _extract_anthropic_thinking(response) -> str | None:
-    """Extract thinking content from an Anthropic response via LiteLLM."""
-    thinking_parts: list[str] = []
-    choices = getattr(response, "choices", [])
-    if choices:
-        message = choices[0].message
-        thinking_blocks = getattr(message, "thinking_blocks", None)
-        if thinking_blocks:
-            thinking_parts.extend(
-                block.thinking for block in thinking_blocks if hasattr(block, "thinking")
-            )
-    return "\n\n".join(thinking_parts) if thinking_parts else None
 
 
 def _extract_gemini_thinking(response) -> str | None:

@@ -9,6 +9,7 @@ from stride_gpt.core.prompts.variants import (
     coerce_app_type,
     list_references,
     load_reference,
+    quick_base_prompt,
 )
 
 
@@ -58,6 +59,21 @@ class TestBaseSystemPrompt:
         assert "deprecated" in text.lower()
         assert '"threats"' in text
         assert "Threat Type" in text
+
+
+class TestQuickBasePrompt:
+    def test_selectivity_guidance_exempts_only_the_ai_cards(self):
+        """mitre_enterprise is meant for plain web apps, so the "be selective"
+        line must not tell the model those apps need no cards at all."""
+        line = next(
+            (line for line in quick_base_prompt().splitlines()
+             if line.startswith("Be selective")),
+            None,
+        )
+        assert line is not None, "quick_base.md lost its 'Be selective' guidance"
+        for card in ("genai", "agentic", "insider_threat"):
+            assert card in line
+        assert "mitre_enterprise" not in line
 
 
 class TestLoadReference:

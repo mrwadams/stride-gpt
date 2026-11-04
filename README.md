@@ -377,7 +377,7 @@ The `apps/` directory is the slot for additional deployable frontends — for ex
 stride-gpt analyze .
 
 # Specify a model and auto-approve the analysis plan
-stride-gpt analyze ./my-app --worker-model anthropic/claude-sonnet-5 -y
+stride-gpt analyze ./my-app --worker-model anthropic/claude-sonnet-5-5 -y
 
 # Export as JSON, SARIF, or browser-viewable HTML
 stride-gpt analyze . -o report.json -f json    # also writes report.html alongside
@@ -449,7 +449,7 @@ stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
 | `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
 | `-i`, `--input` | Read the app description from a file (`quick` only) |
 | `-y`, `--yes` | Auto-approve the analysis plan (`analyze` only) |
-| `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-5`). Uses saved config if omitted. |
+| `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-5-5`). Uses saved config if omitted. |
 | `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-6-sol`). Uses saved config if omitted. |
 | `--no-architect` | Skip the architect tier for this run; the worker handles every call. |
 | `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |
@@ -464,7 +464,7 @@ Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-
 |------|----------|
 | `<stem>.plan.json` | The `AnalysisPlan` the architect produced — subsystems, focus areas, detected app type (analyze only). |
 | `<stem>.findings.json` | Per-subsystem `SubsystemFinding` list, cross-cutting threats, and the system-level data flow diagram (analyze only). Every planned subsystem appears, each with an `outcome` saying why it stopped. |
-| `<stem>.run.json` | A `RunManifest` — models, prompt + config hash, references the agent actually loaded, git SHA, version, timing, and a `run_summary` whose `status` is `partial` when any subsystem crashed, returned nothing readable, stopped without finishing, or was never started. The summary also carries token usage for the run, broken down by phase (planning, exploration, compression, synthesis, DFD) and by subsystem; totals are `null` rather than `0` when a provider doesn't report usage. Emitted for both `analyze` and `quick`. |
+| `<stem>.run.json` | A `RunManifest` — models, prompt + config hash, references the agent actually loaded, git SHA, version, timing, and a `run_summary` whose `status` is `partial` when any subsystem crashed, returned nothing readable, or stopped without finishing. The summary also carries token usage for the run, broken down by phase (planning, exploration, compression, synthesis, DFD) and by subsystem; totals are `null` rather than `0` when a provider doesn't report usage. Emitted for both `analyze` and `quick`. |
 
 A subsystem's `outcome` is one of `completed`, `budget_exhausted` (the call or tool budget ran out and it reported in a final round), `parse_failed` (its closing answer couldn't be read), `unfinished` (it stopped without calling `finish` after reporting threats, which are kept), or `error` (it raised — see `error_class`). The first two count as analysed; the rest make the run `partial`, and the markdown and HTML reports say so under the affected subsystem.
 

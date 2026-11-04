@@ -38,13 +38,14 @@ QUICK_TOOL_NAMES = tool_names(QUICK_TOOLS)
 SUBSYSTEM_TOOL_NAMES = tool_names(SUBSYSTEM_TOOLS)
 REPORTING_TOOL_NAMES = tool_names(REPORTING_TOOLS)
 
-# Every module on the agent path that imports the LLM calls by name.
+# Every module under test that imports the LLM calls by name.
 PATCH_TARGETS = (
     "stride_gpt.agent.loop",
     "stride_gpt.agent.context",
     "stride_gpt.agent.quick",
     "stride_gpt.agent.planner",
     "stride_gpt.core.dfd",
+    "stride_gpt.core.threat_model",
 )
 
 

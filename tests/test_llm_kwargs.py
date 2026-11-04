@@ -29,22 +29,28 @@ class TestGeminiKwargs:
         kwargs = _build_litellm_kwargs(cfg)
         assert "safety_settings" in kwargs
 
-
-class TestAnthropicKwargs:
-    def test_thinking_enabled_when_requested(self):
+    def test_schema_kept_as_json_schema(self):
+        """Only DeepSeek downgrades a schema (#328); Gemini still gets it enforced."""
+        schema = {"type": "object", "properties": {}}
         cfg = LLMConfig(
-            provider="Anthropic API",
-            model_name="claude-sonnet-4-5-20250929",
+            provider="Google AI API",
+            model_name="gemini-3.8-flash",
             api_key="fake",
-            use_thinking=True,
+            response_format=schema,
         )
         kwargs = _build_litellm_kwargs(cfg)
-        assert kwargs["thinking"] == {"type": "enabled", "budget_tokens": 16000}
+        assert kwargs["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "response", "schema": schema},
+        }
 
-    def test_thinking_omitted_when_not_requested(self):
+
+class TestAnthropicKwargs:
+    def test_thinking_kwarg_never_sent(self):
+        """Current Claude models think by default and reject budget_tokens with a 400."""
         cfg = LLMConfig(
             provider="Anthropic API",
-            model_name="claude-sonnet-4-5-20250929",
+            model_name="claude-sonnet-5-5",
             api_key="fake",
         )
         kwargs = _build_litellm_kwargs(cfg)
@@ -74,6 +80,18 @@ class TestDeepSeekKwargs:
         )
         kwargs = _build_litellm_kwargs(cfg)
         assert "max_tokens" not in kwargs
+
+    def test_schema_falls_back_to_json_object(self):
+        """DeepSeek rejects json_schema ("This response_format type is
+        unavailable now"), which failed every /analyze at planning (#328)."""
+        cfg = LLMConfig(
+            provider="DeepSeek API",
+            model_name="deepseek-flash",
+            api_key="fake",
+            response_format={"type": "object", "properties": {}},
+        )
+        kwargs = _build_litellm_kwargs(cfg)
+        assert kwargs["response_format"] == {"type": "json_object"}
 
 
 class TestLMStudioKwargs:

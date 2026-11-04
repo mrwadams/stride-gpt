@@ -97,7 +97,8 @@ Each card is a markdown file with a YAML frontmatter block describing when to lo
 │                                                            │
 │ ## Reference cards                                         │
 │ Common cards named inline (genai / agentic /               │
-│ insider_threat) with their triggers and schema fields,     │
+│ insider_threat / mitre_enterprise / mitre_atlas) with      │
+│ their triggers and schema fields,                          │
 │ then: "Call list_references for the authoritative current  │
 │ catalogue; load_reference(name=...) for each that applies."│
 └────────────────────────────────────────────────────────────┘
@@ -108,7 +109,7 @@ The hybrid framing — name the common cards inline AND point at `list_reference
 The flow per subsystem:
 
 1. `base.md` is loaded as the system prompt for every subsystem analysis — always.
-2. The agent reads `base.md`, decides — per subsystem — which cards apply. It can call `list_references` to confirm the current catalogue (and discover any cards beyond the three named inline) and then calls `load_reference(name=...)` for each. A static-assets subsystem in an agentic codebase doesn't need the agentic card.
+2. The agent reads `base.md`, decides — per subsystem — which cards apply. It can call `list_references` to confirm the current catalogue (and discover any cards beyond those named inline) and then calls `load_reference(name=...)` for each. A static-assets subsystem in an agentic codebase doesn't need the agentic card.
 3. `load_reference` returns the card body (frontmatter stripped). It stays in the conversation history for the rest of that subsystem's analysis (and gets compressed away if the context window fills).
 4. Each card includes schema-addition instructions (e.g. "add `OWASP_LLM` to each threat"); the renderer in `agent/report.py` surfaces those fields as conditional columns.
 5. `/quick` reports record `llm_calls`, `tool_calls`, and a per-tool `tools_used` breakdown in metadata. `tool_calls: 0` or a `tools_used` block without `load_reference` is the diagnostic signal that a model has skipped discovery.
@@ -151,7 +152,6 @@ Models are registered in `stride_gpt/models.py` with provider, default tokens, m
 ### Provider gotchas
 
 - **Gemini does NOT accept the Anthropic-shaped `thinking={"type": "enabled", ...}` kwarg.** litellm rejects it for newer models (e.g. `gemini-3.1-flash-lite`). Thinking-capable Gemini models have thinking on by default and surface it via `thinking_blocks` on the response. Don't send the kwarg.
-- **Anthropic with `use_thinking=True` requires `max_tokens > budget_tokens`.** `_build_litellm_kwargs` enforces 48000 as the floor when thinking is on.
 - **GPT-5 series uses `max_completion_tokens`, not `max_tokens`.** Driven off `model_uses_completion_tokens` in the model registry.
 - **LM Studio only accepts `json_schema` or `text` response_format**, not `json_object`. Branch in `_build_litellm_kwargs`.
 - **Groq DeepSeek emits `<think>` tags inline.** Extracted by `extract_deepseek_reasoning`.

@@ -12,11 +12,10 @@ class LLMConfig(BaseModel):
     """Configuration for an LLM call. Constructed by UI layer from session state."""
 
     provider: str  # "OpenAI API", "Anthropic API", "Google AI API", etc.
-    model_name: str  # bare name e.g. "gpt-6-sol", "claude-sonnet-5"
+    model_name: str  # bare name e.g. "gpt-6-sol", "claude-sonnet-5-5"
     api_key: str  # BYOK key, passed per-call
     api_base: str | None = None  # For LM Studio custom endpoints
     timeout: int | None = None  # Request timeout in seconds
-    use_thinking: bool = False  # Anthropic extended thinking
     max_tokens: int | None = None  # Override default max tokens
     response_format: str | dict = "text"  # "text", "json", or a JSON schema dict
 
@@ -151,6 +150,11 @@ class AnalysisPlan(BaseModel):
     # Planner-detected application type. The agent uses this as a hint for
     # which OWASP reference cards to load during per-subsystem analysis.
     detected_app_type: Literal["web", "genai", "agentic"] = "web"
+    # How many files matched ``KEY_PATTERNS`` and how many of them the
+    # planner prompt actually listed (issue #175). ``None`` on plans that
+    # predate these fields.
+    key_files_found: int | None = None
+    key_files_shown: int | None = None
 
 
 # Why a subsystem stopped. A closed set, so a consumer of findings.json can
