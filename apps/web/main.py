@@ -180,13 +180,12 @@ def build_guided_description_draft():
     return "\n".join(lines)
 
 
-def resolve_active_llm_config(*, response_format="text", thinking=False):
+def resolve_active_llm_config(*, response_format="text"):
     """Build an LLMConfig for the provider/model/key currently in session state.
 
     Reads everything from session state so callers outside ``main()`` (e.g. the
     guided-description builder) can reach the active model. Returns ``None`` when
     no usable key is available, letting callers fall back gracefully.
-    ``thinking=True`` applies the sidebar's Anthropic extended-thinking toggle.
     """
     provider = st.session_state.get("model_provider", "OpenAI API")
     model_name = st.session_state.get("selected_model", "")
@@ -211,11 +210,6 @@ def resolve_active_llm_config(*, response_format="text", thinking=False):
         api_key=api_key,
         api_base=api_base,
         response_format=response_format,
-        use_thinking=(
-            thinking
-            and provider == "Anthropic API"
-            and st.session_state.get("use_thinking", False)
-        ),
     )
 
 
@@ -905,7 +899,7 @@ load_env_variables()
 # ------------------ Model Registry ------------------ #
 
 from stride_gpt.models import PROVIDERS as _PROVIDERS
-from stride_gpt.models import get_model, get_models_for_provider, model_supports_thinking
+from stride_gpt.models import get_model, get_models_for_provider
 
 st.set_page_config(
     page_title="STRIDE GPT",
@@ -1045,24 +1039,6 @@ with st.sidebar:
             on_change=on_model_selection_change,
             help=_model_help or None,
         )
-
-        # Anthropic-specific: Extended Thinking checkbox. Only models flagged in
-        # the registry accept the kwarg; Claude 4.7 and later reject it with a
-        # 400 and think adaptively by default, so hide the checkbox for them and
-        # clear any value carried over from an earlier selection.
-        if model_provider == "Anthropic API" and model_supports_thinking(
-            model_provider, st.session_state.get("selected_model", "")
-        ):
-            # Not assigned: `key` writes to st.session_state, which is where
-            # the value is read back from further down.
-            st.checkbox(
-                "Enable Extended Thinking",
-                value=st.session_state.get("use_thinking", False),
-                key="use_thinking",
-                help="Extended thinking gives Claude enhanced reasoning capabilities for complex tasks. This may increase response time and token usage.",
-            )
-        elif st.session_state.get("use_thinking"):
-            st.session_state["use_thinking"] = False
 
     # Add GitHub API key input field to the sidebar
     github_api_key = st.text_input(
@@ -1514,11 +1490,7 @@ understanding possible vulnerabilities and attack vectors. Use this tab to gener
             confirmed_dfd=st.session_state.get("confirmed_dfd"),
         )
 
-        # Clear thinking content when switching models or starting a new operation
-        if model_provider != "Anthropic API" or "thinking" not in selected_model.lower():
-            st.session_state.pop("last_thinking_content", None)
-
-        config = resolve_active_llm_config(thinking=True)
+        config = resolve_active_llm_config()
         if config is None:
             st.error(f"Please enter your {model_provider} key and choose a model in the sidebar.")
         else:
@@ -1574,19 +1546,6 @@ with tab1:
 
     # Display threat model from session state (persists across reruns)
     if st.session_state.get("threat_model_markdown"):
-        # Display thinking content in an expander if available
-        if (
-            "last_thinking_content" in st.session_state
-            and st.session_state["last_thinking_content"]
-            and (
-                (model_provider == "Anthropic API" and st.session_state.get("use_thinking", False))
-                or (model_provider == "Google AI API" and ("gemini-2.5" in selected_model.lower() or "gemini-3" in selected_model.lower()))
-            )
-        ):
-            thinking_model = "Claude" if model_provider == "Anthropic API" else "Gemini"
-            with st.expander(f"View {thinking_model}'s thinking process"):
-                st.markdown(st.session_state["last_thinking_content"])
-
         # Display the threat model in Markdown
         st.markdown(st.session_state["threat_model_markdown"])
 
