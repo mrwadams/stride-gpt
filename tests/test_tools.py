@@ -241,7 +241,7 @@ class TestListDirectory:
     def test_file_named_like_a_skipped_directory_is_listed(self, sandbox_dir: Path, name: str):
         """SKIP_DIRS is about directories. A `.env` file is exactly what a threat
         model should know about."""
-        (sandbox_dir / name).write_text("API_KEY=hunter2\n")
+        (sandbox_dir / name).write_bytes(b"API_KEY=hunter2\n")
 
         entries = {e["name"]: e for e in json.loads(list_directory(sandbox_dir))}
 

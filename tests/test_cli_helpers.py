@@ -343,10 +343,12 @@ class TestPlanningUsageIsThreaded:
         assert seen["planning_usage"].total_tokens == 550
 
     @pytest.mark.parametrize("entry", ["analyze", "repl"])
-    def test_both_entry_points_cap_llm_calls_by_default(self, monkeypatch, entry):
+    def test_both_entry_points_cap_llm_calls_by_default(
+        self, monkeypatch, entry, tmp_path
+    ):
         """The REPL's /analyze takes no --max-llm-calls, so it must still get
         the default cap rather than run_analysis's unlimited 0 (#226)."""
         from stride_gpt.agent.budget import DEFAULT_MAX_LLM_CALLS
 
-        seen = self._capture(monkeypatch, entry)
+        seen = self._capture(monkeypatch, entry, tmp_path)
         assert seen["max_llm_calls"] == DEFAULT_MAX_LLM_CALLS > 0
