@@ -48,7 +48,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
 - Multiple output formats: Markdown, JSON, SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs), and a self-contained HTML view for sharing with stakeholders
-- Advanced reasoning model support (OpenAI GPT-5.4/5.5 series, Anthropic Claude 4.6/4.8 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
+- Current model support (OpenAI GPT-6 series, Anthropic Claude 5.5 and Opus 4.8, Google Gemini 3.x with thinking on by default)
 - Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, DeepSeek, plus local hosting via LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
@@ -75,7 +75,27 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.20 (latest)
+### Version 0.21 (latest)
+
+- **Fresh `pip install` works again** (closes #330): From litellm 1.106.0, every tool-calling request imports `mcp`, which litellm only installs with its `mcp` extra. A clean `pip install stride-gpt` resolved the newest litellm without it, so `analyze` failed on its first subsystem with `No module named 'mcp'`. STRIDE-GPT now depends on `litellm[mcp]`. CI installs the built wheel into an empty venv and makes an offline tool-calling request (#283), and the release workflow runs the same check before publishing to PyPI (#334).
+- **Budgets apply to each subsystem** (#226, #306): `--max-llm-calls` and `--max-tool-calls` now cap each subsystem rather than the whole run, so a cap bounds how much work is done instead of dropping the subsystems the budget never reached. A subsystem that hits either cap gets one final round to report what it found and is recorded `budget_exhausted`. The plan approval prompt shows the resulting ceiling for the run. The `skipped` outcome is gone, since nothing can be skipped any more (#312).
+- **Subsystems that stop early are recorded as unfinished** (#300): A plain-text reply after a recorded threat used to end the subsystem as `completed`, so a model that narrated between tool calls left a truncated analysis that looked complete. Text replies are now nudged once per tool round, and a subsystem that still ends on text after reporting threats is recorded `unfinished`, which makes the run `partial`. Threats a model writes as prose JSON go through the same evidence check as `report_threat`.
+- **Plans follow the codebase's services** (#264, #271, #175): The planner now finds every key file instead of the first 50 per search pattern (on OWASP Juice Shop the first 50 `*.ts` matches were all frontend, so the backend went unplanned), sees two directory levels, and records when its key-file sample was truncated. A subsystem is now a deployable unit or trust boundary, each file belongs to one subsystem, and each worker reports threats whose evidence is in its own code, so the same code is no longer reported from several subsystems. A threat that crosses into another subsystem is reported once, as a chain.
+- **Cross-cutting threats are either linked or evidenced** (#209, #251, #252, #265): Synthesis classifies each output as an aggregation, which links to the subsystem threats it summarises and is shown as a systemic observation, or an emergent threat, which must cite evidence that verifies and is counted like any other threat. A chain of steps reported by separate subsystems is reported as emergent. A failed or unreadable synthesis keeps the subsystem findings and reports the failure as its own event, and dropped synthesis items are recorded in the run output rather than only printed.
+- **Every threat has a stable ID** (#212): Each threat carries a short ID derived from its subsystem, type and scenario, so it stays the same when findings are reordered and other output can refer to it.
+- **Token usage splits out cache hits** (#225): Prompt tokens served from a provider's cache are counted separately from uncached ones, closing the caveat in the 0.20 notes.
+- **Resume fixes** (#297, #303): Resume refuses a checkpoint from a different directory in the same repository, which previously shared the git SHA and config hash and could report one service's findings as another's. A run killed during a resume keeps its completed findings, reports with different names in one directory no longer share sibling files, and the run's own outputs no longer count as a dirty working tree. Ctrl-C during `analyze` now prints the checkpoint path and the command that resumes the run.
+- **Failures end with one clear message** (#258, #262, #305): Rate limits, timeouts and 5xx errors are retried with backoff (litellm's retry path needed a package that wasn't installed, so nothing was retried). A rejected key, an unreachable endpoint or a provider that keeps failing now prints one line quoting the provider's own message and exits 1 instead of a traceback, and a run where no subsystem was analysed exits 1 instead of 0 with an empty report.
+- **CLI fixes** (#263, #266, #295, #298, #304, #308, #314): `-o` creates missing parent directories for `analyze`, `quick` and `reports`. The REPL rejects flags a command doesn't take instead of ignoring them. Model-supplied text such as `app/[id]/page.tsx` is printed literally rather than read as Rich markup, which could crash a run before its report was saved. `grep_content` has a 5-second limit per call. Saved `quick` reports are named after the described system's directory instead of `README`. The architect setup prompt defaults to yes, as it recommends, and the REPL toolbar fits the terminal width.
+- **`/quick` keeps its reference cards** (#296): The final JSON call dropped the loaded cards and ran past the call cap. It now keeps them and stays within the cap.
+- **Prompt updates** (#276, #293, #323): The model treats each external service the system calls as a component outside its trust boundary. The genai card covers hosted inference serving layers that can leak content between customers.
+- **Models** (#245, #324, #328): Claude Sonnet 5.5 and Haiku 5.5 replace Sonnet 5 and Haiku 4.5, and the deprecated Gemini 3.5 Flash is removed. Anthropic budget thinking is removed, since no listed Anthropic model accepts it. DeepSeek planning works again: DeepSeek rejects JSON-schema responses, so the planner now asks it for plain JSON.
+- **Web UI** (#294, #326, #288): Every tab now makes one provider-agnostic call instead of going through a per-provider wrapper, and the thinking display is removed. A generated or parsed DFD now appears in the editor. Unused attack-tree helpers are removed.
+- **Supply chain**: Security floors were raised for pyjwt, urllib3, gitpython, multidict, aiohttp, certifi, pillow, filelock and litellm. Lockfile resolution skips releases less than 5 days old (#282). The unused `anthropic` and `groq` SDKs were dropped from the web extras. CI fails when `uv.lock` is out of sync with `pyproject.toml`.
+
+**Upgrading:** Checkpoints written by 0.20 don't resume, because the config hash changed when budget thinking was removed. Start those runs again. Findings files no longer use the `skipped` outcome.
+
+### Version 0.20
 
 - **Resume an interrupted analysis** (closes #197): `analyze` now checkpoints the approved plan and each subsystem finding as it completes, next to the `-o` report. `--resume <checkpoint>` reuses the subsystems that finished and reruns the rest, then runs synthesis and the data flow diagram as usual. Resume refuses when the target's git SHA or the config hash no longer match, naming which changed, so stale findings can't be stitched into a run of different code. A dirty working tree or a missing git SHA refuses unless `--force`; a changed SHA refuses even with it. The run manifest records which subsystems were reused and which were rerun.
 - **Threats cite verified evidence** (closes #195): Each threat is now reported through a tool call carrying the code it came from, and every quoted snippet is checked against the file on disk before the threat is recorded. SARIF locations point at the file and line range the evidence was found at, rather than giving every threat in a subsystem the same three files, and `files_analyzed` reflects what the agent actually read rather than what it claimed to.
@@ -437,7 +457,7 @@ Launch the REPL with `stride-gpt` (no arguments), then use these commands and sh
 **Check the installed version:**
 
 ```bash
-stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
+stride-gpt --version    # prints e.g. "stride-gpt 0.21.0" and exits
 ```
 
 **Common flags:**
@@ -576,7 +596,7 @@ flowchart LR
 - **LLM calls**: 34
 - **Tool calls**: 58
 - **Architect model**: OpenAI API/gpt-6-sol
-- **Worker model**: Anthropic API/claude-sonnet-5
+- **Worker model**: Anthropic API/claude-sonnet-5-5
 ````
 
 </details>
