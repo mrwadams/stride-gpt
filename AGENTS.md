@@ -154,6 +154,7 @@ Models are registered in `stride_gpt/models.py` with provider, default tokens, m
 - **Gemini does NOT accept the Anthropic-shaped `thinking={"type": "enabled", ...}` kwarg.** litellm rejects it for newer models (e.g. `gemini-3.1-flash-lite`). Thinking-capable Gemini models have thinking on by default and surface it via `thinking_blocks` on the response. Don't send the kwarg.
 - **GPT-5 series uses `max_completion_tokens`, not `max_tokens`.** Driven off `model_uses_completion_tokens` in the model registry.
 - **LM Studio only accepts `json_schema` or `text` response_format**, not `json_object`. Branch in `_build_litellm_kwargs`.
+- **DeepSeek rejects `json_schema` response_format** ("This response_format type is unavailable now"). A schema is sent as `json_object` instead. Branch in `_build_litellm_kwargs`.
 - **Groq DeepSeek emits `<think>` tags inline.** Extracted by `extract_deepseek_reasoning`.
 
 When adding a new provider or model, the kwarg shape almost always needs a new branch in `_build_litellm_kwargs`. Don't try to make it generic — provider quirks are real and pretending they aren't causes silent bugs.
@@ -175,9 +176,9 @@ When adding a new provider or model, the kwarg shape almost always needs a new b
 
 ## Releasing
 
-- **Releases are automated.** Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`: it verifies the tag matches `pyproject.toml`'s `version`, runs the test matrix, publishes the CLI to PyPI (OIDC trusted publishing, no token), pushes the multi-arch UI image to Docker Hub `mrwadams/stridegpt`, and cuts a GitHub Release. Don't build or publish by hand.
+- **Releases are automated.** Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`: it verifies the tag matches `pyproject.toml`'s `version`, runs the test matrix, smoke-tests the built wheel, publishes the CLI to PyPI (OIDC trusted publishing, no token), pushes the multi-arch UI image to Docker Hub `mrwadams/stridegpt`, and cuts a GitHub Release. Don't build or publish by hand.
 - The tag must match `pyproject.toml` exactly or the `verify` job fails before anything publishes. See `RELEASING.md` for the cut-a-release steps and the one-time PyPI / Docker Hub credential setup.
-- Every push and PR is gated by `.github/workflows/ci.yml` (ruff + pytest on 3.12/3.13/3.14). Keep it green.
+- Every push and PR is gated by `.github/workflows/ci.yml`: `uv lock --check` and ruff, pytest on 3.12/3.13/3.14, and a Package job that installs the built wheel into a clean venv and runs `scripts/smoke_wheel.sh`. The smoke test catches what pytest can't, because pytest runs against the source tree: files missing from the wheel, and dependencies that only a fresh `pip install` resolves (#330). `release.yml` runs the same script before publishing. Keep it green.
 
 ## A few things to NOT do
 
