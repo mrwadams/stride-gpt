@@ -48,7 +48,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
 - Multiple output formats: Markdown, JSON, SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs), and a self-contained HTML view for sharing with stakeholders
-- Advanced reasoning model support (OpenAI GPT-5.4/5.5 series, Anthropic Claude 4.6/4.8 with Extended Thinking, Google Gemini 3, Mistral Magistral series)
+- Current model support (OpenAI GPT-6 series, Anthropic Claude Opus 5.5 and 4.8, Google Gemini 3.x with thinking on by default)
 - Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, DeepSeek, plus local hosting via LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
@@ -75,7 +75,18 @@ This video is an excellent resource for anyone interested in understanding how S
 
 ## Changelog
 
-### Version 0.20 (latest)
+### Version 0.21 (latest)
+
+- **Fresh installs work again** (#330, #283, #334): From litellm 1.106.0, every tool-calling request imports `mcp`, so a clean `pip install stride-gpt` failed on its first subsystem. STRIDE-GPT now depends on `litellm[mcp]`. CI and the release workflow install the built wheel into an empty environment and smoke-test it before anything reaches PyPI.
+- **Planning and budgets** (#226, #306, #264, #271, #175, #300): The planner finds every key file and splits the codebase into deployable services. Each service is analysed only by the worker that owns its code, so the same code is no longer reported from several subsystems. `--max-llm-calls` and `--max-tool-calls` now cap each subsystem, where before they capped the whole run and later subsystems could be dropped. A subsystem that stops partway is recorded as `unfinished` and marks the run `partial`; it used to be recorded as `completed`.
+- **Threat IDs and synthesis** (#209, #212, #251, #252, #265, #225): Every threat has a stable ID. Synthesis either links a systemic observation to the subsystem threats it summarises, or reports an emergent threat, such as a chain across subsystems, whose evidence has to verify. A failed synthesis keeps the subsystem findings. Token usage counts cache hits separately.
+- **Errors and resume** (#258, #262, #297, #303, #305): Rate limits and server errors are retried. A run that still fails ends with one line quoting the provider's message and a non-zero exit, and so does a run where nothing was analysed. Resume refuses a checkpoint from another directory in the same repository, and Ctrl-C prints the command that resumes the run. Smaller fixes cover `-o` directories, REPL flags, `/quick` reference cards, quick report names and markup in model output.
+- **Models, prompts and the web UI** (#245, #324, #328, #276, #294, #326): Claude Sonnet 5.5 and Haiku 5.5 replace Sonnet 5 and Haiku 4.5, Anthropic budget thinking is removed, and DeepSeek planning works again. The prompts treat each external service as outside the system's trust boundary. Every web UI tab now makes one provider-agnostic call, and generated DFDs appear in the editor.
+- **Supply chain**: Nine dependencies have raised security floors. Lockfile resolution skips releases less than 5 days old, and the unused `anthropic` and `groq` SDKs are gone from the web extras.
+
+**Upgrading:** Checkpoints written by 0.20 don't resume, because the config hash changed when budget thinking was removed. Start those runs again. Findings files no longer use the `skipped` outcome.
+
+### Version 0.20
 
 - **Resume an interrupted analysis** (closes #197): `analyze` now checkpoints the approved plan and each subsystem finding as it completes, next to the `-o` report. `--resume <checkpoint>` reuses the subsystems that finished and reruns the rest, then runs synthesis and the data flow diagram as usual. Resume refuses when the target's git SHA or the config hash no longer match, naming which changed, so stale findings can't be stitched into a run of different code. A dirty working tree or a missing git SHA refuses unless `--force`; a changed SHA refuses even with it. The run manifest records which subsystems were reused and which were rerun.
 - **Threats cite verified evidence** (closes #195): Each threat is now reported through a tool call carrying the code it came from, and every quoted snippet is checked against the file on disk before the threat is recorded. SARIF locations point at the file and line range the evidence was found at, rather than giving every threat in a subsystem the same three files, and `files_analyzed` reflects what the agent actually read rather than what it claimed to.
@@ -437,7 +448,7 @@ Launch the REPL with `stride-gpt` (no arguments), then use these commands and sh
 **Check the installed version:**
 
 ```bash
-stride-gpt --version    # prints e.g. "stride-gpt 0.19.0" and exits
+stride-gpt --version    # prints e.g. "stride-gpt 0.21.0" and exits
 ```
 
 **Common flags:**
@@ -576,7 +587,7 @@ flowchart LR
 - **LLM calls**: 34
 - **Tool calls**: 58
 - **Architect model**: OpenAI API/gpt-6-sol
-- **Worker model**: Anthropic API/claude-sonnet-5
+- **Worker model**: Anthropic API/claude-sonnet-5-5
 ````
 
 </details>
