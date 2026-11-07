@@ -48,7 +48,7 @@ If you find STRIDE GPT useful, please consider supporting the project:
 - Generates Gherkin test cases based on identified threats
 - GitHub repository analysis for comprehensive threat modelling (including GitHub Enterprise support)
 - Multiple output formats: Markdown, JSON, SARIF (imports into GitHub, GitLab, Azure DevOps, IDEs), and a self-contained HTML view for sharing with stakeholders
-- Current model support (OpenAI GPT-6 series, Anthropic Claude 5.5 and Opus 4.8, Google Gemini 3.x with thinking on by default)
+- Current model support (OpenAI GPT-6 series, Anthropic Claude Opus 5.5 and 4.8, Google Gemini 3.x with thinking on by default)
 - Comprehensive LLM provider support via LiteLLM: OpenAI, Anthropic, Google AI, Mistral, Groq, DeepSeek, plus local hosting via LM Studio Server
 - No data storage; application details are not saved
 - Available as a Docker container image for easy deployment
