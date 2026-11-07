@@ -83,12 +83,18 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
+      # The same check CI runs, on the exact wheel about to be published.
+      - name: Smoke test the installed wheel
+        run: scripts/smoke_wheel.sh dist/*.whl
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
   docker:
     name: Build and push UI image
-    needs: [verify, test]
+    # After PyPI, so a tag whose wheel fails the smoke test never reaches
+    # Docker Hub either: X.Y.Z and latest exist only for versions on PyPI.
+    needs: [verify, test, publish-pypi]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
