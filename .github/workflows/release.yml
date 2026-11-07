@@ -92,7 +92,9 @@ jobs:
 
   docker:
     name: Build and push UI image
-    needs: [verify, test]
+    # After PyPI, so a tag whose wheel fails the smoke test never reaches
+    # Docker Hub either: X.Y.Z and latest exist only for versions on PyPI.
+    needs: [verify, test, publish-pypi]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
