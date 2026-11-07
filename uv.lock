@@ -2400,7 +2400,7 @@ wheels = [
 
 [[package]]
 name = "stride-gpt"
-version = "0.20.0"
+version = "0.21.0"
 source = { editable = "." }
 default-groups = ["dev", "web"]
 dependencies = [
