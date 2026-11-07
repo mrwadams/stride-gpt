@@ -83,6 +83,10 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
+      # The same check CI runs, on the exact wheel about to be published.
+      - name: Smoke test the installed wheel
+        run: scripts/smoke_wheel.sh dist/*.whl
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
