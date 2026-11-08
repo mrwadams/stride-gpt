@@ -347,11 +347,12 @@ def _find(
             return partial[0], partial[0], len(partial)
         return None
 
-    # Multi-line: equality only. Substring matching across several lines buys
-    # ragged quotes at the price of cheap false positives.
+    # Multi-line quotes may start/end mid-line, but must describe one passage:
+    # a suffix first, whole middle lines, and a prefix last. Arbitrary
+    # per-line substring matching would admit ragged quotes.
     hits: list[tuple[int, int]] = []
     for i in range(len(haystack)):
-        if haystack[i][0] != needle[0]:
+        if not haystack[i][0].endswith(needle[0]):
             continue
         end = _match_run(haystack, i, needle)
         if end is not None:
@@ -373,7 +374,7 @@ def _match_run(
     j, k, skipped = start + 1, 1, 0
     while k < len(needle) and j < len(haystack):
         text, _, is_comment = haystack[j]
-        if text == needle[k]:
+        if text == needle[k] or (k == len(needle) - 1 and text.startswith(needle[k])):
             k += 1
             j += 1
             skipped = 0

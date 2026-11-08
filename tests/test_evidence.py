@@ -345,3 +345,67 @@ def test_line_numbers_agree_with_read_file(sandbox_dir):
     body = out.split("\n\n", 1)[1]
     quoted = [line.split("\t", 1)[1] for line in body.split("\n")]
     assert quoted == AUTH_BODY.split("\n")
+
+
+class TestMultilineBoundaries:
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            "condition(user)) {\nresult = compute(user);",
+            "if (condition(user)) {\nresult = compute",
+            "condition(user)) {\nresult = compute",
+        ],
+    )
+    def test_two_line_boundary_fragments(self, tmp_path, snippet):
+        (tmp_path / "sample.java").write_text(
+            "// preface\nif (condition(user)) {\n    result = compute(user);\n}\n"
+        )
+        check = verify_one(tmp_path, "sample.java", snippet)
+        assert (check.verified, check.start_line, check.end_line) == (True, 2, 3)
+
+    def test_middle_lines_and_skipped_comments(self, tmp_path):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\n\n// explanation\n"
+            "    prepare(user);\n    result = compute(user);\n}\n"
+        )
+        check = verify_one(
+            tmp_path, "sample.java", "condition(user)) {\nprepare(user);\nresult = compute"
+        )
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 5)
+
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            "condition(user)\nprepare(user);\nresult = compute",  # Not a suffix.
+            "condition(user)) {\nprepare(user)\nresult = compute",  # Ragged middle.
+            "condition(user)) {\nprepare(user);\ncompute(user);",  # Not a prefix.
+            "condition(user)) {\nresult = compute",  # Cannot skip code.
+        ],
+    )
+    def test_noncontiguous_fragments_are_refused(self, tmp_path, snippet):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\n    prepare(user);\n    result = compute(user);\n}\n"
+        )
+        check = verify_one(tmp_path, "sample.java", snippet)
+        assert not check.verified
+        assert check.start_line is None
+        assert check.end_line is None
+
+    def test_repeated_boundary_matches_count_occurrences(self, tmp_path):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\nresult = compute(user);\n}\n" * 2
+        )
+        check = verify_one(tmp_path, "sample.java", "condition(user)) {\nresult = compute")
+        assert (check.verified, check.start_line, check.end_line, check.occurrences) == (
+            True, 1, 2, 2
+        )
+
+    @pytest.mark.parametrize("count", [MAX_COMMENT_SKIP, MAX_COMMENT_SKIP + 1])
+    def test_boundary_fragments_keep_comment_skip_limit(self, tmp_path, count):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\n" + "// comment\n" * count + "result = compute(user);\n"
+        )
+        check = verify_one(tmp_path, "sample.java", "condition(user)) {\nresult = compute")
+        assert check.verified == (count == MAX_COMMENT_SKIP)
+        if check.verified:
+            assert (check.start_line, check.end_line) == (1, count + 2)
