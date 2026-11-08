@@ -19,6 +19,7 @@ from stride_gpt.core.llm import (
     extract_deepseek_reasoning,
     process_groq_response,
 )
+from stride_gpt.core.schemas import LLMConfig
 
 
 class TestExtractDeepseekReasoning:
@@ -309,3 +310,59 @@ class TestUsageExtraction:
 
         assert response.cached_prompt_tokens == 200
         assert response.uncached_prompt_tokens == 100
+
+
+class TestPromptCacheBreakpoints:
+    """Anthropic caches a prompt only up to its cache_control breakpoints (#339).
+
+    Tool-calling requests mark the system prompt and the latest message. Single
+    calls and other providers send no breakpoints.
+    """
+
+    MESSAGES = (
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": "analyse"},
+    )
+
+    @staticmethod
+    def _reply():
+        message = SimpleNamespace(content="", tool_calls=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_anthropic_tool_call_marks_system_and_latest_message(self, mock_completion):
+        mock_completion.return_value = self._reply()
+        cfg = LLMConfig(provider="Anthropic API", model_name="claude-haiku-5-5", api_key="fake")
+
+        _call_litellm_with_tools(cfg, list(self.MESSAGES), [])
+
+        assert mock_completion.call_args.kwargs["cache_control_injection_points"] == [
+            {"location": "message", "role": "system"},
+            {"location": "message", "index": -1},
+        ]
+
+    @pytest.mark.parametrize(
+        ("provider", "model"),
+        [
+            ("OpenAI API", "gpt-6-luna"),
+            ("Google AI API", "gemini-3.8-flash"),
+            ("DeepSeek API", "deepseek-chat"),
+        ],
+    )
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_other_providers_tool_call_unmarked(self, mock_completion, provider, model):
+        mock_completion.return_value = self._reply()
+        cfg = LLMConfig(provider=provider, model_name=model, api_key="fake")
+
+        _call_litellm_with_tools(cfg, list(self.MESSAGES), [])
+
+        assert "cache_control_injection_points" not in mock_completion.call_args.kwargs
+
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_anthropic_single_call_unmarked(self, mock_completion):
+        mock_completion.return_value = self._reply()
+        cfg = LLMConfig(provider="Anthropic API", model_name="claude-haiku-5-5", api_key="fake")
+
+        _call_litellm(cfg, list(self.MESSAGES))
+
+        assert "cache_control_injection_points" not in mock_completion.call_args.kwargs
