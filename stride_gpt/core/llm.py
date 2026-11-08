@@ -343,6 +343,19 @@ def _parse_tool_arguments(raw: object) -> tuple[dict, str | None]:
     return raw, None
 
 
+# Anthropic caches only up to cache_control breakpoints; the other providers
+# cache prefixes on their own. A tool loop re-sends the whole conversation each
+# round, so mark the system prompt (with the tools, the same for every call)
+# and the latest message, which the next round reads back from the cache.
+# litellm adds the markers to a copy of the request; the caller's messages
+# are untouched. Single calls (planning, synthesis) have nothing to reuse and
+# a cache write costs more than plain input, so call_llm sends none (#339).
+ANTHROPIC_TOOL_LOOP_CACHE_POINTS = (
+    {"location": "message", "role": "system"},
+    {"location": "message", "index": -1},
+)
+
+
 def _call_litellm_with_tools(
     config: LLMConfig, messages: list[dict], tools: list[dict]
 ) -> LLMResponse:
@@ -350,6 +363,8 @@ def _call_litellm_with_tools(
     kwargs = _build_litellm_kwargs(config)
     # Don't send JSON response_format when using tools — the model decides the format
     kwargs.pop("response_format", None)
+    if config.provider == "Anthropic API":
+        kwargs["cache_control_injection_points"] = [dict(p) for p in ANTHROPIC_TOOL_LOOP_CACHE_POINTS]
     response = _completion(messages=messages, tools=tools, **kwargs)
 
     message = response.choices[0].message
