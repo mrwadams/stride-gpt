@@ -57,6 +57,11 @@ _FENCE_CLOSE_RE = re.compile(r"^\s*```\s*$")
 # code, so matching steps over them the way it steps over blank lines.
 _COMMENT_RE = re.compile(r"^\s*(#|//|/\*|\*/|\*|<!--|--|;)")
 
+# A multi-line quote's first line may be the end of a file line. Starting it
+# inside an identifier names a different identifier, and starting it after a
+# unary `!` or `~` drops the operator that gives the condition its meaning.
+_NOT_A_TOKEN_START = frozenset("_$!~")
+
 # How many elided comment lines to step over between two matched code lines.
 # Past this the model isn't quoting a passage, it's stitching two of them.
 MAX_COMMENT_SKIP = 20
@@ -357,7 +362,7 @@ def _find(
     for partial in (False, True):
         hits: list[tuple[int, int]] = []
         for i, (text, line, _) in enumerate(haystack):
-            if text != needle[0] and not (partial and text.endswith(needle[0])):
+            if text != needle[0] and not (partial and _is_boundary_suffix(text, needle[0])):
                 continue
             end = _match_run(haystack, i, needle, partial=partial)
             if end is not None:
@@ -384,7 +389,7 @@ def _match_run(
     while k < len(needle) and j < len(haystack):
         text, _, is_comment = haystack[j]
         if text == needle[k] or (
-            partial and k == len(needle) - 1 and text.startswith(needle[k])
+            partial and k == len(needle) - 1 and _is_boundary_prefix(text, needle[k])
         ):
             k += 1
             j += 1
@@ -397,3 +402,23 @@ def _match_run(
     if k < len(needle):
         return None
     return haystack[j - 1][1]
+
+
+def _is_boundary_suffix(text: str, fragment: str) -> bool:
+    """Whether a quote's first line can be ``fragment``, cut from the end of ``text``.
+
+    Like a whole snippet, a boundary fragment needs ``MIN_SNIPPET_CHARS``: a
+    lone ``{`` ends half the lines in a file. It must also start where a token
+    starts (see ``_NOT_A_TOKEN_START``).
+    """
+    if len(fragment) < MIN_SNIPPET_CHARS or not text.endswith(fragment):
+        return False
+    if len(text) == len(fragment):
+        return True
+    before = text[-len(fragment) - 1]
+    return not (before.isalnum() or before in _NOT_A_TOKEN_START)
+
+
+def _is_boundary_prefix(text: str, fragment: str) -> bool:
+    """Whether a quote's last line can be ``fragment``, cut from the start of ``text``."""
+    return len(fragment) >= MIN_SNIPPET_CHARS and text.startswith(fragment)
