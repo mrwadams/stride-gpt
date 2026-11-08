@@ -473,3 +473,46 @@ class TestBoundaryFragmentLimits:
         (tmp_path / "code.java").write_text("if (x && user.ok()) {\n  run();\n}\n")
         check = verify_one(tmp_path, "code.java", snippet)
         assert (check.verified, check.start_line, check.end_line) == (True, 1, 2)
+
+
+class TestSingleLineFragmentBoundaries:
+    @pytest.mark.parametrize(
+        ("source", "snippet"),
+        [
+            # Dropping the `!` inverts the condition the quote claims to show.
+            ("if (!isAdmin(user)) {\n", "isAdmin(user)) {"),
+            ("flags = ~mask & 0xff\n", "mask & 0xff"),
+            # Starting inside an identifier names a different identifier.
+            ("if (isAdminUser(u)) {\n", "AdminUser(u)) {"),
+            ("x = my_var_name(1)\n", "_var_name(1)"),
+            ("x = $scope.apply()\n", "scope.apply()"),
+            # Only the first occurrence is loose; none starts at a token.
+            ("a = xcheck(1) + ycheck(2)\n", "check(1)"),
+        ],
+    )
+    def test_rejects_fragments_starting_mid_token(self, tmp_path, source, snippet):
+        (tmp_path / "code.java").write_text(source)
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert not check.verified
+
+    @pytest.mark.parametrize(
+        ("source", "snippet"),
+        [
+            ("result = eval(user_input)  # TODO\n", "eval(user_input)"),
+            ("if (x && user.ok()) {\n", "user.ok()) {"),
+            ("if (x && user.ok()) {\n", "ok()) {"),
+            ("call(eval(user_input))\n", "eval(user_input)"),
+            ("if (!isAdmin(user)) {\n", "!isAdmin(user)) {"),
+            # A later occurrence that does start at a token is enough.
+            ("a = xcheck(1) + check(1)\n", "check(1)"),
+        ],
+    )
+    def test_accepts_fragments_starting_at_a_token(self, tmp_path, source, snippet):
+        (tmp_path / "code.java").write_text(source)
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 1)
+
+    def test_whole_line_match_is_still_tried_first(self, tmp_path):
+        (tmp_path / "code.java").write_text("x = a;\nisAdmin(user)) {\nif (!isAdmin(user)) {\n")
+        check = verify_one(tmp_path, "code.java", "isAdmin(user)) {")
+        assert (check.verified, check.start_line, check.occurrences) == (True, 2, 1)

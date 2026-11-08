@@ -57,9 +57,10 @@ _FENCE_CLOSE_RE = re.compile(r"^\s*```\s*$")
 # code, so matching steps over them the way it steps over blank lines.
 _COMMENT_RE = re.compile(r"^\s*(#|//|/\*|\*/|\*|<!--|--|;)")
 
-# A multi-line quote's first line may be the end of a file line. Starting it
-# inside an identifier names a different identifier, and starting it after a
-# unary `!` or `~` drops the operator that gives the condition its meaning.
+# A quote's first line may be the end of a file line, and a single-line quote
+# may be a fragment of one. Starting it inside an identifier names a different
+# identifier, and starting it after a unary `!` or `~` drops the operator that
+# gives the condition its meaning.
 _NOT_A_TOKEN_START = frozenset("_$!~")
 
 # How many elided comment lines to step over between two matched code lines.
@@ -348,8 +349,9 @@ def _find(
         if exact:
             return exact[0], exact[0], len(exact)
         # A fragment quoted out of a longer line, e.g. `eval(user_input)`
-        # lifted from `    result = eval(user_input)  # TODO`.
-        partial = [n for text, n, _ in haystack if target in text]
+        # lifted from `    result = eval(user_input)  # TODO`. It must start where a
+        # token starts, as a multi-line quote's first line must.
+        partial = [n for text, n, _ in haystack if _contains_at_token_start(text, target)]
         if partial:
             return partial[0], partial[0], len(partial)
         return None
@@ -417,6 +419,24 @@ def _is_boundary_suffix(text: str, fragment: str) -> bool:
         return True
     before = text[-len(fragment) - 1]
     return not (before.isalnum() or before in _NOT_A_TOKEN_START)
+
+
+def _contains_at_token_start(text: str, fragment: str) -> bool:
+    """Whether ``fragment`` occurs in ``text`` starting where a token starts.
+
+    Any occurrence will do, so a later one can rescue an earlier loose one.
+    The character before it must not continue an identifier or be a unary
+    ``!`` or ``~`` (see ``_NOT_A_TOKEN_START``).
+    """
+    i = text.find(fragment)
+    while i != -1:
+        if i == 0:
+            return True
+        before = text[i - 1]
+        if not (before.isalnum() or before in _NOT_A_TOKEN_START):
+            return True
+        i = text.find(fragment, i + 1)
+    return False
 
 
 def _is_boundary_prefix(text: str, fragment: str) -> bool:
