@@ -409,3 +409,34 @@ class TestMultilineBoundaries:
         assert check.verified == (count == MAX_COMMENT_SKIP)
         if check.verified:
             assert (check.start_line, check.end_line) == (1, count + 2)
+
+
+class TestMultilineExactPreference:
+    @pytest.mark.parametrize(
+        "loose",
+        ["xid = get();\nrun(id);", "id = get();\nrun(id); extra();", "xid = get();\nrun(id); extra();"],
+    )
+    def test_later_exact_match_wins(self, tmp_path, loose):
+        (tmp_path / "code.txt").write_text(loose + "\nid = get();\nrun(id);\n")
+        check = verify_one(tmp_path, "code.txt", "id = get();\nrun(id);")
+        assert (check.start_line, check.end_line, check.occurrences) == (3, 4, 1)
+
+    def test_only_exact_occurrences_are_counted(self, tmp_path):
+        (tmp_path / "code.txt").write_text(
+            "xid = get();\nrun(id);\nid = get();\nrun(id);\n"
+            "id = get();\n// omitted comment\n\nrun(id);\n"
+        )
+        check = verify_one(tmp_path, "code.txt", "id = get();\nrun(id);")
+        assert (check.start_line, check.end_line, check.occurrences) == (3, 4, 2)
+
+    def test_exact_pass_skips_partial_comment_end(self, tmp_path):
+        (tmp_path / "code.txt").write_text("start();\n// ending extra\n// ending\n")
+        check = verify_one(tmp_path, "code.txt", "start();\n// ending")
+        assert (check.start_line, check.end_line, check.occurrences) == (1, 3, 1)
+
+    def test_exact_first_line_without_full_run_does_not_block_fallback(self, tmp_path):
+        (tmp_path / "code.txt").write_text(
+            "id = get();\nunrelated();\nxid = get();\nrun(id); extra();\n"
+        )
+        check = verify_one(tmp_path, "code.txt", "id = get();\nrun(id);")
+        assert (check.start_line, check.end_line, check.occurrences) == (3, 4, 1)

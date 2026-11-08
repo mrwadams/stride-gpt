@@ -6,8 +6,10 @@ file and records the line range it matched. Nothing here calls a model: a
 snippet either appears in the file or it doesn't.
 
 Matching tolerates whitespace — indentation depth, tabs against spaces,
-trailing space, and blank lines the model dropped or added. It deliberately
-does not tolerate case, punctuation or smart-quote changes: a model that
+trailing space, and blank lines the model dropped or added. Multi-line
+quotes may start and end mid-line, with whole-line matches preferred over
+boundary fragments. Omitted whole-line comments are skipped within a bound.
+Matching does not tolerate case, punctuation or smart-quote changes: a model that
 rewrote those didn't quote the code, and we want that flagged.
 
 An unverified snippet never loses the threat. It is recorded with
@@ -350,20 +352,27 @@ def _find(
     # Multi-line quotes may start/end mid-line, but must describe one passage:
     # a suffix first, whole middle lines, and a prefix last. Arbitrary
     # per-line substring matching would admit ragged quotes.
-    hits: list[tuple[int, int]] = []
-    for i in range(len(haystack)):
-        if not haystack[i][0].endswith(needle[0]):
-            continue
-        end = _match_run(haystack, i, needle)
-        if end is not None:
-            hits.append((haystack[i][1], end))
-    if not hits:
-        return None
-    return hits[0][0], hits[0][1], len(hits)
+    # As with single-line quotes, only fall back to fragments when no
+    # whole-line run exists anywhere. Count occurrences in the winning pass.
+    for partial in (False, True):
+        hits: list[tuple[int, int]] = []
+        for i, (text, line, _) in enumerate(haystack):
+            if text != needle[0] and not (partial and text.endswith(needle[0])):
+                continue
+            end = _match_run(haystack, i, needle, partial=partial)
+            if end is not None:
+                hits.append((line, end))
+        if hits:
+            return hits[0][0], hits[0][1], len(hits)
+    return None
 
 
 def _match_run(
-    haystack: tuple[tuple[str, int, bool], ...], start: int, needle: list[str]
+    haystack: tuple[tuple[str, int, bool], ...],
+    start: int,
+    needle: list[str],
+    *,
+    partial: bool = False,
 ) -> int | None:
     """Match ``needle[1:]`` from ``start + 1``, returning the last line matched.
 
@@ -374,7 +383,9 @@ def _match_run(
     j, k, skipped = start + 1, 1, 0
     while k < len(needle) and j < len(haystack):
         text, _, is_comment = haystack[j]
-        if text == needle[k] or (k == len(needle) - 1 and text.startswith(needle[k])):
+        if text == needle[k] or (
+            partial and k == len(needle) - 1 and text.startswith(needle[k])
+        ):
             k += 1
             j += 1
             skipped = 0
