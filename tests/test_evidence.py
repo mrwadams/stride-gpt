@@ -436,7 +436,40 @@ class TestMultilineExactPreference:
 
     def test_exact_first_line_without_full_run_does_not_block_fallback(self, tmp_path):
         (tmp_path / "code.txt").write_text(
-            "id = get();\nunrelated();\nxid = get();\nrun(id); extra();\n"
+            "id = get();\nunrelated();\nlet id = get();\nrun(id); extra();\n"
         )
         check = verify_one(tmp_path, "code.txt", "id = get();\nrun(id);")
         assert (check.start_line, check.end_line, check.occurrences) == (3, 4, 1)
+
+
+class TestBoundaryFragmentLimits:
+    @pytest.mark.parametrize(
+        ("source", "snippet"),
+        [
+            # A one-character first line matches the end of any `{` line.
+            ("int a() {\n  return 1;\n}\n", "{\nreturn"),
+            # A two-character last line matches the start of any `go...` call.
+            ("if (ready(user)) {\n  go();\n}\n", "ready(user)) {\ngo"),
+            # Dropping the `!` inverts the condition the quote claims to show.
+            ("if (!isAdmin(user)) {\n  deny();\n}\n", "isAdmin(user)) {\ndeny();"),
+            # Starting inside an identifier names a different identifier.
+            ("if (isAdminUser(u)) {\n  allow();\n}\n", "AdminUser(u)) {\nallow();"),
+        ],
+    )
+    def test_rejects_loose_boundary_fragments(self, tmp_path, source, snippet):
+        (tmp_path / "code.java").write_text(source)
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert not check.verified
+
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            "user.ok()) {\nrun()",
+            "(x && user.ok()) {\nrun();",
+            "ok()) {\nrun();",
+        ],
+    )
+    def test_accepts_fragments_starting_at_a_token(self, tmp_path, snippet):
+        (tmp_path / "code.java").write_text("if (x && user.ok()) {\n  run();\n}\n")
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 2)
