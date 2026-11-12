@@ -467,6 +467,7 @@ class TestBoundaryFragmentLimits:
             "user.ok()) {\nrun()",
             "(x && user.ok()) {\nrun();",
             "ok()) {\nrun();",
+            ".ok()) {\nrun();",
         ],
     )
     def test_accepts_fragments_starting_at_a_token(self, tmp_path, snippet):
@@ -486,6 +487,7 @@ class TestSingleLineFragmentBoundaries:
             ("if (isAdminUser(u)) {\n", "AdminUser(u)) {"),
             ("x = my_var_name(1)\n", "_var_name(1)"),
             ("x = $scope.apply()\n", "scope.apply()"),
+            ("if (!(user.admin)) {\n", "(user.admin)) {"),
             # Only the first occurrence is loose; none starts at a token.
             ("a = xcheck(1) + ycheck(2)\n", "check(1)"),
         ],
@@ -505,6 +507,11 @@ class TestSingleLineFragmentBoundaries:
             ("if (!isAdmin(user)) {\n", "!isAdmin(user)) {"),
             # A later occurrence that does start at a token is enough.
             ("a = xcheck(1) + check(1)\n", "check(1)"),
+            # Punctuation after an identifier starts a token of its own.
+            ("rows = cursor.execute(query)\n", ".execute(query)"),
+            ("$r = $db->query($sql);\n", "->query($sql);"),
+            ("x = eval(user_input)\n", "(user_input)"),
+            ("q = `SELECT * FROM t WHERE id = ${req.query.id}`;\n", "{req.query.id}`;"),
         ],
     )
     def test_accepts_fragments_starting_at_a_token(self, tmp_path, source, snippet):
