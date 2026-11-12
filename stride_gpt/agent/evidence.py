@@ -57,10 +57,13 @@ _FENCE_CLOSE_RE = re.compile(r"^\s*```\s*$")
 # code, so matching steps over them the way it steps over blank lines.
 _COMMENT_RE = re.compile(r"^\s*(#|//|/\*|\*/|\*|<!--|--|;)")
 
-# A multi-line quote's first line may be the end of a file line. Starting it
-# inside an identifier names a different identifier, and starting it after a
-# unary `!` or `~` drops the operator that gives the condition its meaning.
-_NOT_A_TOKEN_START = frozenset("_$!~")
+# A quote's first line may be the end of a file line, and a single-line quote
+# may be a fragment of one. Starting it inside an identifier names a different
+# identifier, and starting it after a unary `!` or `~` drops the operator that
+# gives the condition its meaning. A fragment that itself opens with
+# punctuation, such as `.execute(query)`, starts a token wherever it sits.
+_IDENTIFIER_CHARS = frozenset("_$")
+_UNARY_PREFIXES = frozenset("!~")
 
 # How many elided comment lines to step over between two matched code lines.
 # Past this the model isn't quoting a passage, it's stitching two of them.
@@ -348,8 +351,9 @@ def _find(
         if exact:
             return exact[0], exact[0], len(exact)
         # A fragment quoted out of a longer line, e.g. `eval(user_input)`
-        # lifted from `    result = eval(user_input)  # TODO`.
-        partial = [n for text, n, _ in haystack if target in text]
+        # lifted from `    result = eval(user_input)  # TODO`. It must start where a
+        # token starts, as a multi-line quote's first line must.
+        partial = [n for text, n, _ in haystack if _contains_at_token_start(text, target)]
         if partial:
             return partial[0], partial[0], len(partial)
         return None
@@ -409,14 +413,41 @@ def _is_boundary_suffix(text: str, fragment: str) -> bool:
 
     Like a whole snippet, a boundary fragment needs ``MIN_SNIPPET_CHARS``: a
     lone ``{`` ends half the lines in a file. It must also start where a token
-    starts (see ``_NOT_A_TOKEN_START``).
+    starts (see ``_starts_token``).
     """
     if len(fragment) < MIN_SNIPPET_CHARS or not text.endswith(fragment):
         return False
-    if len(text) == len(fragment):
+    return _starts_token(text, len(text) - len(fragment), fragment)
+
+
+def _contains_at_token_start(text: str, fragment: str) -> bool:
+    """Whether ``fragment`` occurs in ``text`` starting where a token starts.
+
+    Any occurrence will do, so a later one can rescue an earlier loose one.
+    """
+    i = text.find(fragment)
+    while i != -1:
+        if _starts_token(text, i, fragment):
+            return True
+        i = text.find(fragment, i + 1)
+    return False
+
+
+def _starts_token(text: str, i: int, fragment: str) -> bool:
+    """Whether ``fragment``, found at ``text[i]``, starts where a token starts.
+
+    It must not continue an identifier or follow a unary ``!`` or ``~``.
+    """
+    if i == 0:
         return True
-    before = text[-len(fragment) - 1]
-    return not (before.isalnum() or before in _NOT_A_TOKEN_START)
+    before = text[i - 1]
+    if before in _UNARY_PREFIXES:
+        return False
+    return not (_is_identifier_char(before) and _is_identifier_char(fragment[0]))
+
+
+def _is_identifier_char(ch: str) -> bool:
+    return ch.isalnum() or ch in _IDENTIFIER_CHARS
 
 
 def _is_boundary_prefix(text: str, fragment: str) -> bool:
