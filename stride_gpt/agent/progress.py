@@ -1,11 +1,10 @@
 """Progress callback protocol for the agent loop.
 
-Decouples progress reporting from any specific UI framework (Rich, Streamlit, etc.).
+Decouples progress reporting from any specific UI framework (Rich, etc.).
 """
 
 from __future__ import annotations
 
-import queue
 from typing import Any, Protocol, runtime_checkable
 
 from rich.console import Console
@@ -136,51 +135,3 @@ class RichProgress:
         # drops it.
         self.console.print(Panel(escape(summary), title="Summary", style="green"))
 
-
-class QueueProgress:
-    """ProgressCallback implementation that pushes events onto a thread-safe queue.
-
-    Designed for Streamlit: the UI thread polls the queue and renders updates.
-    """
-
-    def __init__(self, q: queue.Queue) -> None:
-        self._q = q
-
-    def _put(self, event: dict) -> None:
-        self._q.put(event)
-
-    def phase_start(self, phase: str, description: str) -> None:
-        self._put({"type": "phase_start", "phase": phase, "description": description})
-
-    def status(self, message: str) -> None:
-        self._put({"type": "status", "message": message})
-
-    def subsystem_start(self, index: int, total: int, name: str, description: str) -> None:
-        self._put({"type": "subsystem_start", "index": index, "total": total,
-                    "name": name, "description": description})
-
-    def subsystem_done(self, name: str, threat_count: int, outcome: str) -> None:
-        self._put({"type": "subsystem_done", "name": name,
-                    "threat_count": threat_count, "outcome": outcome})
-
-    def tool_call(self, name: str, args_brief: str, cached: bool) -> None:
-        self._put({"type": "tool_call", "name": name, "args_brief": args_brief, "cached": cached})
-
-    def error(self, name: str, reason: str) -> None:
-        self._put({"type": "error", "name": name, "reason": reason})
-
-    def token_budget(self, model: str, limit: int, source: str) -> None:
-        self._put({"type": "token_budget", "model": model, "limit": limit,
-                    "source": source})
-
-    def no_tool_use_warning(self, subsystem: str) -> None:
-        self._put({"type": "no_tool_use_warning", "subsystem": subsystem})
-
-    def synthesis_done(self, count: int) -> None:
-        self._put({"type": "synthesis_done", "count": count})
-
-    def synthesis_failed(self, reason: str) -> None:
-        self._put({"type": "synthesis_failed", "reason": reason})
-
-    def complete(self, summary: str) -> None:
-        self._put({"type": "complete", "summary": summary})
