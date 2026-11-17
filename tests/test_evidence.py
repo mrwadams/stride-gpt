@@ -345,3 +345,181 @@ def test_line_numbers_agree_with_read_file(sandbox_dir):
     body = out.split("\n\n", 1)[1]
     quoted = [line.split("\t", 1)[1] for line in body.split("\n")]
     assert quoted == AUTH_BODY.split("\n")
+
+
+class TestMultilineBoundaries:
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            "condition(user)) {\nresult = compute(user);",
+            "if (condition(user)) {\nresult = compute",
+            "condition(user)) {\nresult = compute",
+        ],
+    )
+    def test_two_line_boundary_fragments(self, tmp_path, snippet):
+        (tmp_path / "sample.java").write_text(
+            "// preface\nif (condition(user)) {\n    result = compute(user);\n}\n"
+        )
+        check = verify_one(tmp_path, "sample.java", snippet)
+        assert (check.verified, check.start_line, check.end_line) == (True, 2, 3)
+
+    def test_middle_lines_and_skipped_comments(self, tmp_path):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\n\n// explanation\n"
+            "    prepare(user);\n    result = compute(user);\n}\n"
+        )
+        check = verify_one(
+            tmp_path, "sample.java", "condition(user)) {\nprepare(user);\nresult = compute"
+        )
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 5)
+
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            "condition(user)\nprepare(user);\nresult = compute",  # Not a suffix.
+            "condition(user)) {\nprepare(user)\nresult = compute",  # Ragged middle.
+            "condition(user)) {\nprepare(user);\ncompute(user);",  # Not a prefix.
+            "condition(user)) {\nresult = compute",  # Cannot skip code.
+        ],
+    )
+    def test_noncontiguous_fragments_are_refused(self, tmp_path, snippet):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\n    prepare(user);\n    result = compute(user);\n}\n"
+        )
+        check = verify_one(tmp_path, "sample.java", snippet)
+        assert not check.verified
+        assert check.start_line is None
+        assert check.end_line is None
+
+    def test_repeated_boundary_matches_count_occurrences(self, tmp_path):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\nresult = compute(user);\n}\n" * 2
+        )
+        check = verify_one(tmp_path, "sample.java", "condition(user)) {\nresult = compute")
+        assert (check.verified, check.start_line, check.end_line, check.occurrences) == (
+            True, 1, 2, 2
+        )
+
+    @pytest.mark.parametrize("count", [MAX_COMMENT_SKIP, MAX_COMMENT_SKIP + 1])
+    def test_boundary_fragments_keep_comment_skip_limit(self, tmp_path, count):
+        (tmp_path / "sample.java").write_text(
+            "if (condition(user)) {\n" + "// comment\n" * count + "result = compute(user);\n"
+        )
+        check = verify_one(tmp_path, "sample.java", "condition(user)) {\nresult = compute")
+        assert check.verified == (count == MAX_COMMENT_SKIP)
+        if check.verified:
+            assert (check.start_line, check.end_line) == (1, count + 2)
+
+
+class TestMultilineExactPreference:
+    @pytest.mark.parametrize(
+        "loose",
+        ["xid = get();\nrun(id);", "id = get();\nrun(id); extra();", "xid = get();\nrun(id); extra();"],
+    )
+    def test_later_exact_match_wins(self, tmp_path, loose):
+        (tmp_path / "code.txt").write_text(loose + "\nid = get();\nrun(id);\n")
+        check = verify_one(tmp_path, "code.txt", "id = get();\nrun(id);")
+        assert (check.start_line, check.end_line, check.occurrences) == (3, 4, 1)
+
+    def test_only_exact_occurrences_are_counted(self, tmp_path):
+        (tmp_path / "code.txt").write_text(
+            "xid = get();\nrun(id);\nid = get();\nrun(id);\n"
+            "id = get();\n// omitted comment\n\nrun(id);\n"
+        )
+        check = verify_one(tmp_path, "code.txt", "id = get();\nrun(id);")
+        assert (check.start_line, check.end_line, check.occurrences) == (3, 4, 2)
+
+    def test_exact_pass_skips_partial_comment_end(self, tmp_path):
+        (tmp_path / "code.txt").write_text("start();\n// ending extra\n// ending\n")
+        check = verify_one(tmp_path, "code.txt", "start();\n// ending")
+        assert (check.start_line, check.end_line, check.occurrences) == (1, 3, 1)
+
+    def test_exact_first_line_without_full_run_does_not_block_fallback(self, tmp_path):
+        (tmp_path / "code.txt").write_text(
+            "id = get();\nunrelated();\nlet id = get();\nrun(id); extra();\n"
+        )
+        check = verify_one(tmp_path, "code.txt", "id = get();\nrun(id);")
+        assert (check.start_line, check.end_line, check.occurrences) == (3, 4, 1)
+
+
+class TestBoundaryFragmentLimits:
+    @pytest.mark.parametrize(
+        ("source", "snippet"),
+        [
+            # A one-character first line matches the end of any `{` line.
+            ("int a() {\n  return 1;\n}\n", "{\nreturn"),
+            # A two-character last line matches the start of any `go...` call.
+            ("if (ready(user)) {\n  go();\n}\n", "ready(user)) {\ngo"),
+            # Dropping the `!` inverts the condition the quote claims to show.
+            ("if (!isAdmin(user)) {\n  deny();\n}\n", "isAdmin(user)) {\ndeny();"),
+            # Starting inside an identifier names a different identifier.
+            ("if (isAdminUser(u)) {\n  allow();\n}\n", "AdminUser(u)) {\nallow();"),
+        ],
+    )
+    def test_rejects_loose_boundary_fragments(self, tmp_path, source, snippet):
+        (tmp_path / "code.java").write_text(source)
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert not check.verified
+
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            "user.ok()) {\nrun()",
+            "(x && user.ok()) {\nrun();",
+            "ok()) {\nrun();",
+            ".ok()) {\nrun();",
+        ],
+    )
+    def test_accepts_fragments_starting_at_a_token(self, tmp_path, snippet):
+        (tmp_path / "code.java").write_text("if (x && user.ok()) {\n  run();\n}\n")
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 2)
+
+
+class TestSingleLineFragmentBoundaries:
+    @pytest.mark.parametrize(
+        ("source", "snippet"),
+        [
+            # Dropping the `!` inverts the condition the quote claims to show.
+            ("if (!isAdmin(user)) {\n", "isAdmin(user)) {"),
+            ("flags = ~mask & 0xff\n", "mask & 0xff"),
+            # Starting inside an identifier names a different identifier.
+            ("if (isAdminUser(u)) {\n", "AdminUser(u)) {"),
+            ("x = my_var_name(1)\n", "_var_name(1)"),
+            ("x = $scope.apply()\n", "scope.apply()"),
+            ("if (!(user.admin)) {\n", "(user.admin)) {"),
+            # Only the first occurrence is loose; none starts at a token.
+            ("a = xcheck(1) + ycheck(2)\n", "check(1)"),
+        ],
+    )
+    def test_rejects_fragments_starting_mid_token(self, tmp_path, source, snippet):
+        (tmp_path / "code.java").write_text(source)
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert not check.verified
+
+    @pytest.mark.parametrize(
+        ("source", "snippet"),
+        [
+            ("result = eval(user_input)  # TODO\n", "eval(user_input)"),
+            ("if (x && user.ok()) {\n", "user.ok()) {"),
+            ("if (x && user.ok()) {\n", "ok()) {"),
+            ("call(eval(user_input))\n", "eval(user_input)"),
+            ("if (!isAdmin(user)) {\n", "!isAdmin(user)) {"),
+            # A later occurrence that does start at a token is enough.
+            ("a = xcheck(1) + check(1)\n", "check(1)"),
+            # Punctuation after an identifier starts a token of its own.
+            ("rows = cursor.execute(query)\n", ".execute(query)"),
+            ("$r = $db->query($sql);\n", "->query($sql);"),
+            ("x = eval(user_input)\n", "(user_input)"),
+            ("q = `SELECT * FROM t WHERE id = ${req.query.id}`;\n", "{req.query.id}`;"),
+        ],
+    )
+    def test_accepts_fragments_starting_at_a_token(self, tmp_path, source, snippet):
+        (tmp_path / "code.java").write_text(source)
+        check = verify_one(tmp_path, "code.java", snippet)
+        assert (check.verified, check.start_line, check.end_line) == (True, 1, 1)
+
+    def test_whole_line_match_is_still_tried_first(self, tmp_path):
+        (tmp_path / "code.java").write_text("x = a;\nisAdmin(user)) {\nif (!isAdmin(user)) {\n")
+        check = verify_one(tmp_path, "code.java", "isAdmin(user)) {")
+        assert (check.verified, check.start_line, check.occurrences) == (True, 2, 1)

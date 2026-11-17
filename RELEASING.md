@@ -2,9 +2,11 @@
 
 Releases are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml).
 Pushing a version tag (`vX.Y.Z`) runs the full pipeline: verify the tag matches
-the packaged version, run the test suite on Python 3.12/3.13/3.14, publish the
+the packaged version, run the test suite on Python 3.12/3.13/3.14, build the
+wheel and smoke-test it in a clean venv (`scripts/smoke_wheel.sh`), publish the
 CLI to PyPI, build and push the multi-arch UI image to Docker Hub, then cut a
-GitHub Release with generated notes.
+GitHub Release with generated notes. The image is pushed only after the PyPI
+publish succeeds, so Docker Hub never gets a version that isn't on PyPI.
 
 ## One-time setup
 
@@ -67,4 +69,5 @@ Settings → Secrets and variables → Actions:
 - To re-run a failed release, fix the cause and re-push the tag
   (`git tag -d vX.Y.Z && git push --delete origin vX.Y.Z`, then re-tag). PyPI
   will reject a re-upload of an already-published version, so bump the version
-  if the PyPI step already succeeded.
+  if the PyPI step already succeeded. If only the Docker push or the GitHub
+  Release failed, use "Re-run failed jobs" on the run instead of re-tagging.

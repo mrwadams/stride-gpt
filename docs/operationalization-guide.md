@@ -479,7 +479,7 @@ jobs:
       - name: Generate threat model
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: stride-gpt analyze . --worker-model anthropic/claude-sonnet-5 -o threats.sarif -f sarif
+        run: stride-gpt analyze . --worker-model anthropic/claude-sonnet-5-5 --yes -o threats.sarif -f sarif
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:

@@ -6,8 +6,10 @@ file and records the line range it matched. Nothing here calls a model: a
 snippet either appears in the file or it doesn't.
 
 Matching tolerates whitespace — indentation depth, tabs against spaces,
-trailing space, and blank lines the model dropped or added. It deliberately
-does not tolerate case, punctuation or smart-quote changes: a model that
+trailing space, and blank lines the model dropped or added. Multi-line
+quotes may start and end mid-line, with whole-line matches preferred over
+boundary fragments. Omitted whole-line comments are skipped within a bound.
+Matching does not tolerate case, punctuation or smart-quote changes: a model that
 rewrote those didn't quote the code, and we want that flagged.
 
 An unverified snippet never loses the threat. It is recorded with
@@ -54,6 +56,14 @@ _FENCE_CLOSE_RE = re.compile(r"^\s*```\s*$")
 # function body routinely drops them, which is still a faithful quote of the
 # code, so matching steps over them the way it steps over blank lines.
 _COMMENT_RE = re.compile(r"^\s*(#|//|/\*|\*/|\*|<!--|--|;)")
+
+# A quote's first line may be the end of a file line, and a single-line quote
+# may be a fragment of one. Starting it inside an identifier names a different
+# identifier, and starting it after a unary `!` or `~` drops the operator that
+# gives the condition its meaning. A fragment that itself opens with
+# punctuation, such as `.execute(query)`, starts a token wherever it sits.
+_IDENTIFIER_CHARS = frozenset("_$")
+_UNARY_PREFIXES = frozenset("!~")
 
 # How many elided comment lines to step over between two matched code lines.
 # Past this the model isn't quoting a passage, it's stitching two of them.
@@ -341,28 +351,37 @@ def _find(
         if exact:
             return exact[0], exact[0], len(exact)
         # A fragment quoted out of a longer line, e.g. `eval(user_input)`
-        # lifted from `    result = eval(user_input)  # TODO`.
-        partial = [n for text, n, _ in haystack if target in text]
+        # lifted from `    result = eval(user_input)  # TODO`. It must start where a
+        # token starts, as a multi-line quote's first line must.
+        partial = [n for text, n, _ in haystack if _contains_at_token_start(text, target)]
         if partial:
             return partial[0], partial[0], len(partial)
         return None
 
-    # Multi-line: equality only. Substring matching across several lines buys
-    # ragged quotes at the price of cheap false positives.
-    hits: list[tuple[int, int]] = []
-    for i in range(len(haystack)):
-        if haystack[i][0] != needle[0]:
-            continue
-        end = _match_run(haystack, i, needle)
-        if end is not None:
-            hits.append((haystack[i][1], end))
-    if not hits:
-        return None
-    return hits[0][0], hits[0][1], len(hits)
+    # Multi-line quotes may start/end mid-line, but must describe one passage:
+    # a suffix first, whole middle lines, and a prefix last. Arbitrary
+    # per-line substring matching would admit ragged quotes.
+    # As with single-line quotes, only fall back to fragments when no
+    # whole-line run exists anywhere. Count occurrences in the winning pass.
+    for partial in (False, True):
+        hits: list[tuple[int, int]] = []
+        for i, (text, line, _) in enumerate(haystack):
+            if text != needle[0] and not (partial and _is_boundary_suffix(text, needle[0])):
+                continue
+            end = _match_run(haystack, i, needle, partial=partial)
+            if end is not None:
+                hits.append((line, end))
+        if hits:
+            return hits[0][0], hits[0][1], len(hits)
+    return None
 
 
 def _match_run(
-    haystack: tuple[tuple[str, int, bool], ...], start: int, needle: list[str]
+    haystack: tuple[tuple[str, int, bool], ...],
+    start: int,
+    needle: list[str],
+    *,
+    partial: bool = False,
 ) -> int | None:
     """Match ``needle[1:]`` from ``start + 1``, returning the last line matched.
 
@@ -373,7 +392,9 @@ def _match_run(
     j, k, skipped = start + 1, 1, 0
     while k < len(needle) and j < len(haystack):
         text, _, is_comment = haystack[j]
-        if text == needle[k]:
+        if text == needle[k] or (
+            partial and k == len(needle) - 1 and _is_boundary_prefix(text, needle[k])
+        ):
             k += 1
             j += 1
             skipped = 0
@@ -385,3 +406,50 @@ def _match_run(
     if k < len(needle):
         return None
     return haystack[j - 1][1]
+
+
+def _is_boundary_suffix(text: str, fragment: str) -> bool:
+    """Whether a quote's first line can be ``fragment``, cut from the end of ``text``.
+
+    Like a whole snippet, a boundary fragment needs ``MIN_SNIPPET_CHARS``: a
+    lone ``{`` ends half the lines in a file. It must also start where a token
+    starts (see ``_starts_token``).
+    """
+    if len(fragment) < MIN_SNIPPET_CHARS or not text.endswith(fragment):
+        return False
+    return _starts_token(text, len(text) - len(fragment), fragment)
+
+
+def _contains_at_token_start(text: str, fragment: str) -> bool:
+    """Whether ``fragment`` occurs in ``text`` starting where a token starts.
+
+    Any occurrence will do, so a later one can rescue an earlier loose one.
+    """
+    i = text.find(fragment)
+    while i != -1:
+        if _starts_token(text, i, fragment):
+            return True
+        i = text.find(fragment, i + 1)
+    return False
+
+
+def _starts_token(text: str, i: int, fragment: str) -> bool:
+    """Whether ``fragment``, found at ``text[i]``, starts where a token starts.
+
+    It must not continue an identifier or follow a unary ``!`` or ``~``.
+    """
+    if i == 0:
+        return True
+    before = text[i - 1]
+    if before in _UNARY_PREFIXES:
+        return False
+    return not (_is_identifier_char(before) and _is_identifier_char(fragment[0]))
+
+
+def _is_identifier_char(ch: str) -> bool:
+    return ch.isalnum() or ch in _IDENTIFIER_CHARS
+
+
+def _is_boundary_prefix(text: str, fragment: str) -> bool:
+    """Whether a quote's last line can be ``fragment``, cut from the start of ``text``."""
+    return len(fragment) >= MIN_SNIPPET_CHARS and text.startswith(fragment)
