@@ -433,7 +433,7 @@ Launch the REPL with `stride-gpt` (no arguments), then use these commands and sh
 | `/help` | Show available commands, flags, and examples |
 | `/quit` | Exit (aliases: `/exit`, `/q`) |
 
-`/analyze`, `/quick`, and `/reports` accept flags: `-o`/`--output <path>`, `-f`/`--format <markdown\|json\|sarif\|html>`, `-y`/`--yes`, and `-i`/`--input <path>` (`/quick`). Type `/help` for the full list.
+`/analyze`, `/quick`, and `/reports` accept flags: `-o`/`--output <path>`, `-f`/`--format <markdown\|json\|sarif\|html>`, `-y`/`--yes`, and `-i`/`--input <path>` (`/quick`). `/quick` takes `markdown` or `html` only; it rejects `json` and `sarif`. Type `/help` for the full list.
 
 **Keyboard shortcuts:**
 
@@ -457,15 +457,17 @@ stride-gpt --version    # prints e.g. "stride-gpt 0.21.0" and exits
 |------|-------------|
 | `--version` | Print the installed version (`stride-gpt <version>`) and exit |
 | `-o`, `--output` | Save report to a file |
-| `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html` |
+| `-f`, `--format` | Output format: `markdown` (default), `json`, `sarif`, `html`. `/quick` takes `markdown` or `html` only and exits with code 2 for `json` or `sarif`. |
 | `-i`, `--input` | Read the app description from a file (`quick` only) |
 | `-y`, `--yes` | Auto-approve the analysis plan (`analyze` only) |
 | `--worker-model` | Default-tier model handling the bulk of calls (e.g. `anthropic/claude-sonnet-5-5`). Uses saved config if omitted. |
 | `--architect-model` | Stronger model for planning/synthesis (e.g. `openai/gpt-6-sol`). Uses saved config if omitted. |
 | `--no-architect` | Skip the architect tier for this run; the worker handles every call. |
-| `--app-type` | Override the planner's detected app type (`analyze` only): `auto` (default), `web`, `genai`, `agentic`. |
+| `--app-type` | `analyze`: override the planner's detected app type: `auto` (default), `web`, `genai`, `agentic`. `quick`: an optional free-text hint about the application type (e.g. Web / Generative AI / Agentic AI application); leave it unset to let the agent decide which reference cards to load. |
 | `--max-llm-calls` | Cap LLM calls **per subsystem** (`analyze` only; default `25`, `0` = unlimited). Every subsystem gets the same budget and none is skipped for spending it: one that reaches the cap gets one final round to report what it found and is recorded `budget_exhausted`. The plan approval prompt shows the resulting ceiling for the whole run, `subsystems × (cap + 1) + 3` calls (synthesis may retry once, then the diagram). The interactive `/analyze` command uses the default. The default is about twice the measured reference: a complete 6-subsystem run against crAPI's identity service took about 11.8 exploration rounds per subsystem (71 exploration calls of 76 total). |
 | `--max-tool-calls` | Cap code-exploration calls **per subsystem** (`analyze` only; `0` = unlimited). As with `--max-llm-calls`, a subsystem that reaches the cap gets one final round to report what it found and is recorded `budget_exhausted`, so none is skipped. Reporting a threat doesn't spend it. |
+| `--resume <checkpoint>` | Resume an interrupted run from its checkpoint file, the `<stem>.checkpoint.json` written next to `-o` (`analyze` only). |
+| `--force` | Resume even if the target has uncommitted changes or no discoverable git SHA (`analyze` only). |
 
 Each tier also accepts `--worker-api-key` / `--worker-api-base` / `--worker-max-tokens` (and the `--architect-*` equivalents). Run `stride-gpt analyze --help` or `stride-gpt quick --help` for the complete list.
 
@@ -485,6 +487,9 @@ The format flag (`-f`) controls the report artefact only; the siblings are alway
 
 ```bash
 stride-gpt reports        # List recent reports
+stride-gpt reports --quick  # List /quick reports instead of codebase analyses
+stride-gpt reports --all  # List both /analyze and /quick reports
+stride-gpt reports -n 25  # List up to 25 reports (default 10; also --limit)
 stride-gpt reports 1      # View report #1
 stride-gpt reports 1 -o r.json -f json  # Export a report
 ```
