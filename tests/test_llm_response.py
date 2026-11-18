@@ -333,6 +333,29 @@ class TestUsageExtraction:
 
         assert response.content == answer
 
+    @patch("stride_gpt.core.llm.litellm.completion")
+    def test_call_llm_with_tools_keeps_reasoning_out_of_a_tool_call_turn(
+        self, mock_completion, llm_config
+    ):
+        call = SimpleNamespace(
+            id="c1",
+            function=SimpleNamespace(name="read_file", arguments='{"path": "a.py"}'),
+        )
+        message = SimpleNamespace(
+            content="",
+            reasoning_content="Need to read the file first.",
+            tool_calls=[call],
+        )
+        mock_completion.return_value = SimpleNamespace(
+            choices=[SimpleNamespace(message=message)]
+        )
+
+        response = _call_litellm_with_tools(llm_config, [], [])
+
+        assert response.content == ""
+        assert response.tool_calls[0].function_name == "read_file"
+
+
 class TestPromptCacheBreakpoints:
     """Anthropic caches a prompt only up to its cache_control breakpoints (#339).
 
