@@ -249,13 +249,7 @@ def _persist_analyze_intermediates(
     finished_at: datetime,
     app_type_source: str,
 ) -> None:
-    """Write plan/findings/run.json siblings next to a /analyze -o report.
-
-    No-op for cancelled runs — matches the existing skip of save_report.
-    """
-    if report.metadata.get("status") == "cancelled":
-        return
-
+    """Write plan/findings/run.json siblings next to a /analyze -o report."""
     from stride_gpt.agent.persistence import (
         build_analyze_manifest,
         write_intermediates,
@@ -400,7 +394,7 @@ def _report_nothing_analysed(report) -> bool:
     planning succeeds on the architect, leaving a report with no threats that
     would otherwise look like a clean run.
     """
-    if report.metadata.get("status") == "cancelled" or not report.plan.subsystems:
+    if not report.plan.subsystems:
         return False
     if report.metadata.get("subsystems_analyzed") != 0:
         return False
@@ -681,10 +675,8 @@ def _handle_analyze(config: dict, args_str: str) -> None:
         raise
     finished_at = datetime.now(UTC)
 
-    # Auto-save (skip cancelled runs)
-    saved_path = None
-    if report.metadata.get("status") != "cancelled":
-        saved_path = save_report(report)
+    # Auto-save
+    saved_path = save_report(report)
 
     # Render
     if output_format == OutputFormat.markdown:
@@ -1166,9 +1158,7 @@ def analyze(
     finished_at = datetime.now(UTC)
 
     # Auto-save
-    saved_path = None
-    if report.metadata.get("status") != "cancelled":
-        saved_path = save_report(report)
+    saved_path = save_report(report)
 
     if output_format == OutputFormat.markdown:
         rendered = render_markdown(report)
