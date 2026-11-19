@@ -137,6 +137,7 @@ def test_repl_analyze_only_auto_approves_on_the_flag(repl, tmp_path):
 
 def test_repl_analyze_expands_home(repl, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     (tmp_path / "app").mkdir()
     cli._handle_analyze({}, "~/app")
     assert "not a directory" not in repl["output"].getvalue()

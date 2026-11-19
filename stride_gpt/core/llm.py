@@ -370,6 +370,14 @@ def _call_litellm_with_tools(
     message = response.choices[0].message
     content = message.content or ""
 
+    # Same fallback as _call_litellm, but only on a turn with no tool calls.
+    # A tool-call turn legitimately has empty content, and its reasoning would
+    # otherwise be appended to the history as assistant text and resent.
+    if not content.strip() and not message.tool_calls:
+        fallback = getattr(message, "reasoning_content", None)
+        if fallback:
+            content = fallback
+
     tool_calls = None
     if message.tool_calls:
         tool_calls = []

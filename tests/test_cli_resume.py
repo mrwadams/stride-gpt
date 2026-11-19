@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -254,12 +255,28 @@ class TestInterruptPrintsResumeCommand:
         checkpoint = tmp_path / "out" / "report.checkpoint.json"
         assert checkpoint.is_file()
         assert str(checkpoint) in result.stdout
-        command = next(line for line in result.stdout.splitlines() if line.startswith("Resume with:"))
-        assert command == (
-            f"Resume with: stride-gpt analyze {tmp_path} -y -f json -o {output} "
-            f"--worker-model anthropic/claude-x --worker-api-key '<api-key>' "
-            f"--resume {checkpoint}"
+
+        command = next(
+            line for line in result.stdout.splitlines()
+            if line.startswith("Resume with:")
         )
+        expected = "Resume with: " + shlex.join([
+            "stride-gpt",
+            "analyze",
+            str(tmp_path),
+            "-y",
+            "-f",
+            "json",
+            "-o",
+            str(output),
+            "--worker-model",
+            "anthropic/claude-x",
+            "--worker-api-key",
+            "<api-key>",
+            "--resume",
+            str(checkpoint),
+        ])
+        assert command == expected
         assert "sk-secret" not in result.stdout
 
     def test_resumed_run_replaces_its_resume_flag(self, tmp_path, monkeypatch):
@@ -278,7 +295,7 @@ class TestInterruptPrintsResumeCommand:
         assert result.exit_code != 0
         command = next(line for line in result.stdout.splitlines() if line.startswith("Resume with:"))
         assert command.count("--resume") == 1
-        assert command.endswith(f"--resume {checkpoint}")
+        assert command.endswith(shlex.join(["--resume", str(checkpoint)]))
         assert "sk-secret" not in result.stdout
 
     def test_run_without_output_has_no_checkpoint_to_name(self, tmp_path, monkeypatch):
@@ -310,7 +327,15 @@ class TestInterruptPrintsResumeCommand:
             cli._handle_analyze(config, f"{tmp_path} -y -o {output}")
 
         checkpoint = tmp_path / "report.checkpoint.json"
-        assert f"Resume with: /analyze {tmp_path} -y -o {output} --resume {checkpoint}" in captured.get()
+        expected = "/analyze " + shlex.join([
+            str(tmp_path),
+            "-y",
+            "-o",
+            str(output),
+            "--resume",
+            str(checkpoint),
+        ])
+        assert f"Resume with: {expected}" in captured.get()
 
 
 class TestResumedRunLooksLikeAnUninterruptedOne:

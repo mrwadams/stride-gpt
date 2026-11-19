@@ -129,4 +129,3 @@ class TestLMStudioKwargs:
         cfg = LLMConfig(provider="OpenAI API", model_name="gpt-5.5", api_key="")
         kwargs = _build_litellm_kwargs(cfg)
         assert kwargs["api_key"] is None
-
