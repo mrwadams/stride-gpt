@@ -519,7 +519,6 @@ def _build_metadata(
     llm_calls: int,
     tool_calls: int,
     findings: list[SubsystemFinding],
-    status: str | None = None,
     resumed_subsystems: list[str] | None = None,
     rerun_subsystems: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -542,8 +541,6 @@ def _build_metadata(
         "resumed_subsystems": resumed_subsystems or [],
         "rerun_subsystems": rerun_subsystems or [],
     }
-    if status:
-        meta["status"] = status
     return meta
 
 
