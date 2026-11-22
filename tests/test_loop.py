@@ -21,7 +21,7 @@ from stride_gpt.agent.loop import (
     _synthesize,
     run_analysis,
 )
-from stride_gpt.agent.progress import RichProgress
+from stride_gpt.agent.progress import ProgressCallback, RichProgress
 from stride_gpt.core.report_utils import outcome_note
 from stride_gpt.core.schemas import (
     AnalysisPlan,
@@ -247,6 +247,34 @@ class TestRunAnalysis:
         assert first_kwargs["max_tool_calls"] == 8
         assert second_kwargs["max_llm_calls"] == 10
         assert second_kwargs["max_tool_calls"] == 8
+
+    @patch("stride_gpt.agent.loop._synthesize", return_value=[])
+    @patch("stride_gpt.agent.loop._analyze_subsystem")
+    def test_reports_the_context_window_not_a_token_budget(
+        self, mock_analyze, _mock_synth, model_pair, tmp_path
+    ):
+        """The limit shown at the start of a run is the worker's context
+        window. It drives compression and is not a spending cap, so the
+        callback isn't named for one (#343)."""
+        plan = AnalysisPlan(
+            target_path=str(tmp_path),
+            overall_description="Test app",
+            subsystems=[Subsystem(name="A", description="A", key_files=[], focus_areas=[])],
+        )
+        mock_analyze.side_effect = lambda **kwargs: SubsystemFinding(
+            subsystem=kwargs["subsystem_name"], threats=[]
+        )
+
+        # spec= makes any call to the old ``token_budget`` name raise.
+        progress = MagicMock(spec=ProgressCallback)
+        with ScriptedLLM([_DFD]):
+            run_analysis(model_pair, tmp_path, plan=plan, progress=progress)
+
+        progress.context_window.assert_called_once()
+        args, kwargs = progress.context_window.call_args
+        assert args[0] == model_pair.worker.model_name
+        assert args[1] > 0
+        assert kwargs["source"] in {"queried", "inferred", "explicit"}
 
     @patch("stride_gpt.agent.loop._synthesize", return_value=[])
     @patch("stride_gpt.agent.loop._analyze_subsystem")

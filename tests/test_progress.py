@@ -63,6 +63,30 @@ class TestRichProgress:
         call(p, text)
         assert text in out.getvalue()
 
+    @pytest.mark.parametrize("source", ["queried", "explicit"])
+    def test_context_window_line_names_what_the_number_is(self, source):
+        # The number is the worker's context window, which drives compression.
+        # "Token budget" read like a run-level spending cap, and none exists (#343).
+        out = io.StringIO()
+        p = RichProgress(Console(file=out, width=200))
+        p.context_window("claude-haiku-5-5", 1_000_000, source)
+        text = out.getvalue()
+        assert "Context window: 1,000,000 tokens" in text
+        assert "budget" not in text.lower()
+
+    def test_context_window_warns_when_it_could_not_be_queried(self):
+        out = io.StringIO()
+        p = RichProgress(Console(file=out, width=300))
+        p.context_window("some-model", 128_000, "inferred")
+        text = out.getvalue()
+        assert (
+            "Warning: Could not query 'some-model' for its context window size. "
+            "Context compression may not work correctly."
+        ) in text
+        # An inferred size is a guess, so it isn't printed as if it were known.
+        assert "Context window:" not in text
+        assert "128,000" not in text
+
     def test_unfinished_subsystem_says_it_stopped_early(self):
         out = io.StringIO()
         p = RichProgress(Console(file=out, width=200))
