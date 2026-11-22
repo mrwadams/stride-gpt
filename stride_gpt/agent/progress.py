@@ -46,8 +46,11 @@ class ProgressCallback(Protocol):
     def synthesis_failed(self, reason: str) -> None:
         """Cross-cutting threat synthesis failed. Subsystem findings are kept."""
 
-    def token_budget(self, model: str, limit: int, source: str) -> None:
-        """Report the context token budget for the model.
+    def context_window(self, model: str, limit: int, source: str) -> None:
+        """Report the worker model's context window size.
+
+        This is the limit that drives context compression. It is not a
+        spending cap: nothing stops a run when it uses that many tokens.
 
         Args:
             source: One of "queried", "inferred", "explicit".
@@ -104,9 +107,9 @@ class RichProgress:
     def error(self, name: str, reason: str) -> None:
         self.console.print(f"  [red]Error analyzing {escape(name)}: {escape(reason)}[/red]")
 
-    def token_budget(self, model: str, limit: int, source: str) -> None:
+    def context_window(self, model: str, limit: int, source: str) -> None:
         if source == "queried" or source == "explicit":
-            self.console.print(f"  [dim]Token budget: {limit:,} tokens[/dim]")
+            self.console.print(f"  [dim]Context window: {limit:,} tokens[/dim]")
         else:
             self.console.print(
                 f"[yellow]Warning: Could not query '{model}' for its context window size. "

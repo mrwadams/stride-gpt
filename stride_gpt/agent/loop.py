@@ -192,8 +192,10 @@ def run_analysis(
 
         progress.status(format_plan_for_display(plan))
 
-    # Report token budget so the user knows what context limit is in effect
-    progress.token_budget(models.worker.model_name, ctx.context_window, source=ctx.budget_source.value)
+    # Report the worker's context window so the user knows when compression
+    # kicks in. It is not a run-level spending cap; only the per-subsystem
+    # max_llm_calls / max_tool_calls bound the work.
+    progress.context_window(models.worker.model_name, ctx.context_window, source=ctx.budget_source.value)
     if models.tiered:
         from stride_gpt.config import friendly_provider
 

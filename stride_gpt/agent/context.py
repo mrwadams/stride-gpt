@@ -56,7 +56,7 @@ Be brief, but keep file paths, function names and other specifics."""
 
 
 class TokenBudgetSource(Enum):
-    """How the token budget was determined."""
+    """How the context window size was determined."""
 
     QUERIED = "queried"  # Got the actual configured value from the provider API
     INFERRED = "inferred"  # Guessed from model name
